@@ -2,7 +2,7 @@
 #extension GL_EXT_ray_query : require
 
 // =============================================================================
-// Spectral constants & GPU material struct (inlined — glslc has no #include)
+// Spectral constants & GPU material
 // =============================================================================
 const int LAMBDA_MIN           = 380;
 const int LAMBDA_MAX           = 780;
@@ -14,262 +14,209 @@ const int MATERIAL_METAL      = 1;
 const int MATERIAL_LAMBERTIAN = 2;
 
 struct GpuMaterial {
-    vec4 cauchyA;   // (R, G, B, _)
-    vec4 cauchyB;   // (R, G, B, _) — B for λ in μm
-    vec4 albedo;    // base colour
-    vec4 params;    // x=ior, y=roughness, z=type, w=unused
+    vec4 cauchyA, cauchyB, albedo, params;  // params: x=ior, y=rough, z=type
 };
 
 // =============================================================================
-// Cauchy IOR: n(λ) = A + B/λ²   (green-channel IOR for dispersion direction)
+// Spectral math
 // =============================================================================
-float cauchyIOR(GpuMaterial m, float lambdaNm) {
+float cauchyIOR(GpuMaterial m, float lamNm) {
     if (int(m.params.z) != MATERIAL_DIELECTRIC) return m.params.x;
-    float lu  = lambdaNm * 1.0e-3;       // nm → μm
-    float lu2 = lu * lu;
-    return m.cauchyA.y + m.cauchyB.y / lu2;   // green channel
+    float lu = lamNm * 1e-3, l2 = lu * lu;
+    return m.cauchyA.y + m.cauchyB.y / l2;
 }
 
-// =============================================================================
-// Snell's law refraction. Returns false on total internal reflection.
-// =============================================================================
 bool refractDir(vec3 I, vec3 N, float eta, out vec3 T) {
-    float ci   = -dot(I, N);
-    float st2  = eta * eta * (1.0 - ci * ci);
-    if (st2 > 1.0) { T = vec3(0.0); return false; }
-    float ct = sqrt(1.0 - st2);
-    T = eta * I + (eta * ci - ct) * N;
+    float ci = -dot(I, N), st2 = eta * eta * (1.0 - ci * ci);
+    if (st2 > 1.0) { T = vec3(0); return false; }
+    T = eta * I + (eta * ci - sqrt(1.0 - st2)) * N;
     return true;
 }
+vec3 reflectDir(vec3 I, vec3 N) { return I - 2.0 * dot(I, N) * N; }
 
-vec3 reflectDir(vec3 I, vec3 N) {
-    return I - 2.0 * dot(I, N) * N;
-}
-
-// =============================================================================
-// Wavelength → RGB  (design doc Appendix B)
-// =============================================================================
 vec3 wavelengthToRGB(float lam) {
-    vec3 c = vec3(0.0);
-    if      (lam < 440.0)  c = vec3(0.5 - 0.5*(lam-380.0)/60.0,  0.0,                    1.0);
-    else if (lam < 490.0)  c = vec3(0.0,                           (lam-440.0)/50.0,       1.0);
-    else if (lam < 510.0)  c = vec3(0.0,                           1.0,                    1.0-(lam-490.0)/20.0);
-    else if (lam < 580.0)  c = vec3((lam-510.0)/70.0,             1.0,                    0.0);
-    else if (lam < 645.0)  c = vec3(1.0,                           1.0-(lam-580.0)/65.0,  0.0);
-    else if (lam <= 780.0) c = vec3(1.0,                           0.0,                    0.0);
-
+    vec3 c = vec3(0);
+    if      (lam < 440.0)  c = vec3(0.5-0.5*(lam-380.0)/60.0, 0.0, 1.0);
+    else if (lam < 490.0)  c = vec3(0.0, (lam-440.0)/50.0, 1.0);
+    else if (lam < 510.0)  c = vec3(0.0, 1.0, 1.0-(lam-490.0)/20.0);
+    else if (lam < 580.0)  c = vec3((lam-510.0)/70.0, 1.0, 0.0);
+    else if (lam < 645.0)  c = vec3(1.0, 1.0-(lam-580.0)/65.0, 0.0);
+    else if (lam <= 780.0) c = vec3(1.0, 0.0, 0.0);
     float a = 1.0;
-    if (lam < 420.0) a = 0.3 + 0.7 * (lam - 380.0) / 40.0;
-    if (lam > 700.0) a = 0.3 + 0.7 * (780.0 - lam) / 80.0;
+    if (lam < 420.0) a = 0.3 + 0.7*(lam-380.0)/40.0;
+    if (lam > 700.0) a = 0.3 + 0.7*(780.0-lam)/80.0;
     return c * a;
 }
 
-// =============================================================================
-// RGB → dominant wavelength (crude inverse for spectral absorption)
-// =============================================================================
-float rgbToDominantWavelength(vec3 rgb) {
-    if (rgb.r >= rgb.g && rgb.r >= rgb.b)
-        return mix(610.0, 680.0, clamp(rgb.r - max(rgb.g, rgb.b), 0.0, 1.0));
-    else if (rgb.g >= rgb.r && rgb.g >= rgb.b)
-        return mix(510.0, 555.0, clamp(rgb.g - max(rgb.r, rgb.b), 0.0, 1.0));
-    else
-        return mix(430.0, 475.0, clamp(rgb.b - max(rgb.r, rgb.g), 0.0, 1.0));
+float rgbToDomLambda(vec3 rgb) {
+    if (rgb.r >= rgb.g && rgb.r >= rgb.b) return mix(610.0, 680.0, clamp(rgb.r-max(rgb.g,rgb.b),0.0,1.0));
+    else if (rgb.g >= rgb.r && rgb.g >= rgb.b) return mix(510.0, 555.0, clamp(rgb.g-max(rgb.r,rgb.b),0.0,1.0));
+    else return mix(430.0, 475.0, clamp(rgb.b-max(rgb.r,rgb.g),0.0,1.0));
+}
+
+float spectralAbsorption(float lam, vec3 albedo) {
+    float nl  = rgbToDomLambda(albedo);
+    float d   = lam - nl;
+    float att = exp(-0.5 * d * d / 10000.0);  // σ = 100 nm
+    float lum = dot(albedo, vec3(0.299, 0.587, 0.114));
+    // Saturation: low-saturation surfaces (white/gray) should have flat absorption
+    float maxC = max(max(albedo.r, albedo.g), albedo.b);
+    float minC = min(min(albedo.r, albedo.g), albedo.b);
+    float sat  = (maxC - minC) / max(maxC, 0.001);
+    float attMix = mix(1.0, att, sat);   // sat=0 → attMix=1 (flat, all λ pass)
+    return attMix * (0.2 + 0.8 * lum);
 }
 
 // =============================================================================
-// Spectral absorption for coloured Lambertian surfaces.
-// Gaussian falloff around the surface's native wavelength.
-// =============================================================================
-float spectralAbsorption(float lambdaNm, vec3 albedo) {
-    float nl   = rgbToDominantWavelength(albedo);
-    float d    = lambdaNm - nl;
-    float att  = exp(-0.5 * d * d / 10000.0);  // σ = 100 nm (wider for visible colours)
-    float lum  = dot(albedo, vec3(0.299, 0.587, 0.114));
-    return att * (0.2 + 0.8 * lum);            // more weight on colour, less on ambient
-}
-
-// =============================================================================
-// Descriptor bindings
+// Descriptors
 // =============================================================================
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 1, rgba8) uniform image2D outputImage;
-layout(set = 0, binding = 2) uniform MaterialBlock {
-    GpuMaterial items[8];
-} materials;
+layout(set = 0, binding = 2) uniform MaterialBlock { GpuMaterial items[8]; } materials;
 
 layout(push_constant) uniform PushConstants {
     vec3  camOrigin;   float _pad0;
     vec3  camU;        float _pad1;
     vec3  camV;        float _pad2;
     vec3  camW;        float _pad3;
-    int   samplesPerPixel;
-    int   maxBounces;
-    int   materialCount;
+    int   samplesPerPixel, maxBounces, materialCount;
     float _pad4;
 } params;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // =============================================================================
-// Helpers
+// Sky — classic Phase 1 blue-to-white gradient (direct RGB, no spectrum)
 // =============================================================================
-float skyLuminance(vec3 d) {
+vec3 skyColorRGB(vec3 d) {
     float t = 0.5 * (d.y + 1.0);
-    return mix(0.88, 1.0, t);
-}
-
-float lambertianLum(vec3 normal, vec3 lightDir) {
-    return 0.08 + max(dot(normal, lightDir), 0.0);
+    return mix(vec3(0.53, 0.81, 0.92), vec3(1.0, 1.0, 1.0), t);
 }
 
 // =============================================================================
-// Main
+// RNG (Wang hash) — deterministic, stateless, seeded per-pixel/sample/bounce
 // =============================================================================
+uint wangHash(uint s) {
+    s = (s ^ 61u) ^ (s >> 16u);
+    s *= 9u;
+    s = s ^ (s >> 4u);
+    s *= 0x27d4eb2du;
+    s = s ^ (s >> 15u);
+    return s;
+}
+float rand1(inout uint seed) {
+    seed = wangHash(seed);
+    return float(seed >> 9u) / 8388608.0;  // top 23 bits → [0, 1)
+}
+
+// =============================================================================
+// Cosine-weighted hemisphere sampling around a surface normal
+// =============================================================================
+vec3 cosineSampleHemisphere(vec3 N, inout uint seed) {
+    float r1 = rand1(seed);
+    float r2 = rand1(seed);
+    float r  = sqrt(r1);
+    float theta = 6.283185307 * r2;
+    float x = r * cos(theta);
+    float y = r * sin(theta);
+    float z = sqrt(max(1.0 - r1, 0.0));
+    // Build local frame from N
+    vec3 T = (abs(N.x) > 0.1 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+    vec3 B = normalize(cross(N, T));
+    vec3 U = cross(B, N);
+    return normalize(U * x + B * y + N * z);
+}
+
+// =============================================================================
+// Main — Monte Carlo spectral path tracing
+// =============================================================================
+
 void main() {
     ivec2 px = ivec2(gl_GlobalInvocationID.xy);
     ivec2 sz = imageSize(outputImage);
     if (px.x >= sz.x || px.y >= sz.y) return;
 
-    vec2 uv = (vec2(px) + 0.5) / vec2(sz) * 2.0 - 1.0;
-    uv.y    = -uv.y;
-    vec3 origin   = params.camOrigin;
-    vec3 dir      = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
-    vec3 lightDir = normalize(vec3(1.0, 2.0, -1.0));
+    vec2 uv = (vec2(px) + 0.5) / vec2(sz) * 2.0 - 1.0;  uv.y = -uv.y;
+    vec3 origin = params.camOrigin;
+    vec3 camDir = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
 
     int N = max(params.samplesPerPixel, 1);
-
-    // Sparse spectrum: store energy per sampled wavelength
-    float sEnergy[NUM_SPECTRAL_SAMPLES];
-    int   sLambda[NUM_SPECTRAL_SAMPLES];
+    vec3 color = vec3(0.0);
 
     for (int si = 0; si < N; ++si) {
         int lam = LAMBDA_MIN + int(float(LAMBDA_MAX - LAMBDA_MIN) *
                                    (float(si) + 0.5) / float(N));
         lam = clamp(lam, LAMBDA_MIN, LAMBDA_MAX);
-        sLambda[si] = lam;
 
-        float energy   = 1.0;
-        vec3  outOrigin = origin;
-        vec3  outDir    = dir;
+        float energy    = 1.0;
+        vec3  rayOrigin = origin;
+        vec3  rayDir    = camDir;
 
-        // ===== Bounce 0: camera → entry face =====
-        rayQueryEXT rq;
-        rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                              origin, 0.001, dir, 10000.0);
-        while (rayQueryProceedEXT(rq)) {}
+        // Seed: pixel + sample index (deterministic, no frame correlation)
+        uint rng = wangHash(uint(px.x) * 1973u + uint(px.y) * 9277u
+                          + uint(si) * 2699u);
 
-        if (rayQueryGetIntersectionTypeEXT(rq, true) !=
-            gl_RayQueryCommittedIntersectionTriangleEXT) {
-            sEnergy[si] = energy * skyLuminance(dir);
-            continue;
+        for (int bounce = 0; bounce < params.maxBounces; ++bounce) {
+            rayQueryEXT rq;
+            rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+                                  rayOrigin, 0.001, rayDir, 10000.0);
+            while (rayQueryProceedEXT(rq)) {}
+
+            if (rayQueryGetIntersectionTypeEXT(rq, true) !=
+                gl_RayQueryCommittedIntersectionTriangleEXT) {
+                // Miss → sky emission
+                vec3 wlRGB = wavelengthToRGB(float(lam));
+                color += skyColorRGB(rayDir) * energy * wlRGB;
+                break;
+            }
+
+            // --- Hit ---
+            float  tHit = rayQueryGetIntersectionTEXT(rq, true);
+            vec3   pos  = rayOrigin + rayDir * tHit;
+            int    mi   = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
+            mat4x3 o2w  = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+            mat3   wm   = mat3(o2w);
+            vec3   nrm  = normalize(transpose(inverse(wm)) * vec3(0.0, 0.0, 1.0));
+            if (dot(nrm, -rayDir) < 0.0) nrm = -nrm;
+
+            GpuMaterial mat = materials.items[clamp(mi, 0, 7)];
+            int matType = int(mat.params.z);
+
+            if (matType == MATERIAL_LAMBERTIAN) {
+                energy *= spectralAbsorption(float(lam), mat.albedo.rgb);
+
+                // Russian roulette after bounce 3
+                if (bounce >= 3) {
+                    float survive = max(energy, 0.1);
+                    if (rand1(rng) > survive) break;
+                    energy /= survive;   // unbiased
+                }
+
+                rayDir    = cosineSampleHemisphere(nrm, rng);
+                rayOrigin = pos + rayDir * 0.01;
+            }
+            else if (matType == MATERIAL_DIELECTRIC) {
+                float ior = cauchyIOR(mat, float(lam));
+                vec3 refr;
+                if (refractDir(rayDir, nrm, 1.0 / ior, refr)) rayDir = refr;
+                else rayDir = reflectDir(rayDir, nrm);
+                rayOrigin = pos + rayDir * 0.01;
+            }
+            else {
+                // Metal or unknown → absorb
+                break;
+            }
         }
-
-        float  t0  = rayQueryGetIntersectionTEXT(rq, true);
-        vec3   pos = origin + dir * t0;
-        int    mi  = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
-        mat4x3 o2w = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
-        mat3   wm  = mat3(o2w);
-        vec3   nrm = normalize(transpose(inverse(wm)) * vec3(0.0, 0.0, 1.0));
-        if (dot(nrm, -dir) < 0.0) nrm = -nrm;
-
-        GpuMaterial mat = materials.items[clamp(mi, 0, 7)];
-
-        // Non-dielectric → shade & deposit
-        if (int(mat.params.z) != MATERIAL_DIELECTRIC) {
-            if (int(mat.params.z) == MATERIAL_LAMBERTIAN)
-                energy *= spectralAbsorption(float(lam), mat.albedo.rgb)
-                          * lambertianLum(nrm, lightDir);
-            sEnergy[si] = energy;
-            continue;
-        }
-
-        // --- Refract air → glass ---
-        float iorE = cauchyIOR(mat, float(lam));
-        vec3 refr;
-        if (refractDir(dir, nrm, 1.0 / iorE, refr)) outDir = refr;
-        else outDir = reflectDir(dir, nrm);
-        outOrigin = pos + outDir * 0.01;
-
-        // ===== Bounce 1: inside glass → exit face =====
-        rayQueryEXT rq1;
-        rayQueryInitializeEXT(rq1, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                              outOrigin, 0.001, outDir, 10000.0);
-        while (rayQueryProceedEXT(rq1)) {}
-
-        if (rayQueryGetIntersectionTypeEXT(rq1, true) !=
-            gl_RayQueryCommittedIntersectionTriangleEXT) {
-            sEnergy[si] = energy * skyLuminance(outDir);
-            continue;
-        }
-
-        t0  = rayQueryGetIntersectionTEXT(rq1, true);
-        pos = outOrigin + outDir * t0;
-        mi  = rayQueryGetIntersectionInstanceCustomIndexEXT(rq1, true);
-        o2w = rayQueryGetIntersectionObjectToWorldEXT(rq1, true);
-        wm  = mat3(o2w);
-        nrm = normalize(transpose(inverse(wm)) * vec3(0.0, 0.0, 1.0));
-        if (dot(nrm, -outDir) < 0.0) nrm = -nrm;
-
-        mat = materials.items[clamp(mi, 0, 7)];
-
-        if (int(mat.params.z) != MATERIAL_DIELECTRIC) {
-            if (int(mat.params.z) == MATERIAL_LAMBERTIAN)
-                energy *= spectralAbsorption(float(lam), mat.albedo.rgb)
-                          * lambertianLum(nrm, lightDir);
-            sEnergy[si] = energy;
-            continue;
-        }
-
-        // --- Refract glass → air ---
-        float iorX = cauchyIOR(mat, float(lam));
-        if (refractDir(outDir, nrm, iorX / 1.0, refr)) outDir = refr;
-        else outDir = reflectDir(outDir, nrm);
-        outOrigin = pos + outDir * 0.01;
-
-        // ===== Bounce 2: in air → sky (or ground) =====
-        rayQueryEXT rq2;
-        rayQueryInitializeEXT(rq2, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                              outOrigin, 0.001, outDir, 10000.0);
-        while (rayQueryProceedEXT(rq2)) {}
-
-        if (rayQueryGetIntersectionTypeEXT(rq2, true) !=
-            gl_RayQueryCommittedIntersectionTriangleEXT) {
-            sEnergy[si] = energy * skyLuminance(outDir);
-            continue;
-        }
-
-        mi  = rayQueryGetIntersectionInstanceCustomIndexEXT(rq2, true);
-        o2w = rayQueryGetIntersectionObjectToWorldEXT(rq2, true);
-        wm  = mat3(o2w);
-        nrm = normalize(transpose(inverse(wm)) * vec3(0.0, 0.0, 1.0));
-        if (dot(nrm, -outDir) < 0.0) nrm = -nrm;
-
-        mat = materials.items[clamp(mi, 0, 7)];
-
-        if (int(mat.params.z) == MATERIAL_LAMBERTIAN)
-            energy *= spectralAbsorption(float(lam), mat.albedo.rgb)
-                      * lambertianLum(nrm, lightDir);
-        else
-            energy *= skyLuminance(outDir);
-
-        sEnergy[si] = energy;
     }
 
-    // ---- Convert accumulated spectrum → RGB ----
-    // Precompute white reference: sum of wavelengthToRGB across our N samples.
-    // This normalises equal-energy input to white, making the sky neutral
-    // while preserving wavelength-dependent dispersion effects.
+    // ---- White reference normalization ----
     vec3 whiteRef = vec3(0.0);
     for (int i = 0; i < N; ++i) {
-        int lam = LAMBDA_MIN + int(float(LAMBDA_MAX - LAMBDA_MIN) *
-                                   (float(i) + 0.5) / float(N));
-        whiteRef += wavelengthToRGB(float(lam));
+        int wl = LAMBDA_MIN + int(float(LAMBDA_MAX - LAMBDA_MIN) *
+                                  (float(i) + 0.5) / float(N));
+        whiteRef += wavelengthToRGB(float(wl));
     }
     vec3 whiteNorm = vec3(float(N)) / max(whiteRef, vec3(0.001));
-
-    vec3 color = vec3(0.0);
-    for (int i = 0; i < N; ++i)
-        color += wavelengthToRGB(float(sLambda[i])) * sEnergy[i];
     color = (color / float(N)) * whiteNorm;
 
     imageStore(outputImage, px, vec4(color, 1.0));

@@ -83,41 +83,50 @@ Application::~Application() {
 }
 
 void Application::initScene() {
-    // Phase 2: Two-triangle wedge prism for chromatic dispersion.
+    // Phase 2.5: Two facing Lambertian triangles for diffuse path tracing.
     //
-    // Face 0 (entry, Z≈0):   facing camera
-    // Face 1 (exit,  Z≈1.5): offset to form a wedge
+    // Instance 0: Red floor at Y=-1.0 — bounces reddish light upward
+    // Instance 1: White back wall at Z=2.0 — receives color bleeding from floor
     //
-    // White light from the sky enters face 0, refracts per wavelength
-    // (Cauchy IOR), exits face 1 at different angles → visible dispersion.
+    // Camera at (0,0,-5) looking +Z. Paths hit the white wall, bounce down to
+    // the red floor, pick up reddish tint, then escape to sky → visible color
+    // bleeding on the lower portion of the wall.
 
-    // Phase 2: Lambertian surface demonstrating spectral absorption.
-    // A large red triangle — the spectral absorption should attenuate
-    // non-red wavelengths, producing a warm reddish colour.
-    AccelerationStructure::InstanceInfo tri;
-    tri.mesh.vertices = {
-        -2.0f, -1.5f,  0.0f,
-         2.0f, -1.5f,  0.0f,
-         0.0f,  2.0f,  0.0f,
+    AccelerationStructure::InstanceInfo floor;
+    floor.mesh.vertices = {
+        -3.0f, -1.0f,  0.0f,
+         3.0f, -1.0f,  0.0f,
+         0.0f, -1.0f,  4.0f,
     };
-    tri.mesh.indices  = {0, 1, 2};
-    tri.customIndex   = 0;
-    tri.materialID    = 0;
+    floor.mesh.indices  = {0, 1, 2};
+    floor.customIndex   = 0;
+    floor.materialID    = 0;
 
-    // Dummy second instance (unused — rays that miss go to sky)
-    AccelerationStructure::InstanceInfo dummy = tri;
+    AccelerationStructure::InstanceInfo wall;
+    wall.mesh.vertices = {
+        -3.0f, -2.0f,  2.0f,
+         3.0f, -2.0f,  2.0f,
+         0.0f,  3.0f,  2.0f,
+    };
+    wall.mesh.indices  = {0, 1, 2};
+    wall.customIndex   = 1;
+    wall.materialID    = 1;
 
     std::vector<AccelerationStructure::MaterialGPU> materials(2);
-    // Red surface: native wavelength ~680nm, absorbs blue/green
-    auto& m = materials[0];
-    m.albedo[0]  = 0.8f; m.albedo[1] = 0.2f; m.albedo[2] = 0.15f; m.albedo[3] = 0.0f;
-    m.params[0]  = 1.0f;   // ior
-    m.params[1]  = 0.0f;   // roughness
-    m.params[2]  = 2.0f;   // type = LAMBERTIAN
-    m.params[3]  = 0.0f;
+    // Red floor
+    auto& m0 = materials[0];
+    m0.albedo[0] = 0.8f; m0.albedo[1] = 0.2f; m0.albedo[2] = 0.15f; m0.albedo[3] = 0.0f;
+    m0.params[0] = 1.0f; m0.params[1] = 0.0f; m0.params[2] = 2.0f;  // LAMBERTIAN
+    m0.params[3] = 0.0f;
 
-    m_as->buildTwoInstance(tri, dummy, materials);
-    std::cout << "  Built BLASx2 + TLAS with 2-instance prism wedge (BK7 glass)." << std::endl;
+    // White wall
+    auto& m1 = materials[1];
+    m1.albedo[0] = 0.8f; m1.albedo[1] = 0.8f; m1.albedo[2] = 0.8f; m1.albedo[3] = 0.0f;
+    m1.params[0] = 1.0f; m1.params[1] = 0.0f; m1.params[2] = 2.0f;  // LAMBERTIAN
+    m1.params[3] = 0.0f;
+
+    m_as->buildTwoInstance(floor, wall, materials);
+    std::cout << "  Built BLASx2 + TLAS: red floor + white wall for path tracing." << std::endl;
 }
 
 void Application::run() {

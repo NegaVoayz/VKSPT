@@ -336,7 +336,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
     pc.samplesPerPixel = 16;
-    pc.maxBounces      = 3;
+    pc.maxBounces      = 8;
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
 
     cmdBuf.pushConstants<PushConstants>(
