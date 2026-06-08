@@ -60,7 +60,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     m_pipeline = std::make_unique<RayTracingPipeline>(
         m_ctx->getDevice(), m_width, m_height
     );
-    m_pipeline->createPipeline("shaders/raytrace.slang.spv");
+    m_pipeline->createPipeline("shaders/raytrace.comp.spv");
 
     // 7. Create renderer
     std::cout << "Creating renderer..." << std::endl;
@@ -85,49 +85,38 @@ Application::~Application() {
 void Application::initScene() {
     // Phase 2: Two-triangle wedge prism for chromatic dispersion.
     //
-    // Face 0 (entry, Z≈0):   large triangle facing camera (-Z)
-    // Face 1 (exit,  Z≈1.5): offset triangle, angled to form a wedge
+    // Face 0 (entry, Z≈0):   facing camera
+    // Face 1 (exit,  Z≈1.5): offset to form a wedge
     //
-    // Light enters through face 0, refracts per wavelength (Cauchy IOR),
-    // exits through face 1 at different angles → visible dispersion.
+    // White light from the sky enters face 0, refracts per wavelength
+    // (Cauchy IOR), exits face 1 at different angles → visible dispersion.
 
-    AccelerationStructure::InstanceInfo entryFace;
-    entryFace.mesh.vertices = {
-        -1.0f, -1.0f,  0.0f,
-         1.0f, -1.0f,  0.0f,
-         0.0f,  1.5f,  0.0f,
+    // Phase 2: Lambertian surface demonstrating spectral absorption.
+    // A large red triangle — the spectral absorption should attenuate
+    // non-red wavelengths, producing a warm reddish colour.
+    AccelerationStructure::InstanceInfo tri;
+    tri.mesh.vertices = {
+        -2.0f, -1.5f,  0.0f,
+         2.0f, -1.5f,  0.0f,
+         0.0f,  2.0f,  0.0f,
     };
-    entryFace.mesh.indices  = {0, 1, 2};
-    entryFace.customIndex   = 0;    // shader: material index 0
-    entryFace.materialID    = 0;
+    tri.mesh.indices  = {0, 1, 2};
+    tri.customIndex   = 0;
+    tri.materialID    = 0;
 
-    AccelerationStructure::InstanceInfo exitFace;
-    exitFace.mesh.vertices = {
-        -0.8f, -1.0f,  1.5f,
-         1.2f, -1.0f,  1.5f,
-         0.0f,  1.5f,  2.0f,
-    };
-    exitFace.mesh.indices  = {0, 1, 2};
-    exitFace.customIndex   = 1;    // shader: material index 1
-    exitFace.materialID    = 1;
+    // Dummy second instance (unused — rays that miss go to sky)
+    AccelerationStructure::InstanceInfo dummy = tri;
 
-    // Material data: BK7 glass for both faces
-    // Cauchy formula: n(λ) = A + B/λ²  (B given for λ in μm)
     std::vector<AccelerationStructure::MaterialGPU> materials(2);
-    auto makeBK7 = [](AccelerationStructure::MaterialGPU& m) {
-        // BK7 glass: A=(1.513, 1.519, 1.528), B=(0.0045, 0.0045, 0.0045)
-        m.cauchyA[0] = 1.513f;  m.cauchyA[1] = 1.519f;  m.cauchyA[2] = 1.528f;  m.cauchyA[3] = 0.0f;
-        m.cauchyB[0] = 0.0045f; m.cauchyB[1] = 0.0045f; m.cauchyB[2] = 0.0045f; m.cauchyB[3] = 0.0f;
-        m.albedo[0]  = 1.0f;    m.albedo[1]  = 1.0f;    m.albedo[2]  = 1.0f;    m.albedo[3]  = 0.0f;
-        m.params[0]  = 1.517f;  // base IOR
-        m.params[1]  = 0.0f;    // roughness
-        m.params[2]  = 0.0f;    // type = DIELECTRIC
-        m.params[3]  = 0.0f;
-    };
-    makeBK7(materials[0]);
-    makeBK7(materials[1]);
+    // Red surface: native wavelength ~680nm, absorbs blue/green
+    auto& m = materials[0];
+    m.albedo[0]  = 0.8f; m.albedo[1] = 0.2f; m.albedo[2] = 0.15f; m.albedo[3] = 0.0f;
+    m.params[0]  = 1.0f;   // ior
+    m.params[1]  = 0.0f;   // roughness
+    m.params[2]  = 2.0f;   // type = LAMBERTIAN
+    m.params[3]  = 0.0f;
 
-    m_as->buildTwoInstance(entryFace, exitFace, materials);
+    m_as->buildTwoInstance(tri, dummy, materials);
     std::cout << "  Built BLASx2 + TLAS with 2-instance prism wedge (BK7 glass)." << std::endl;
 }
 

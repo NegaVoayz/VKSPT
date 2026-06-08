@@ -331,7 +331,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     } pc{};
     pc.camOrigin[0] = 0.0f;  pc.camOrigin[1] = 0.0f;  pc.camOrigin[2] = -5.0f;
     float aspect = float(m_config.width) / float(m_config.height);
-    float fovTan = 1.0f;  // tan(45 deg) ~ fov 90 deg horizontal
+    float fovTan = 1.0f;
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
