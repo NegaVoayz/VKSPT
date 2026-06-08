@@ -101,8 +101,8 @@ void main() {
         // In practice, we'd read vertex normals from a buffer with the geometry index.
         // Here we approximate: get the object-space triangle normal via
         // rayQueryGetIntersectionGeometryIndexEXT and transform it.
-        // For the hardcoded triangle, the normal points toward negative Z.
-        vec3 objNormal = vec3(0.0, 0.0, -1.0);
+        // The triangle vertices (CCW order) produce a +Z geometric normal.
+        vec3 objNormal = vec3(0.0, 0.0, 1.0);
 
         // Transform object-space normal to world-space.
         // We read the instance transform from the shader:
