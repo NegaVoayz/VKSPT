@@ -387,6 +387,12 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     auto presentQueue = m_device.getQueue(m_presentQueueFamily, 0);
     [[maybe_unused]] auto presentResult = presentQueue.presentKHR(presentInfo);
 
+    // For the first frame, block until GPU work is done so PPM save reads correctly.
+    // Subsequent frames overlap CPU/GPU via fences waited at start of next frame.
+    if (m_currentFrame == 0) {
+        m_device.waitForFences(*m_inFlightFences[frameIdx], true, UINT64_MAX);
+    }
+
     m_currentFrame++;
 }
 
@@ -394,8 +400,13 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
 // Save PPM output (read back the compute output image)
 // -----------------------------------------------------------------------------
 void Renderer::saveOutputPPM(const std::string& path) {
-    // Wait for all frames to complete
-    m_device.waitIdle();
+    // Wait for all in-flight GPU work to complete
+    std::vector<vk::Fence> fences;
+    for (auto& f : m_inFlightFences) {
+        fences.push_back(*f);
+    }
+    m_device.waitForFences(fences, true, UINT64_MAX);
+    m_device.waitIdle();  // belt and suspenders: also wait for present queue
 
     // Create a host-visible staging buffer big enough for the image
     vk::DeviceSize imgSize = m_config.width * m_config.height * 4; // RGBA8
