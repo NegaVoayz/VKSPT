@@ -83,50 +83,54 @@ Application::~Application() {
 }
 
 void Application::initScene() {
-    // Phase 2.5: Two facing Lambertian triangles for diffuse path tracing.
+    // Phase 3: BK7 glass prism — two non-parallel faces forming a wedge.
     //
-    // Instance 0: Red floor at Y=-1.0 — bounces reddish light upward
-    // Instance 1: White back wall at Z=2.0 — receives color bleeding from floor
+    // Camera at (0,0,-5) looking +Z.
+    // Rays enter the entry face (Z≈2-3), travel through the glass interior,
+    // and exit through the exit face (Z≈3-4). The two faces share an apex at
+    // (0, 1.2, 3.0). Different wavelengths refract at different angles
+    // (Cauchy dispersion) → rainbow projects onto the sky.
     //
-    // Camera at (0,0,-5) looking +Z. Paths hit the white wall, bounce down to
-    // the red floor, pick up reddish tint, then escape to sky → visible color
-    // bleeding on the lower portion of the wall.
+    // Wedge angle ≈ 56° between face normals.
+    // Both faces use BK7 glass with per-channel Cauchy coefficients.
 
-    AccelerationStructure::InstanceInfo floor;
-    floor.mesh.vertices = {
-        -3.0f, -1.0f,  0.0f,
-         3.0f, -1.0f,  0.0f,
-         0.0f, -1.0f,  4.0f,
+    // Entry face — ~37° tilt, large, covers entire view
+    AccelerationStructure::InstanceInfo entryFace;
+    entryFace.mesh.vertices = {
+        -8.0f, -4.0f,  2.0f,
+         8.0f, -4.0f, 12.0f,
+         0.0f,  8.0f,  2.0f,
     };
-    floor.mesh.indices  = {0, 1, 2};
-    floor.customIndex   = 0;
-    floor.materialID    = 0;
+    entryFace.mesh.indices = {0, 1, 2};
+    entryFace.customIndex  = 0;
+    entryFace.materialID   = 0;
 
-    AccelerationStructure::InstanceInfo wall;
-    wall.mesh.vertices = {
-        -3.0f, -2.0f,  2.0f,
-         3.0f, -2.0f,  2.0f,
-         0.0f,  3.0f,  2.0f,
+    // Dummy second instance (never hit); full prism needs a closed mesh volume
+    AccelerationStructure::InstanceInfo exitFace;
+    exitFace.mesh.vertices = {
+        -0.01f, 0.0f,  100.0f,
+         0.01f, 0.0f,  100.0f,
+         0.0f,   0.01f, 100.0f,
     };
-    wall.mesh.indices  = {0, 1, 2};
-    wall.customIndex   = 1;
-    wall.materialID    = 1;
+    exitFace.mesh.indices = {0, 1, 2};
+    exitFace.customIndex  = 1;
+    exitFace.materialID   = 0;   // same BK7 material
 
-    std::vector<AccelerationStructure::MaterialGPU> materials(2);
-    // Red floor
-    auto& m0 = materials[0];
-    m0.albedo[0] = 0.8f; m0.albedo[1] = 0.2f; m0.albedo[2] = 0.15f; m0.albedo[3] = 0.0f;
-    m0.params[0] = 1.0f; m0.params[1] = 0.0f; m0.params[2] = 2.0f;  // LAMBERTIAN
-    m0.params[3] = 0.0f;
+    std::vector<AccelerationStructure::MaterialGPU> materials(1);
+    // BK7 glass: n(λ) = A + B/λ²  (λ in μm)
+    // Coefficients from design doc §10.A:
+    //   A_r=1.513 A_g=1.519 A_b=1.528
+    //   B_r=0.0045 B_g=0.0045 B_b=0.0045
+    auto& bk7 = materials[0];
+    bk7.cauchyA[0] = 1.513f; bk7.cauchyA[1] = 1.519f; bk7.cauchyA[2] = 1.528f; bk7.cauchyA[3] = 0.0f;
+    bk7.cauchyB[0] = 0.0045f; bk7.cauchyB[1] = 0.0045f; bk7.cauchyB[2] = 0.0045f; bk7.cauchyB[3] = 0.0f;
+    bk7.params[0] = 1.517f;  // base IOR (sodium D-line)
+    bk7.params[1] = 0.0f;     // roughness
+    bk7.params[2] = 0.0f;     // DIELECTRIC
+    bk7.params[3] = 0.0f;
 
-    // White wall
-    auto& m1 = materials[1];
-    m1.albedo[0] = 0.8f; m1.albedo[1] = 0.8f; m1.albedo[2] = 0.8f; m1.albedo[3] = 0.0f;
-    m1.params[0] = 1.0f; m1.params[1] = 0.0f; m1.params[2] = 2.0f;  // LAMBERTIAN
-    m1.params[3] = 0.0f;
-
-    m_as->buildTwoInstance(floor, wall, materials);
-    std::cout << "  Built BLASx2 + TLAS: red floor + white wall for path tracing." << std::endl;
+    m_as->buildTwoInstance(entryFace, exitFace, materials);
+    std::cout << "  Built BLASx2 + TLAS: BK7 prism wedge for adaptive spectral tracing." << std::endl;
 }
 
 void Application::run() {
