@@ -1,0 +1,65 @@
+# Build outputs
+build/
+cmake-build-*/
+out/
+bin/
+lib/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.vc.db
+
+# Compiled shaders
+*.spv
+*.spirv
+*.dxil
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Asset files (large binary meshes)
+assets/*.obj
+
+# Generated output images
+assets/output-*.jpg
+assets/output-*.png
+
+# Screenshots / captures
+*.ppm
+*.hdr
+
+# Claude Code local settings
+.claude/
