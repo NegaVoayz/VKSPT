@@ -41,8 +41,8 @@ vec3 skyColor(vec3 direction) {
 // Lambertian shading: constant color for hits
 // ---------------------------------------------------------------------------
 vec3 shadeHit(vec3 worldPos, vec3 normal, vec3 rayDir) {
-    // Simple directional light from upper-right
-    vec3 lightDir   = normalize(vec3(1.0, 2.0, 1.0));
+    // Simple directional light from upper-right (camera side, -Z hemisphere)
+    vec3 lightDir   = normalize(vec3(1.0, 2.0, -1.0));
     vec3 lightColor = vec3(1.0, 0.95, 0.9);
 
     float NdotL = max(dot(normal, lightDir), 0.0);
