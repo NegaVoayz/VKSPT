@@ -1,7 +1,9 @@
 #include "Renderer.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <cstring>
-#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -397,9 +399,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
 }
 
 // -----------------------------------------------------------------------------
-// Save PPM output (read back the compute output image)
+// Save PNG output (read back the compute output image)
 // -----------------------------------------------------------------------------
-void Renderer::saveOutputPPM(const std::string& path) {
+void Renderer::saveOutputPNG(const std::string& path) {
     // Wait for all in-flight GPU work to complete
     std::vector<vk::Fence> fences;
     for (auto& f : m_inFlightFences) {
@@ -464,22 +466,19 @@ void Renderer::saveOutputPPM(const std::string& path) {
     void* mapped = stagingBuf.memory.mapMemory(0, imgSize);
     const uint8_t* pixels = static_cast<const uint8_t*>(mapped);
 
-    // Write PPM (P6 format — binary RGB)
-    std::ofstream file(path, std::ios::binary);
-    if (!file) {
-        std::cerr << "Failed to open output file: " << path << std::endl;
-        stagingBuf.memory.unmapMemory();
-        return;
-    }
-    file << "P6\n" << m_config.width << " " << m_config.height << "\n255\n";
-    for (uint32_t y = 0; y < m_config.height; ++y) {
-        for (uint32_t x = 0; x < m_config.width; ++x) {
-            size_t idx = (static_cast<size_t>(y) * m_config.width + x) * 4;
-            file.write(reinterpret_cast<const char*>(&pixels[idx]), 3);
-        }
-    }
-    file.close();
+    // Write PNG via stb_image_write (RGBA, 4 components)
+    int stride = static_cast<int>(m_config.width) * 4;
+    int result = stbi_write_png(
+        path.c_str(),
+        static_cast<int>(m_config.width),
+        static_cast<int>(m_config.height),
+        4, pixels, stride
+    );
     stagingBuf.memory.unmapMemory();
 
-    std::cout << "Saved output to: " << path << std::endl;
+    if (result == 0) {
+        std::cerr << "Failed to write output image: " << path << std::endl;
+    } else {
+        std::cout << "Saved output to: " << path << std::endl;
+    }
 }

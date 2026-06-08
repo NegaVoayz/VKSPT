@@ -54,6 +54,8 @@ Desktop.ini
 assets/*.obj
 
 # Generated output images
+output.png
+output.ppm
 assets/output-*.jpg
 assets/output-*.png
 

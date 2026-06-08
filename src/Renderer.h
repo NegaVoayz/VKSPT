@@ -38,8 +38,8 @@ public:
     /// Dispatch one frame: compute → copy to swapchain → present.
     void renderFrame(const AccelerationStructure& as, RayTracingPipeline& pipeline);
 
-    /// Save the current compute output as a PPM file.
-    void saveOutputPPM(const std::string& path);
+    /// Save the current compute output as a PNG file.
+    void saveOutputPNG(const std::string& path);
 
     vk::Extent2D getExtent() const { return {m_config.width, m_config.height}; }
 

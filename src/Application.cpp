@@ -106,7 +106,7 @@ void Application::run() {
 
         // Save first frame as PPM
         if (m_firstFrame) {
-            m_renderer->saveOutputPPM("output.ppm");
+            m_renderer->saveOutputPNG("output.png");
             m_firstFrame = false;
         }
     }
