@@ -1,0 +1,130 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+// Descriptor bindings: set=0
+//   binding 0: accelerationStructureEXT  — TLAS
+//   binding 1: image2D                    — output storage image (rgba8)
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 1, rgba8) uniform image2D outputImage;
+
+// Push constants for camera parameters
+layout(push_constant) uniform PushConstants {
+    vec3  camOrigin;
+    vec3  camU;        // right vector (scaled by tan(fov/2) * aspect)
+    vec3  camV;        // up vector (scaled by tan(fov/2))
+    vec3  camW;        // forward vector
+} params;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// Ray generation: map pixel coordinate to a ray through the image plane
+// ---------------------------------------------------------------------------
+vec3 generateRayDirection(ivec2 pixel, ivec2 imageSize) {
+    // Normalized device coordinates: [-1, 1]
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(imageSize) * 2.0 - 1.0;
+    // Flip Y (image coordinates top-left, NDC bottom-left)
+    uv.y = -uv.y;
+    return normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
+}
+
+// ---------------------------------------------------------------------------
+// Simple sky gradient (background on miss)
+// ---------------------------------------------------------------------------
+vec3 skyColor(vec3 direction) {
+    float t = 0.5 * (direction.y + 1.0);
+    return mix(vec3(0.53, 0.81, 0.92), vec3(1.0, 1.0, 1.0), t);
+}
+
+// ---------------------------------------------------------------------------
+// Lambertian shading: constant color for hits
+// ---------------------------------------------------------------------------
+vec3 shadeHit(vec3 worldPos, vec3 normal, vec3 rayDir) {
+    // Simple directional light from upper-right
+    vec3 lightDir   = normalize(vec3(1.0, 2.0, 1.0));
+    vec3 lightColor = vec3(1.0, 0.95, 0.9);
+
+    float NdotL = max(dot(normal, lightDir), 0.0);
+
+    // Ambient + diffuse
+    vec3 ambient  = vec3(0.1, 0.1, 0.12);
+    vec3 albedo   = vec3(0.7, 0.5, 0.3);  // warm beige
+
+    return albedo * (ambient + lightColor * NdotL);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+void main() {
+    ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imgSize  = imageSize(outputImage);
+
+    if (pixel.x >= imgSize.x || pixel.y >= imgSize.y) {
+        return;
+    }
+
+    // Generate ray
+    vec3 origin    = params.camOrigin;
+    vec3 direction = generateRayDirection(pixel, imgSize);
+
+    // --- Ray query ---
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(
+        rayQuery,
+        tlas,
+        gl_RayFlagsOpaqueEXT,       // treat all geometry as opaque
+        0xFF,                        // cull mask
+        origin,
+        0.001,                       // tMin
+        direction,
+        10000.0                      // tMax
+    );
+
+    // Traverse acceleration structure
+    while (rayQueryProceedEXT(rayQuery)) {}
+
+    vec3 color;
+
+    if (rayQueryGetIntersectionTypeEXT(rayQuery, true) ==
+        gl_RayQueryCommittedIntersectionTriangleEXT)
+    {
+        // Hit: shade
+        vec3 hitPos    = origin + direction * rayQueryGetIntersectionTEXT(rayQuery, true);
+        vec3 normal    = vec3(0.0);
+
+        // Get the triangle barycentrics and geometry index
+        vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+
+        // For Phase 1 (single triangle), use a fixed world-space normal.
+        // In practice, we'd read vertex normals from a buffer with the geometry index.
+        // Here we approximate: get the object-space triangle normal via
+        // rayQueryGetIntersectionGeometryIndexEXT and transform it.
+        // For the hardcoded triangle, the normal points toward negative Z.
+        vec3 objNormal = vec3(0.0, 0.0, -1.0);
+
+        // Transform object-space normal to world-space.
+        // We read the instance transform from the shader:
+        mat4x3 objToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+
+        // Use inverse-transpose for normal transformation:
+        // worldNormal = normalize(mat3(inverse(transpose(mat3(objToWorld)))) * objNormal)
+        // For identity transform this is a no-op. Keep simple for Phase 1.
+        mat3 worldMat = mat3(objToWorld);
+        normal = normalize(transpose(inverse(worldMat)) * objNormal);
+
+        // Make sure normal faces the ray
+        if (dot(normal, -direction) < 0.0) {
+            normal = -normal;
+        }
+
+        color = shadeHit(hitPos, normal, direction);
+    }
+    else {
+        // Miss: sky
+        color = skyColor(direction);
+    }
+
+    imageStore(outputImage, pixel, vec4(color, 1.0));
+}
