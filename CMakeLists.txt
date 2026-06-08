@@ -60,9 +60,9 @@ target_include_directories(stb_image INTERFACE
 )
 
 # -----------------------------------------------------------------------------
-# Shader compilation
+# Shader compilation (Slang)
 # -----------------------------------------------------------------------------
-set(GLSLC "${VULKAN_SDK}/Bin/glslc.exe")
+set(SLANGC "${VULKAN_SDK}/Bin/slangc.exe")
 set(SHADER_SRC_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 
@@ -72,17 +72,23 @@ function(compile_shader TARGET_NAME SRC_FILE OUTPUT_NAME)
     set(OUTPUT_FILE "${SHADER_OUT_DIR}/${OUTPUT_NAME}")
     add_custom_command(
         OUTPUT "${OUTPUT_FILE}"
-        COMMAND "${GLSLC}" --target-env=vulkan1.4 -O
-                -o "${OUTPUT_FILE}"
+        COMMAND "${SLANGC}"
                 "${SHADER_SRC_DIR}/${SRC_FILE}"
-        DEPENDS "${SHADER_SRC_DIR}/${SRC_FILE}"
-        COMMENT "Compiling shader: ${SRC_FILE} -> ${OUTPUT_NAME}"
+                -target spirv
+                -o "${OUTPUT_FILE}"
+                -entry main
+                -stage compute
+                -I "${SHADER_SRC_DIR}"
+        DEPENDS
+            "${SHADER_SRC_DIR}/${SRC_FILE}"
+            "${SHADER_SRC_DIR}/spectral_common.slang"
+        COMMENT "Compiling shader (Slang): ${SRC_FILE} -> ${OUTPUT_NAME}"
     )
     add_custom_target(${TARGET_NAME} DEPENDS "${OUTPUT_FILE}")
     set(SHADER_OUTPUT_${TARGET_NAME} "${OUTPUT_FILE}" PARENT_SCOPE)
 endfunction()
 
-compile_shader(raytrace_shader raytrace.comp raytrace.comp.spv)
+compile_shader(raytrace_shader raytrace.slang raytrace.slang.spv)
 
 # -----------------------------------------------------------------------------
 # Main executable
@@ -96,6 +102,7 @@ add_executable(vkrt
     src/AccelerationStructure.cpp
     src/RayTracingPipeline.cpp
     src/Renderer.cpp
+    src/Spectral.h
 )
 
 target_include_directories(vkrt PRIVATE
@@ -119,8 +126,8 @@ add_dependencies(vkrt raytrace_shader)
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkrt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${SHADER_OUT_DIR}/raytrace.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace.comp.spv"
+        "${SHADER_OUT_DIR}/raytrace.slang.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace.slang.spv"
     COMMENT "Copying shader to output directory"
 )
 

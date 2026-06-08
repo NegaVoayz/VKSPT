@@ -34,6 +34,9 @@ public:
     /// Bind the output storage image for the given frame index.
     void bindOutputImage(uint32_t frameIndex, vk::ImageView imageView, vk::Sampler sampler);
 
+    /// Bind the material uniform buffer for the given frame index.
+    void bindMaterialBuffer(uint32_t frameIndex, vk::Buffer buffer, vk::DeviceSize size);
+
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
         return *m_descriptorSets[frameIndex];

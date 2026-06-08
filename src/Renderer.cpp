@@ -287,9 +287,11 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         throw std::runtime_error("Failed to acquire swapchain image.");
     }
 
-    // Bind descriptor (TLAS + output image) for this frame index
+    // Bind descriptor (TLAS + output image + material buffer) for this frame index
     pipeline.bindTLAS(frameIdx, as.getTLAS());
     pipeline.bindOutputImage(frameIdx, *m_outputView, nullptr);
+    pipeline.bindMaterialBuffer(frameIdx, *as.getMaterialBuffer().buffer,
+                                 as.getMaterialBuffer().size);
 
     // Record command buffer
     auto& cmdBuf = m_commandBuffers[frameIdx];
@@ -316,12 +318,16 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pipeline.getDescriptorSet(frameIdx), nullptr
     );
 
-    // Set push constants (camera)
+    // Set push constants (camera + spectral params) — 96 bytes
     struct PushConstants {
         float camOrigin[3]; float _pad0;
         float camU[3];      float _pad1;
         float camV[3];      float _pad2;
         float camW[3];      float _pad3;
+        int   samplesPerPixel;
+        int   maxBounces;
+        int   materialCount;
+        float _pad4;
     } pc{};
     pc.camOrigin[0] = 0.0f;  pc.camOrigin[1] = 0.0f;  pc.camOrigin[2] = -5.0f;
     float aspect = float(m_config.width) / float(m_config.height);
@@ -329,6 +335,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
+    pc.samplesPerPixel = 16;
+    pc.maxBounces      = 3;
+    pc.materialCount   = static_cast<int>(as.getMaterialCount());
 
     cmdBuf.pushConstants<PushConstants>(
         pipeline.getPipelineLayout(),

@@ -26,6 +26,7 @@ RayTracingPipeline::~RayTracingPipeline() {
 // Descriptor Set Layout
 //   binding 0: acceleration structure (TLAS)
 //   binding 1: storage image (rgba8 output)
+//   binding 2: uniform buffer (material array)
 // -----------------------------------------------------------------------------
 void RayTracingPipeline::createDescriptorSetLayout() {
     vk::DescriptorSetLayoutBinding tlasBinding(
@@ -36,7 +37,13 @@ void RayTracingPipeline::createDescriptorSetLayout() {
         1, vk::DescriptorType::eStorageImage,
         1, vk::ShaderStageFlagBits::eCompute
     );
-    std::vector<vk::DescriptorSetLayoutBinding> bindings = {tlasBinding, imageBinding};
+    vk::DescriptorSetLayoutBinding materialBinding(
+        2, vk::DescriptorType::eUniformBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+        tlasBinding, imageBinding, materialBinding
+    };
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo({}, bindings);
     m_descriptorSetLayout = vk::raii::DescriptorSetLayout(m_device, layoutInfo);
@@ -44,7 +51,7 @@ void RayTracingPipeline::createDescriptorSetLayout() {
 
 void RayTracingPipeline::createPipelineLayout() {
     vk::PushConstantRange pushRange(
-        vk::ShaderStageFlagBits::eCompute, 0, 64
+        vk::ShaderStageFlagBits::eCompute, 0, 96
     );
     vk::PipelineLayoutCreateInfo layoutInfo({}, *m_descriptorSetLayout, pushRange);
     m_pipelineLayout = vk::raii::PipelineLayout(m_device, layoutInfo);
@@ -54,6 +61,7 @@ void RayTracingPipeline::createDescriptorPool() {
     std::vector<vk::DescriptorPoolSize> poolSizes = {
         {vk::DescriptorType::eAccelerationStructureKHR, MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT},
+        {vk::DescriptorType::eUniformBuffer,            MAX_FRAMES_IN_FLIGHT},
     };
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -126,6 +134,17 @@ void RayTracingPipeline::bindOutputImage(uint32_t frameIndex, vk::ImageView imag
         *m_descriptorSets[frameIndex], 1, 0,
         vk::DescriptorType::eStorageImage,
         imageInfo
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindMaterialBuffer(uint32_t frameIndex, vk::Buffer buffer,
+                                             vk::DeviceSize size) {
+    vk::DescriptorBufferInfo bufferInfo(buffer, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 2, 0, 1,
+        vk::DescriptorType::eUniformBuffer,
+        nullptr, &bufferInfo
     );
     m_device.updateDescriptorSets(write, nullptr);
 }

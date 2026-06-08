@@ -15,7 +15,8 @@ AccelerationStructure::AccelerationStructure(
 }
 
 AccelerationStructure::~AccelerationStructure() {
-    // vk::raii destructors handle cleanup via RAII
+    // vk::raii destructors handle cleanup via RAII.
+    // Destruction order: TLAS → BLAS list → scratch → instance → material → command pool
 }
 
 // -----------------------------------------------------------------------------
@@ -42,24 +43,16 @@ void AccelerationStructure::endSingleTimeCommands(vk::raii::CommandBuffer& cmdBu
     cmdBuf.end();
 
     vk::SubmitInfo submitInfo({}, {}, *cmdBuf);
-    // Use the correct queue family for AS builds
     auto queue = m_device.getQueue(m_queueFamily, 0);
     queue.submit(submitInfo, nullptr);
     queue.waitIdle();
 }
 
 // -----------------------------------------------------------------------------
-// Main build entry point
+// Build a single BLAS from mesh data (returns handle + address + buffer)
 // -----------------------------------------------------------------------------
-void AccelerationStructure::build(const MeshData& mesh) {
-    buildBLAS(mesh);
-    buildTLAS();
-}
-
-// -----------------------------------------------------------------------------
-// BLAS: single triangle mesh
-// -----------------------------------------------------------------------------
-void AccelerationStructure::buildBLAS(const MeshData& mesh) {
+AccelerationStructure::BlasResult
+AccelerationStructure::buildSingleBLAS(const MeshData& mesh) {
     auto cmdBuf = beginSingleTimeCommands();
 
     // --- Vertex buffer ---
@@ -82,22 +75,22 @@ void AccelerationStructure::buildBLAS(const MeshData& mesh) {
 
     // --- Geometry description ---
     vk::AccelerationStructureGeometryTrianglesDataKHR triData(
-        vk::Format::eR32G32B32Sfloat,               // vertex format
-        vertBuf.address,                              // vertex data address
-        sizeof(float) * 3,                            // stride
-        static_cast<uint32_t>(mesh.vertices.size() / 3) - 1, // max vertex
-        vk::IndexType::eUint32,                       // index type
-        idxBuf.address,                               // index data address
-        {}                                            // transform (none)
+        vk::Format::eR32G32B32Sfloat,
+        vertBuf.address,
+        sizeof(float) * 3,
+        static_cast<uint32_t>(mesh.vertices.size() / 3) - 1,
+        vk::IndexType::eUint32,
+        idxBuf.address,
+        {}
     );
 
     vk::AccelerationStructureGeometryKHR asGeom(
         vk::GeometryTypeKHR::eTriangles, triData,
-        vk::GeometryFlagBitsKHR::eOpaque  // no alpha testing in Phase 1
+        vk::GeometryFlagBitsKHR::eOpaque
     );
 
-    // --- Get build sizes ---
     uint32_t maxPrimitiveCount = static_cast<uint32_t>(mesh.indices.size()) / 3;
+
     vk::AccelerationStructureBuildGeometryInfoKHR buildGeomInfo(
         vk::AccelerationStructureTypeKHR::eBottomLevel,
         vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
@@ -112,7 +105,8 @@ void AccelerationStructure::buildBLAS(const MeshData& mesh) {
     );
 
     // --- Allocate BLAS buffer ---
-    m_blasBuffer = GPUBuffer::create(
+    BlasResult result;
+    result.buffer = GPUBuffer::create(
         m_device, sizeInfo.accelerationStructureSize,
         vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR |
             vk::BufferUsageFlagBits::eShaderDeviceAddress,
@@ -120,20 +114,19 @@ void AccelerationStructure::buildBLAS(const MeshData& mesh) {
         m_physDevice
     );
 
-    // Create BLAS
     vk::AccelerationStructureCreateInfoKHR asCreateInfo(
-        {}, *m_blasBuffer.buffer, 0, sizeInfo.accelerationStructureSize,
+        {}, *result.buffer.buffer, 0, sizeInfo.accelerationStructureSize,
         vk::AccelerationStructureTypeKHR::eBottomLevel, 0
     );
-    m_blas = vk::raii::AccelerationStructureKHR(m_device, asCreateInfo);
-    m_blasAddress = m_device.getAccelerationStructureAddressKHR(
-        vk::AccelerationStructureDeviceAddressInfoKHR(*m_blas)
+    result.blas = vk::raii::AccelerationStructureKHR(m_device, asCreateInfo);
+    result.address = m_device.getAccelerationStructureAddressKHR(
+        vk::AccelerationStructureDeviceAddressInfoKHR(*result.blas)
     );
 
-    buildGeomInfo.setDstAccelerationStructure(*m_blas);
+    buildGeomInfo.setDstAccelerationStructure(*result.blas);
 
     // --- Scratch buffer ---
-    m_scratchBuffer = GPUBuffer::create(
+    GPUBuffer scratchBuf = GPUBuffer::create(
         m_device, sizeInfo.buildScratchSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eShaderDeviceAddress,
@@ -141,42 +134,68 @@ void AccelerationStructure::buildBLAS(const MeshData& mesh) {
         m_physDevice
     );
     buildGeomInfo.setScratchData(m_device.getBufferAddress(
-        vk::BufferDeviceAddressInfo(*m_scratchBuffer.buffer)
+        vk::BufferDeviceAddressInfo(*scratchBuf.buffer)
     ));
 
     // --- Build ---
-    vk::AccelerationStructureBuildRangeInfoKHR range(
-        maxPrimitiveCount, 0, 0, 0
-    );
+    vk::AccelerationStructureBuildRangeInfoKHR range(maxPrimitiveCount, 0, 0, 0);
     vk::AccelerationStructureBuildRangeInfoKHR* pRange = &range;
     cmdBuf.buildAccelerationStructuresKHR({buildGeomInfo}, {pRange});
 
     endSingleTimeCommands(cmdBuf);
+
+    return result;
 }
 
 // -----------------------------------------------------------------------------
-// TLAS: single instance wrapping the BLAS
+// Upload material data to a host-visible uniform buffer
 // -----------------------------------------------------------------------------
-void AccelerationStructure::buildTLAS() {
+void AccelerationStructure::uploadMaterialBuffer(const std::vector<MaterialGPU>& data) {
+    m_materialCount = static_cast<uint32_t>(data.size());
+    vk::DeviceSize bufSize = MAX_MATERIALS * sizeof(MaterialGPU);
+
+    m_materialBuffer = GPUBuffer::create(
+        m_device, bufSize,
+        vk::BufferUsageFlagBits::eUniformBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        m_physDevice
+    );
+
+    // Map and copy material data
+    void* mapped = m_materialBuffer.memory.mapMemory(0, bufSize);
+    std::memset(mapped, 0, static_cast<size_t>(bufSize));
+    std::memcpy(mapped, data.data(),
+                static_cast<size_t>(data.size() * sizeof(MaterialGPU)));
+    m_materialBuffer.memory.unmapMemory();
+}
+
+// -----------------------------------------------------------------------------
+// Build TLAS from N instances (BLAS must already be in m_blasList)
+// -----------------------------------------------------------------------------
+void AccelerationStructure::buildTLAS(uint32_t instanceCount) {
     auto cmdBuf = beginSingleTimeCommands();
 
-    // --- Instance ---
-    VkAccelerationStructureInstanceKHR instance{};
-    // Identity transform
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            instance.transform.matrix[i][j] = (i == j) ? 1.0f : 0.0f;
+    // --- Build instance descriptors ---
+    std::vector<VkAccelerationStructureInstanceKHR> instances(instanceCount);
+    for (uint32_t i = 0; i < instanceCount; ++i) {
+        VkAccelerationStructureInstanceKHR& inst = instances[i];
+        // Identity transform
+        std::memset(&inst.transform, 0, sizeof(inst.transform));
+        for (int r = 0; r < 3; ++r) {
+            inst.transform.matrix[r][r] = 1.0f;
         }
+        inst.instanceCustomIndex                    = i;   // used as face/material index in shader
+        inst.mask                                   = 0xFF;
+        inst.instanceShaderBindingTableRecordOffset = 0;
+        inst.flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        inst.accelerationStructureReference         = m_blasList[i].address;
     }
-    instance.instanceCustomIndex                    = 0;
-    instance.mask                                   = 0xFF;
-    instance.instanceShaderBindingTableRecordOffset = 0;
-    instance.flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-    instance.accelerationStructureReference         = m_blasAddress;
 
-    // Instance buffer (GPU-only, then upload)
+    // --- Instance buffer ---
+    vk::DeviceSize instanceBufSize = instanceCount * sizeof(VkAccelerationStructureInstanceKHR);
     m_instanceBuffer = GPUBuffer::createStaging(
-        m_device, &instance, sizeof(instance),
+        m_device, instances.data(), instanceBufSize,
         vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
             vk::BufferUsageFlagBits::eShaderDeviceAddress,
         m_physDevice
@@ -201,7 +220,7 @@ void AccelerationStructure::buildTLAS() {
     auto sizeInfo = m_device.getAccelerationStructureBuildSizesKHR(
         vk::AccelerationStructureBuildTypeKHR::eDevice,
         buildGeomInfo,
-        1  // 1 instance
+        instanceCount
     );
 
     // --- Allocate TLAS buffer ---
@@ -223,10 +242,9 @@ void AccelerationStructure::buildTLAS() {
     );
     buildGeomInfo.setDstAccelerationStructure(*m_tlas);
 
-    // --- Scratch buffer (reuse BLAS scratch if large enough) ---
+    // --- Scratch buffer ---
     m_scratchBuffer = GPUBuffer::create(
-        m_device,
-        std::max(sizeInfo.buildScratchSize, m_scratchBuffer.size),
+        m_device, sizeInfo.buildScratchSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eShaderDeviceAddress,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
@@ -237,9 +255,37 @@ void AccelerationStructure::buildTLAS() {
     ));
 
     // --- Build ---
-    vk::AccelerationStructureBuildRangeInfoKHR range(1, 0, 0, 0);
+    vk::AccelerationStructureBuildRangeInfoKHR range(instanceCount, 0, 0, 0);
     vk::AccelerationStructureBuildRangeInfoKHR* pRange = &range;
     cmdBuf.buildAccelerationStructuresKHR({buildGeomInfo}, {pRange});
 
     endSingleTimeCommands(cmdBuf);
+}
+
+// -----------------------------------------------------------------------------
+// Phase 1: single mesh → single BLAS → single-instance TLAS
+// -----------------------------------------------------------------------------
+void AccelerationStructure::build(const MeshData& mesh) {
+    m_blasList.clear();
+    m_blasList.push_back(buildSingleBLAS(mesh));
+    buildTLAS(1);
+}
+
+// -----------------------------------------------------------------------------
+// Phase 2: two meshes → two BLAS → two-instance TLAS + material UBO
+// -----------------------------------------------------------------------------
+void AccelerationStructure::buildTwoInstance(
+    const InstanceInfo& inst0,
+    const InstanceInfo& inst1,
+    const std::vector<MaterialGPU>& materialData)
+{
+    m_blasList.clear();
+    m_blasList.push_back(buildSingleBLAS(inst0.mesh));
+    m_blasList.push_back(buildSingleBLAS(inst1.mesh));
+
+    // Override the instanceCustomIndex to match what the shader expects
+    // (we'll set it in buildTLAS based on the order in the instances array)
+    buildTLAS(2);
+
+    uploadMaterialBuffer(materialData);
 }
