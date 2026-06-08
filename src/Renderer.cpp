@@ -462,9 +462,14 @@ void Renderer::saveOutputPNG(const std::string& path) {
     computeQueue.submit(submitInfo, nullptr);
     computeQueue.waitIdle();
 
-    // Read back
+    // Read back and swap R<->B: the internal format is R8G8B8A8 but the
+    // swapchain uses B8G8R8A8; the GPU copy auto-swaps channels for display,
+    // so we need to match that swap in the PNG output.
     void* mapped = stagingBuf.memory.mapMemory(0, imgSize);
-    const uint8_t* pixels = static_cast<const uint8_t*>(mapped);
+    auto* pixels = static_cast<uint8_t*>(mapped);
+    for (size_t i = 0; i < static_cast<size_t>(m_config.width) * m_config.height; ++i) {
+        std::swap(pixels[i * 4 + 0], pixels[i * 4 + 2]);  // swap R and B
+    }
 
     // Write PNG via stb_image_write (RGBA, 4 components)
     int stride = static_cast<int>(m_config.width) * 4;
