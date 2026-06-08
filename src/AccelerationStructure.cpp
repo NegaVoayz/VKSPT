@@ -9,6 +9,7 @@ AccelerationStructure::AccelerationStructure(
     uint32_t                        computeQueueFamily)
     : m_device(device)
     , m_physDevice(physDevice)
+    , m_queueFamily(computeQueueFamily)
 {
     createCommandPool(computeQueueFamily);
 }
@@ -41,10 +42,10 @@ void AccelerationStructure::endSingleTimeCommands(vk::raii::CommandBuffer& cmdBu
     cmdBuf.end();
 
     vk::SubmitInfo submitInfo({}, {}, *cmdBuf);
-    // Use compute queue for AS builds
-    auto computeQueue = m_device.getQueue(0, 0);
-    computeQueue.submit(submitInfo, nullptr);
-    computeQueue.waitIdle();
+    // Use the correct queue family for AS builds
+    auto queue = m_device.getQueue(m_queueFamily, 0);
+    queue.submit(submitInfo, nullptr);
+    queue.waitIdle();
 }
 
 // -----------------------------------------------------------------------------

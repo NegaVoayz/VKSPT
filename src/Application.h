@@ -29,6 +29,7 @@ private:
 
     std::unique_ptr<Window>              m_window;
     std::unique_ptr<VulkanContext>       m_ctx;
+    vk::raii::SurfaceKHR                 m_surface = nullptr;
     std::unique_ptr<AccelerationStructure> m_as;
     std::unique_ptr<RayTracingPipeline>  m_pipeline;
     std::unique_ptr<Renderer>            m_renderer;

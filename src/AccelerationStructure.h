@@ -48,6 +48,7 @@ private:
 
     const vk::raii::Device&          m_device;
     const vk::raii::PhysicalDevice&  m_physDevice;
+    uint32_t                         m_queueFamily = 0;
 
     vk::raii::CommandPool            m_commandPool        = nullptr;
 

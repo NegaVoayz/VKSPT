@@ -31,7 +31,11 @@ GPUBuffer GPUBuffer::create(
         throw std::runtime_error("Failed to find suitable memory type.");
     }();
 
-    vk::MemoryAllocateInfo allocInfo(memRequirements.size, memTypeIndex);
+    // When bufferDeviceAddress is enabled, all allocations need this flag
+    vk::MemoryAllocateFlagsInfo allocFlags(
+        vk::MemoryAllocateFlagBits::eDeviceAddress
+    );
+    vk::MemoryAllocateInfo allocInfo(memRequirements.size, memTypeIndex, &allocFlags);
     result.memory = vk::raii::DeviceMemory(device, allocInfo);
 
     // Bind

@@ -22,13 +22,13 @@ Renderer::Renderer(
 {
     createSwapchain(surface);
     createOutputImage();
-    createCommandPool();
+    createCommandBuffers();
     createSyncObjects();
 }
 
 Renderer::~Renderer() {
-    // vk::raii handles cleanup
     m_device.waitIdle();
+    // vk::raii handles cleanup; swapchain destroyed before surface (member order)
 }
 
 // -----------------------------------------------------------------------------
@@ -93,8 +93,23 @@ void Renderer::createSwapchain(const vk::raii::SurfaceKHR& surface) {
     );
     m_swapchain = vk::raii::SwapchainKHR(m_device, swapchainInfo);
 
-    // Get images and create views
+    // Get images
     m_swapchainImages = m_swapchain.getImages();
+
+    // Vulkan 1.4: Bind swapchain image memory explicitly
+    for (uint32_t i = 0; i < m_swapchainImageCount; ++i) {
+        vk::BindImageMemorySwapchainInfoKHR bindInfo;
+        bindInfo.setSwapchain(*m_swapchain);
+        bindInfo.setImageIndex(i);
+
+        vk::BindImageMemoryInfo bindMemInfo;
+        bindMemInfo.setImage(m_swapchainImages[i]);
+        bindMemInfo.setPNext(&bindInfo);
+
+        m_device.bindImageMemory2(bindMemInfo);
+    }
+
+    // Create views
     for (const auto& img : m_swapchainImages) {
         vk::ImageViewCreateInfo viewInfo(
             {}, img, vk::ImageViewType::e2D, chosenFmt.format,
@@ -106,7 +121,7 @@ void Renderer::createSwapchain(const vk::raii::SurfaceKHR& surface) {
 }
 
 // -----------------------------------------------------------------------------
-// Output Storage Image (compute shader target)
+// Output Storage Image (compute shader target) — stays in GENERAL layout
 // -----------------------------------------------------------------------------
 void Renderer::createOutputImage() {
     vk::Format format = vk::Format::eR8G8B8A8Unorm;
@@ -150,9 +165,9 @@ void Renderer::createOutputImage() {
 }
 
 // -----------------------------------------------------------------------------
-// Command Pool & Buffer
+// Command Pool & Buffers (one per frame-in-flight)
 // -----------------------------------------------------------------------------
-void Renderer::createCommandPool() {
+void Renderer::createCommandBuffers() {
     vk::CommandPoolCreateInfo poolInfo(
         vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
         m_computeQueueFamily
@@ -160,20 +175,28 @@ void Renderer::createCommandPool() {
     m_commandPool = vk::raii::CommandPool(m_device, poolInfo);
 
     vk::CommandBufferAllocateInfo allocInfo(
-        *m_commandPool, vk::CommandBufferLevel::ePrimary, 1
+        *m_commandPool, vk::CommandBufferLevel::ePrimary, MAX_FRAMES_IN_FLIGHT
     );
-    auto bufs  = vk::raii::CommandBuffers(m_device, allocInfo);
-    m_computeCmdBuf = std::move(bufs[0]);
+    m_commandBuffers = vk::raii::CommandBuffers(m_device, allocInfo);
 }
 
 // -----------------------------------------------------------------------------
-// Synchronization
+// Synchronization (per frame-in-flight)
 // -----------------------------------------------------------------------------
 void Renderer::createSyncObjects() {
-    m_imageAvailable = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
-    m_renderFinished = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo{});
-    m_inFlightFence = vk::raii::Fence(m_device,
-        vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled));
+    // imageAvailable: per-frame-in-flight
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        m_imageAvailableSem.emplace_back(m_device, vk::SemaphoreCreateInfo{});
+    }
+    // renderFinished: per-swapchain-image (must be unique to avoid reuse)
+    for (uint32_t i = 0; i < m_swapchainImageCount; ++i) {
+        m_renderFinishedSem.emplace_back(m_device, vk::SemaphoreCreateInfo{});
+    }
+    // inFlightFences: per-frame-in-flight
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        m_inFlightFences.emplace_back(m_device,
+            vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled));
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -196,11 +219,13 @@ void Renderer::transitionImageLayout(
         dstAccess = vk::AccessFlagBits::eShaderWrite;
     }
     else if (oldLayout == vk::ImageLayout::eGeneral &&
-             newLayout == vk::ImageLayout::eTransferSrcOptimal) {
+             newLayout == vk::ImageLayout::eGeneral) {
+        // No transition needed — already in correct layout.
+        // Still issue a barrier for write-after-read/write-after-write.
         srcStage  = vk::PipelineStageFlagBits::eComputeShader;
         srcAccess = vk::AccessFlagBits::eShaderWrite;
-        dstStage  = vk::PipelineStageFlagBits::eTransfer;
-        dstAccess = vk::AccessFlagBits::eTransferRead;
+        dstStage  = vk::PipelineStageFlagBits::eComputeShader;
+        dstAccess = vk::AccessFlagBits::eShaderWrite;
     }
     else if (oldLayout == vk::ImageLayout::eUndefined &&
              newLayout == vk::ImageLayout::eTransferDstOptimal) {
@@ -234,40 +259,49 @@ void Renderer::transitionImageLayout(
 // Frame Render
 // -----------------------------------------------------------------------------
 void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& pipeline) {
-    // Wait for previous frame
-    if (m_device.waitForFences(*m_inFlightFence, true, UINT64_MAX) != vk::Result::eSuccess) {
+    uint32_t frameIdx = m_currentFrame % MAX_FRAMES_IN_FLIGHT;
+
+    // Wait for this frame's fence
+    if (m_device.waitForFences(*m_inFlightFences[frameIdx], true, UINT64_MAX) != vk::Result::eSuccess) {
         throw std::runtime_error("Fence wait failed.");
     }
-    m_device.resetFences(*m_inFlightFence);
+    m_device.resetFences(*m_inFlightFences[frameIdx]);
 
-    // Acquire swapchain image
+    // Acquire swapchain image (frame-indexed acquire semaphore)
     auto [result, imageIndex] = m_swapchain.acquireNextImage(
-        UINT64_MAX, *m_imageAvailable
+        UINT64_MAX, *m_imageAvailableSem[frameIdx]
     );
     if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
         throw std::runtime_error("Failed to acquire swapchain image.");
     }
 
-    // Bind descriptor (TLAS + output image)
-    pipeline.bindTLAS(as.getTLAS());
-    // Use a null sampler since storage images don't use one
-    pipeline.bindOutputImage(*m_outputView, nullptr);
+    // Bind descriptor (TLAS + output image) for this frame index
+    pipeline.bindTLAS(frameIdx, as.getTLAS());
+    pipeline.bindOutputImage(frameIdx, *m_outputView, nullptr);
 
     // Record command buffer
-    m_computeCmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    auto& cmdBuf = m_commandBuffers[frameIdx];
+    cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
-    // Transition output image to GENERAL for compute write
-    transitionImageLayout(
-        *m_computeCmdBuf, *m_outputImage,
-        vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral
-    );
+    // Transition output image: first frame Undefined→General, subsequent frames barrier only
+    if (m_currentFrame == 0) {
+        transitionImageLayout(
+            *cmdBuf, *m_outputImage,
+            vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral
+        );
+    } else {
+        transitionImageLayout(
+            *cmdBuf, *m_outputImage,
+            vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral
+        );
+    }
 
-    // Bind pipeline + descriptor set
-    m_computeCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getPipeline());
-    m_computeCmdBuf.bindDescriptorSets(
+    // Bind pipeline + descriptor set (per-frame descriptor set)
+    cmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getPipeline());
+    cmdBuf.bindDescriptorSets(
         vk::PipelineBindPoint::eCompute,
         pipeline.getPipelineLayout(), 0,
-        pipeline.getDescriptorSet(), nullptr
+        pipeline.getDescriptorSet(frameIdx), nullptr
     );
 
     // Set push constants (camera)
@@ -278,14 +312,13 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         float camW[3];      float _pad3;
     } pc{};
     pc.camOrigin[0] = 0.0f;  pc.camOrigin[1] = 0.0f;  pc.camOrigin[2] = -5.0f;
-    // Looking down -Z, simple perspective camera
     float aspect = float(m_config.width) / float(m_config.height);
-    float fovTan = 1.0f;  // tan(45 deg) = 1.0 (fov ~90 deg horizontal)
+    float fovTan = 1.0f;  // tan(45 deg) ~ fov 90 deg horizontal
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
 
-    m_computeCmdBuf.pushConstants<PushConstants>(
+    cmdBuf.pushConstants<PushConstants>(
         pipeline.getPipelineLayout(),
         vk::ShaderStageFlagBits::eCompute,
         0, pc
@@ -294,17 +327,27 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     // Dispatch compute
     uint32_t groupsX = (m_config.width  + 7) / 8;
     uint32_t groupsY = (m_config.height + 7) / 8;
-    m_computeCmdBuf.dispatch(groupsX, groupsY, 1);
+    cmdBuf.dispatch(groupsX, groupsY, 1);
 
-    // Barrier: compute write → transfer read
-    transitionImageLayout(
-        *m_computeCmdBuf, *m_outputImage,
-        vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal
+    // Barrier: compute write → transfer read (keep GENERAL layout)
+    vk::ImageMemoryBarrier outputBarrier(
+        vk::AccessFlagBits::eShaderWrite,
+        vk::AccessFlagBits::eTransferRead,
+        vk::ImageLayout::eGeneral,
+        vk::ImageLayout::eGeneral,
+        VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+        *m_outputImage,
+        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
+    );
+    cmdBuf.pipelineBarrier(
+        vk::PipelineStageFlagBits::eComputeShader,
+        vk::PipelineStageFlagBits::eTransfer,
+        {}, {}, {}, outputBarrier
     );
 
     // Transition swapchain image for copy
     transitionImageLayout(
-        *m_computeCmdBuf, m_swapchainImages[imageIndex],
+        *cmdBuf, m_swapchainImages[imageIndex],
         vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal
     );
 
@@ -316,38 +359,46 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         {0, 0, 0},
         {m_config.width, m_config.height, 1}
     );
-    m_computeCmdBuf.copyImage(
-        *m_outputImage, vk::ImageLayout::eTransferSrcOptimal,
+    cmdBuf.copyImage(
+        *m_outputImage, vk::ImageLayout::eGeneral,
         m_swapchainImages[imageIndex], vk::ImageLayout::eTransferDstOptimal,
         copyRegion
     );
 
     // Transition swapchain image for present
     transitionImageLayout(
-        *m_computeCmdBuf, m_swapchainImages[imageIndex],
+        *cmdBuf, m_swapchainImages[imageIndex],
         vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR
     );
 
-    m_computeCmdBuf.end();
+    cmdBuf.end();
 
-    // Submit
+    // Submit: wait on frame-indexed acquire semaphore, signal image-indexed render semaphore
     vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eComputeShader;
-    vk::SubmitInfo submitInfo(*m_imageAvailable, waitStage, *m_computeCmdBuf, *m_renderFinished);
+    vk::SubmitInfo submitInfo(
+        *m_imageAvailableSem[frameIdx], waitStage,
+        *cmdBuf, *m_renderFinishedSem[imageIndex]
+    );
     auto computeQueue = m_device.getQueue(m_computeQueueFamily, 0);
-    computeQueue.submit(submitInfo, *m_inFlightFence);
+    computeQueue.submit(submitInfo, *m_inFlightFences[frameIdx]);
 
     // Present
-    vk::PresentInfoKHR presentInfo(*m_renderFinished, *m_swapchain, imageIndex);
+    vk::PresentInfoKHR presentInfo(*m_renderFinishedSem[imageIndex], *m_swapchain, imageIndex);
     auto presentQueue = m_device.getQueue(m_presentQueueFamily, 0);
     [[maybe_unused]] auto presentResult = presentQueue.presentKHR(presentInfo);
+
+    m_currentFrame++;
 }
 
 // -----------------------------------------------------------------------------
 // Save PPM output (read back the compute output image)
 // -----------------------------------------------------------------------------
 void Renderer::saveOutputPPM(const std::string& path) {
+    // Wait for all frames to complete
+    m_device.waitIdle();
+
     // Create a host-visible staging buffer big enough for the image
-    vk::DeviceSize imgSize = m_config.width * m_config.height * 4; // RGBA8 = 4 bytes
+    vk::DeviceSize imgSize = m_config.width * m_config.height * 4; // RGBA8
 
     auto stagingBuf = GPUBuffer::create(
         m_device, imgSize,
@@ -364,10 +415,20 @@ void Renderer::saveOutputPPM(const std::string& path) {
 
     cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
-    // Transition image to transfer source
-    transitionImageLayout(
-        *cmdBuf, *m_outputImage,
-        vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal
+    // Barrier: ensure compute writes are visible
+    vk::ImageMemoryBarrier preBarrier(
+        vk::AccessFlagBits::eShaderWrite,
+        vk::AccessFlagBits::eTransferRead,
+        vk::ImageLayout::eGeneral,
+        vk::ImageLayout::eGeneral,
+        VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+        *m_outputImage,
+        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
+    );
+    cmdBuf.pipelineBarrier(
+        vk::PipelineStageFlagBits::eComputeShader,
+        vk::PipelineStageFlagBits::eTransfer,
+        {}, {}, {}, preBarrier
     );
 
     vk::BufferImageCopy region(
@@ -377,7 +438,7 @@ void Renderer::saveOutputPPM(const std::string& path) {
         {m_config.width, m_config.height, 1}
     );
     cmdBuf.copyImageToBuffer(
-        *m_outputImage, vk::ImageLayout::eTransferSrcOptimal,
+        *m_outputImage, vk::ImageLayout::eGeneral,
         *stagingBuf.buffer, region
     );
 
@@ -403,7 +464,6 @@ void Renderer::saveOutputPPM(const std::string& path) {
     for (uint32_t y = 0; y < m_config.height; ++y) {
         for (uint32_t x = 0; x < m_config.width; ++x) {
             size_t idx = (static_cast<size_t>(y) * m_config.width + x) * 4;
-            // RGBA → RGB (flip Y: PPM expects top-left origin, Vulkan has top-left too)
             file.write(reinterpret_cast<const char*>(&pixels[idx]), 3);
         }
     }

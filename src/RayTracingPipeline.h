@@ -10,6 +10,8 @@
 /// Binds TLAS + output storage image for the compute shader.
 class RayTracingPipeline {
 public:
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+
     RayTracingPipeline(
         const vk::raii::Device& device,
         uint32_t                width,
@@ -26,14 +28,16 @@ public:
     /// Load SPIR-V shader and create the compute pipeline.
     void createPipeline(const std::string& spirvPath);
 
-    /// Bind the TLAS acceleration structure for the current frame.
-    void bindTLAS(vk::AccelerationStructureKHR tlas);
+    /// Bind the TLAS acceleration structure for the given frame index.
+    void bindTLAS(uint32_t frameIndex, vk::AccelerationStructureKHR tlas);
 
-    /// Bind the output storage image.
-    void bindOutputImage(vk::ImageView imageView, vk::Sampler sampler);
+    /// Bind the output storage image for the given frame index.
+    void bindOutputImage(uint32_t frameIndex, vk::ImageView imageView, vk::Sampler sampler);
 
-    /// Get the bound descriptor set (ready for vkCmdBindDescriptorSets).
-    vk::DescriptorSet getDescriptorSet() const { return *m_descriptorSet; }
+    /// Get the descriptor set for the given frame index.
+    vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
+        return *m_descriptorSets[frameIndex];
+    }
 
     /// Get pipeline layout.
     vk::PipelineLayout getPipelineLayout() const { return *m_pipelineLayout; }
@@ -45,16 +49,16 @@ private:
     void createDescriptorSetLayout();
     void createPipelineLayout();
     void createDescriptorPool();
-    void allocateDescriptorSet();
+    void allocateDescriptorSets();
 
     const vk::raii::Device& m_device;
     uint32_t                m_width;
     uint32_t                m_height;
 
-    vk::raii::DescriptorSetLayout m_descriptorSetLayout = nullptr;
-    vk::raii::PipelineLayout      m_pipelineLayout      = nullptr;
-    vk::raii::DescriptorPool      m_descriptorPool      = nullptr;
-    vk::raii::DescriptorSet       m_descriptorSet       = nullptr;
-    vk::raii::ShaderModule        m_shaderModule        = nullptr;
-    vk::raii::Pipeline            m_pipeline            = nullptr;
+    vk::raii::DescriptorSetLayout                    m_descriptorSetLayout = nullptr;
+    vk::raii::PipelineLayout                         m_pipelineLayout      = nullptr;
+    vk::raii::DescriptorPool                         m_descriptorPool      = nullptr;
+    std::vector<vk::raii::DescriptorSet> m_descriptorSets;  // one per frame-in-flight
+    vk::raii::ShaderModule                           m_shaderModule        = nullptr;
+    vk::raii::Pipeline                               m_pipeline            = nullptr;
 };

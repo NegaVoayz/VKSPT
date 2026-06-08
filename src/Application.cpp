@@ -23,19 +23,19 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
 
     // 3. Create surface
     std::cout << "Creating surface..." << std::endl;
-    auto surface = m_window->createSurface(m_ctx->getInstance());
+    m_surface = m_window->createSurface(m_ctx->getInstance());
 
     // 4. Check present support for the compute queue
     auto& qf = const_cast<VulkanContext::QueueFamilyIndices&>(m_ctx->getQueueFamilies());
     auto physDev = m_ctx->getPhysicalDevice();
     bool presentSupported = physDev.getSurfaceSupportKHR(
-        qf.compute.value(), *surface
+        qf.compute.value(), *m_surface
     );
     if (!presentSupported) {
         // Try to find a different present family
         auto queueProps = physDev.getQueueFamilyProperties();
         for (uint32_t i = 0; i < static_cast<uint32_t>(queueProps.size()); ++i) {
-            if (physDev.getSurfaceSupportKHR(i, *surface)) {
+            if (physDev.getSurfaceSupportKHR(i, *m_surface)) {
                 qf.present = i;
                 presentSupported = true;
                 break;
@@ -69,7 +69,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
         m_ctx->getInstance(),
         m_ctx->getDevice(),
         m_ctx->getPhysicalDevice(),
-        surface,
+        m_surface,
         m_ctx->getComputeQueueFamily(),
         m_ctx->getPresentQueueFamily(),
         cfg

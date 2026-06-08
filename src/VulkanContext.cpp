@@ -199,8 +199,13 @@ void VulkanContext::createDevice() {
     vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
     accelFeature.setAccelerationStructure(true);
     accelFeature.setPNext(&rayQueryFeature);
+
+    vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR bufferAddrFeature;
+    bufferAddrFeature.setBufferDeviceAddress(true);
+    bufferAddrFeature.setPNext(&accelFeature);
+
     vk::PhysicalDeviceFeatures2 features2;
-    features2.setPNext(&accelFeature);
+    features2.setPNext(&bufferAddrFeature);
 
     // Create device
     vk::DeviceCreateInfo deviceInfo(

@@ -46,7 +46,7 @@ public:
 private:
     void createSwapchain(const vk::raii::SurfaceKHR& surface);
     void createOutputImage();
-    void createCommandPool();
+    void createCommandBuffers();
     void createSyncObjects();
 
     void transitionImageLayout(
@@ -56,6 +56,8 @@ private:
         vk::ImageLayout   newLayout
     );
 
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+
     const vk::raii::Instance&       m_instance;
     const vk::raii::Device&         m_device;
     const vk::raii::PhysicalDevice& m_physDevice;
@@ -64,23 +66,27 @@ private:
     uint32_t m_computeQueueFamily = 0;
     uint32_t m_presentQueueFamily = 0;
     uint32_t m_swapchainImageCount = 0;
+    uint32_t m_currentFrame = 0;
 
     // Swapchain
     vk::raii::SwapchainKHR             m_swapchain        = nullptr;
     std::vector<vk::Image>             m_swapchainImages;
     std::vector<vk::raii::ImageView>   m_swapchainViews;
 
-    // Output storage image (compute shader target)
+    // Output storage image (compute shader target) — stays in GENERAL layout
     vk::raii::Image           m_outputImage         = nullptr;
     vk::raii::DeviceMemory    m_outputMemory        = nullptr;
     vk::raii::ImageView       m_outputView          = nullptr;
 
-    // Command pool
-    vk::raii::CommandPool     m_commandPool         = nullptr;
-    vk::raii::CommandBuffer   m_computeCmdBuf       = nullptr;
+    // Command pool & buffers (one per frame-in-flight)
+    vk::raii::CommandPool                m_commandPool         = nullptr;
+    std::vector<vk::raii::CommandBuffer> m_commandBuffers;
 
-    // Synchronization
-    vk::raii::Semaphore       m_imageAvailable      = nullptr;
-    vk::raii::Semaphore       m_renderFinished      = nullptr;
-    vk::raii::Fence           m_inFlightFence       = nullptr;
+    // Synchronization primitives
+    // imageAvailable: per-frame-in-flight (acquire signals these)
+    // renderFinished: per-swapchain-image (submit signals, present waits — must be unique per image)
+    // inFlightFences: per-frame-in-flight (CPU-GPU sync)
+    std::vector<vk::raii::Semaphore> m_imageAvailableSem;   // MAX_FRAMES_IN_FLIGHT
+    std::vector<vk::raii::Semaphore> m_renderFinishedSem;   // swapchainImageCount
+    std::vector<vk::raii::Fence>     m_inFlightFences;       // MAX_FRAMES_IN_FLIGHT
 };
