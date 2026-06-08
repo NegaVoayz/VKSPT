@@ -61,5 +61,6 @@ assets/output-*.png
 *.ppm
 *.hdr
 
-# Claude Code local settings
+# Claude Code
+CLAUDE.md
 .claude/
