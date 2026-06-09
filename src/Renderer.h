@@ -45,6 +45,9 @@ public:
 
     vk::Extent2D getExtent() const { return {m_config.width, m_config.height}; }
 
+    /// Phase 4.5: Initialize the sorted ray tracing pipeline.
+    void initSortedPipeline(RayTracingPipeline& pipeline);
+
 private:
     void createSwapchain(const vk::raii::SurfaceKHR& surface);
     void createOutputImage();
@@ -91,8 +94,6 @@ private:
     std::vector<vk::raii::Semaphore> m_imageAvailableSem;   // MAX_FRAMES_IN_FLIGHT
     std::vector<vk::raii::Semaphore> m_renderFinishedSem;   // swapchainImageCount
     std::vector<vk::raii::Fence>     m_inFlightFences;       // MAX_FRAMES_IN_FLIGHT
-
-    void initSortedPipeline(RayTracingPipeline& pipeline);
 
     // Timestamp queries for GPU profiling
     static constexpr uint32_t TIMESTAMPS_PER_FRAME = 2;  // start + end

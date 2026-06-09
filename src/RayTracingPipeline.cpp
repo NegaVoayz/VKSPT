@@ -260,3 +260,17 @@ void RayTracingPipeline::createSortPipeline(const std::string& spirvPath) {
     vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
     m_sortPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
 }
+
+void RayTracingPipeline::createNormalizePipeline(const std::string& spirvPath) {
+    auto shaderCode = readShaderFile(spirvPath);
+    vk::ShaderModuleCreateInfo shaderInfo(
+        {}, shaderCode.size() * sizeof(uint32_t), shaderCode.data()
+    );
+    m_normalizeShaderModule = vk::raii::ShaderModule(m_device, shaderInfo);
+
+    vk::PipelineShaderStageCreateInfo stageInfo(
+        {}, vk::ShaderStageFlagBits::eCompute, *m_normalizeShaderModule, "main"
+    );
+    vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
+    m_normalizePipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
+}

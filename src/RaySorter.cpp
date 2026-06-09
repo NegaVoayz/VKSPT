@@ -48,7 +48,8 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
     m_accumBuffer = GPUBuffer::create(
         m_device, accumSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eTransferSrc,
+            vk::BufferUsageFlagBits::eTransferSrc |
+            vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
         m_physDevice
     );

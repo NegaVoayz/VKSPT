@@ -34,6 +34,12 @@ public:
     /// Get sorted pipeline.
     vk::Pipeline getSortPipeline() const { return *m_sortPipeline; }
 
+    /// Phase 4: Load normalize shader for the sorted pipeline's final pass.
+    void createNormalizePipeline(const std::string& spirvPath);
+
+    /// Get normalize pipeline.
+    vk::Pipeline getNormalizePipeline() const { return *m_normalizePipeline; }
+
     /// Bind the TLAS acceleration structure for the given frame index.
     void bindTLAS(uint32_t frameIndex, vk::AccelerationStructureKHR tlas);
 
@@ -90,4 +96,6 @@ private:
     vk::raii::Pipeline                               m_pipeline            = nullptr;
     vk::raii::ShaderModule                           m_sortShaderModule    = nullptr;
     vk::raii::Pipeline                               m_sortPipeline        = nullptr;
+    vk::raii::ShaderModule                           m_normalizeShaderModule = nullptr;
+    vk::raii::Pipeline                               m_normalizePipeline     = nullptr;
 };

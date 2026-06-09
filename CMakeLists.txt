@@ -125,7 +125,13 @@ add_custom_command(TARGET vkrt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/raytrace.comp.spv"
         "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace.comp.spv"
-    COMMENT "Copying shader to output directory"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/raytrace_sort.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace_sort.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/normalize.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/normalize.comp.spv"
+    COMMENT "Copying shaders to output directory"
 )
 
 # -----------------------------------------------------------------------------

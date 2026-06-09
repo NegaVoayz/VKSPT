@@ -183,10 +183,13 @@ vec3 skyTintRGB(vec3 d) { return vec3(1.0); }
 // Cannot use a helper function — GLSL requires atomic operands to be
 // directly from buffer storage. Inline at each call site instead.
 
+const uint MAX_RAYS = 4u * 1024u * 1024u;  // match C++ RaySorter::MAX_RAYS
+
 // ---- Spawn a new ray into the global buffer ----
 void spawnRay(PackedRay r) {
+    // Quick reject if buffer appears full (racy but safe — check below also)
     uint slot = atomicAdd(counters.tail, 1u);
-    rayBuf.rays[slot] = r;
+    if (slot < MAX_RAYS) rayBuf.rays[slot] = r;
 }
 
 // =============================================================================

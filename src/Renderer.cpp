@@ -45,11 +45,12 @@ Renderer::~Renderer() {
 
 void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     m_raySorter = std::make_unique<RaySorter>(
-        m_device, m_physDevice, m_config.width, m_config.height, 4  // SPP=4
+        m_device, m_physDevice, m_config.width, m_config.height, 4
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
+    pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
     m_useSorting = true;
-    std::cout << "  Sorted ray pipeline initialized." << std::endl;
+    std::cout << "  Sorted ray pipeline initialized (sort + normalize)." << std::endl;
 }
 
 // -----------------------------------------------------------------------------
@@ -304,6 +305,194 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     );
     if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
         throw std::runtime_error("Failed to acquire swapchain image.");
+    }
+
+    // ===== Phase 4.5: Sorted ray tracing pipeline (first frame only) =====
+    if (m_useSorting && m_currentFrame == 0) {
+        float aspect = float(m_config.width) / float(m_config.height);
+        float fovTan = 1.0f;
+        float camOrigin[3] = {0, 0, -5};
+        float camU[3] = {fovTan * aspect, 0, 0};
+        float camV[3] = {0, fovTan, 0};
+        float camW[3] = {0, 0, 1};
+
+        // 1. Init rays
+        m_raySorter->initRays(camOrigin, camU, camV, camW, fovTan);
+
+        // 2. Zero pixel accum buffer
+        {
+            uint32_t pixelCount = m_config.width * m_config.height;
+            std::vector<RaySorter::PixelEntry> zeros(pixelCount, {});
+            auto zeroStaging = GPUBuffer::createStaging(m_device, zeros.data(),
+                pixelCount * sizeof(RaySorter::PixelEntry),
+                vk::BufferUsageFlagBits::eTransferSrc, m_physDevice);
+            vk::raii::CommandPool pool(m_device,
+                {vk::CommandPoolCreateFlagBits::eTransient, m_computeQueueFamily});
+            auto cbs = vk::raii::CommandBuffers(m_device,
+                {*pool, vk::CommandBufferLevel::ePrimary, 1});
+            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            vk::BufferCopy rgn(0, 0, pixelCount * sizeof(RaySorter::PixelEntry));
+            cbs[0].copyBuffer(*zeroStaging.buffer,
+                *m_raySorter->getAccumBuffer().buffer, rgn);
+            cbs[0].end();
+            auto q = m_device.getQueue(m_computeQueueFamily, 0);
+            vk::SubmitInfo subInfo; vk::CommandBuffer cb = *cbs[0]; subInfo.commandBufferCount=1; subInfo.pCommandBuffers=&cb; q.submit(subInfo, nullptr);
+            q.waitIdle();
+        }
+
+        // 3. Transition output image for compute writes
+        {
+            vk::raii::CommandPool pool(m_device,
+                {vk::CommandPoolCreateFlagBits::eTransient, m_computeQueueFamily});
+            auto cbs = vk::raii::CommandBuffers(m_device,
+                {*pool, vk::CommandBufferLevel::ePrimary, 1});
+            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            transitionImageLayout(*cbs[0], *m_outputImage,
+                vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+            cbs[0].end();
+            auto q = m_device.getQueue(m_computeQueueFamily, 0);
+            vk::SubmitInfo subInfo; vk::CommandBuffer cb = *cbs[0]; subInfo.commandBufferCount=1; subInfo.pCommandBuffers=&cb; q.submit(subInfo, nullptr);
+            q.waitIdle();
+        }
+
+        // 4. Bind ALL descriptors (using frame 0 descriptor set)
+        pipeline.bindTLAS(0, as.getTLAS());
+        pipeline.bindOutputImage(0, *m_outputView, nullptr);
+        pipeline.bindMaterialBuffer(0, *as.getMaterialBuffer().buffer,
+                                     as.getMaterialBuffer().size);
+        pipeline.bindLightBuffer(0, *as.getLightBuffer().buffer,
+                                  as.getLightBuffer().size);
+        pipeline.bindGeometrySSBOs(0,
+            *as.getVertexDataBuffer().buffer, as.getVertexDataBuffer().size,
+            *as.getIndexDataBuffer().buffer,  as.getIndexDataBuffer().size,
+            *as.getRangeBuffer().buffer,      as.getRangeBuffer().size);
+        pipeline.bindRayBuffer(0, *m_raySorter->getRayBuffer().buffer,
+                                m_raySorter->getRayBuffer().size);
+        pipeline.bindCounterBuffer(0, *m_raySorter->getCounterBuffer().buffer,
+                                    m_raySorter->getCounterBuffer().size);
+        pipeline.bindPixelAccum(0, *m_raySorter->getAccumBuffer().buffer,
+                                 m_raySorter->getAccumBuffer().size);
+
+        // 5. Push constants
+        struct SortPC {
+            float camOrigin[3]; float _p0;
+            float camU[3]; float _p1;
+            float camV[3]; float _p2;
+            float camW[3]; float _p3;
+            int spp, maxBounces, matCount;
+            float ft, sm, fsw;
+            int scat; float mt;
+        } pc{};
+        pc.camOrigin[0]=0; pc.camOrigin[1]=0; pc.camOrigin[2]=-5;
+        pc.camU[0]=fovTan*aspect; pc.camV[1]=fovTan; pc.camW[2]=1;
+        pc.spp=4; pc.maxBounces=24;
+        pc.matCount=(int)as.getMaterialCount();
+        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
+        pc.scat=2; pc.mt=0.9999f;
+
+        // 6. Multi-dispatch loop
+        auto queue = m_device.getQueue(m_computeQueueFamily, 0);
+        uint32_t head = 0;
+        int iters = 0;
+        const uint32_t LOCAL = 64;
+
+        std::cout << "[Sort] Starting multi-dispatch loop..." << std::endl;
+        for (int iter = 0; iter < 64; ++iter) {
+            uint32_t tail = m_raySorter->getTailCount();
+            std::cout << "[Sort] iter " << iter << " head=" << head
+                      << " tail=" << tail << std::endl;
+            if (tail <= head) break;
+            if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;  // clamp
+
+            m_raySorter->advanceHead(head);
+            uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
+
+            vk::raii::CommandPool pool(m_device,
+                {vk::CommandPoolCreateFlagBits::eTransient, m_computeQueueFamily});
+            auto cbs = vk::raii::CommandBuffers(m_device,
+                {*pool, vk::CommandBufferLevel::ePrimary, 1});
+            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
+            cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+            cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
+                vk::ShaderStageFlagBits::eCompute, 0, pc);
+            cbs[0].dispatch(groups, 1, 1);
+            cbs[0].end();
+
+            queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
+            queue.waitIdle();
+            iters++;
+
+            uint32_t newTail = m_raySorter->getTailCount();
+            if (newTail <= tail) break;
+            head = tail;
+        }
+        std::cout << "[Sort] " << iters << " iterations, tail="
+                  << m_raySorter->getTailCount() << std::endl;
+
+        // 7. Normalize pass
+        {
+            vk::raii::CommandPool pool(m_device,
+                {vk::CommandPoolCreateFlagBits::eTransient, m_computeQueueFamily});
+            auto cbs = vk::raii::CommandBuffers(m_device,
+                {*pool, vk::CommandBufferLevel::ePrimary, 1});
+            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getNormalizePipeline());
+            cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+            uint32_t gx = (m_config.width + 7) / 8;
+            uint32_t gy = (m_config.height + 7) / 8;
+            cbs[0].dispatch(gx, gy, 1);
+            cbs[0].end();
+            queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
+            queue.waitIdle();
+        }
+
+        // 8. Copy output to swapchain + present
+        {
+            auto& cb = m_commandBuffers[frameIdx];
+            cb.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+
+            transitionImageLayout(*cb, m_swapchainImages[imageIndex],
+                vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+
+            vk::ImageCopy copyRgn(
+                vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
+                {0,0,0},
+                vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
+                {0,0,0}, {m_config.width, m_config.height, 1}
+            );
+            cb.copyImage(*m_outputImage, vk::ImageLayout::eGeneral,
+                m_swapchainImages[imageIndex], vk::ImageLayout::eTransferDstOptimal, copyRgn);
+
+            transitionImageLayout(*cb, m_swapchainImages[imageIndex],
+                vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR);
+            cb.end();
+
+            vk::PipelineStageFlags ws = vk::PipelineStageFlagBits::eTransfer;
+            vk::SubmitInfo swapSI;
+            vk::Semaphore waitSem = *m_imageAvailableSem[frameIdx];
+            vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eTransfer;
+            swapSI.waitSemaphoreCount = 1;
+            swapSI.pWaitSemaphores = &waitSem;
+            swapSI.pWaitDstStageMask = &waitStage;
+            vk::CommandBuffer swapCB = *cb;
+            swapSI.commandBufferCount = 1;
+            swapSI.pCommandBuffers = &swapCB;
+            vk::Semaphore sigSem = *m_renderFinishedSem[imageIndex];
+            swapSI.signalSemaphoreCount = 1;
+            swapSI.pSignalSemaphores = &sigSem;
+            queue.submit(swapSI, *m_inFlightFences[frameIdx]);
+
+            vk::PresentInfoKHR pi(*m_renderFinishedSem[imageIndex], *m_swapchain, imageIndex);
+            m_device.getQueue(m_presentQueueFamily, 0).presentKHR(pi);
+        }
+
+        m_device.waitForFences(*m_inFlightFences[frameIdx], true, UINT64_MAX);
+        m_currentFrame++;
+        std::cout << "[Sort] Frame complete." << std::endl;
+        return;
     }
 
     // Bind descriptor (TLAS + output image + material buffer + light buffer) for this frame index

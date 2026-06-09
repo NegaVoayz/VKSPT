@@ -75,6 +75,9 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
         cfg
     );
 
+    // Phase 4.5: Initialize sorted ray tracing pipeline
+    m_renderer->initSortedPipeline(*m_pipeline);
+
     std::cout << "Initialization complete!" << std::endl;
 }
 
