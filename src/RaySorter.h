@@ -22,8 +22,23 @@ public:
     /// 8M rays × 80 bytes = 640 MB. We use 4M (320 MB) and drop overflow.
     static constexpr uint32_t MAX_RAYS = 16 * 1024 * 1024; // 16M rays (1.5GB), RTX 4060 8GB
 
+    /// Maximum rays to dispatch per iteration. Limits spawned children to
+    /// prevent buffer overflow. 128K × 12 max-spawns = 1.5M < 16M - safe.
+    static constexpr uint32_t DISPATCH_CAP = 128 * 1024;
+
     /// Number of action buckets.
     static constexpr uint32_t ACTION_COUNT = 6;
+
+    /// RayAction enum values (match GLSL classify shader).
+    enum RayAction : int {
+        ACTION_UNPROCESSED  = 0,
+        ACTION_MISS         = 1,
+        ACTION_DIELECTRIC   = 2,
+        ACTION_LAMBERTIAN   = 3,
+        ACTION_METAL        = 4,
+        ACTION_DEAD         = 5,
+        ACTION_TERMINATED   = 6,
+    };
 
     /// Packed ray structure matching the GLSL std430 layout.
     /// Total: 80 bytes
@@ -99,6 +114,10 @@ public:
     /// Read back pixel accumulator for final output.
     void readbackAccumulator(void* output, uint32_t pixelCount);
 
+    /// Sort a batch of rays [head, head+count) by rayAction on CPU.
+    /// Readback → std::sort → upload. Batch must be ≤ DISPATCH_CAP.
+    void sortBatchByAction(uint32_t head, uint32_t count);
+
     uint32_t getWidth() const { return m_width; }
     uint32_t getHeight() const { return m_height; }
     uint32_t getSPP() const { return m_spp; }
@@ -119,4 +138,8 @@ private:
     // Pixel accumulator (framebuffer-sized, read back for final output)
     GPUBuffer m_accumBuffer;
     GPUBuffer m_accumStaging;
+
+    // Batch staging buffer for CPU-side rayAction sorting (DISPATCH_CAP rays)
+    GPUBuffer m_batchStaging;
+    GPUBuffer m_batchReadback;
 };

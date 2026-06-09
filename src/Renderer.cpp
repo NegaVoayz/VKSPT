@@ -49,8 +49,10 @@ void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
     pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
+    pipeline.createClassifyPipeline("shaders/raytrace_classify.comp.spv");
+    pipeline.createProcessPipeline("shaders/raytrace_process.comp.spv");
     m_useSorting = true;
-    std::cout << "  Sorted ray pipeline initialized (sort + normalize)." << std::endl;
+    std::cout << "  Sorted ray pipeline initialized (classify + sort + process + normalize)." << std::endl;
 }
 
 // -----------------------------------------------------------------------------
@@ -390,49 +392,85 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
         pc.scat=2; pc.mt=0.9999f;
 
-        // 6. Multi-dispatch loop
+        // 6. Two-stage batch dispatch loop
+        //    Stage A: classify (trace → RayAction)
+        //    Stage B: CPU sort batch by RayAction
+        //    Stage C: process (single interaction → spawn children)
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
+        const uint32_t CAP = RaySorter::DISPATCH_CAP;
 
-        std::cout << "[Sort] Starting multi-dispatch loop..." << std::endl;
-        for (int iter = 0; iter < 64; ++iter) {
-            uint32_t tail = m_raySorter->getTailCount();
-            std::cout << "[Sort] iter " << iter << " head=" << head
-                      << " tail=" << tail << std::endl;
-            if (tail <= head) break;
-            if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;  // clamp
-
-            // Don't dispatch empty range
-            if (tail <= head) break;
-
-            m_raySorter->advanceHead(head);
-            uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
-
+        // Helper lambda: dispatch a single compute pipeline
+        auto dispatchPipeline = [&](vk::Pipeline pipe, uint32_t groups) {
             vk::raii::CommandPool pool(m_device,
-                {vk::CommandPoolCreateFlagBits::eTransient, m_computeQueueFamily});
+                {vk::CommandPoolCreateFlagBits::eTransient |
+                    vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                 m_computeQueueFamily});
             auto cbs = vk::raii::CommandBuffers(m_device,
                 {*pool, vk::CommandBufferLevel::ePrimary, 1});
             cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
+            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipe);
             cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                 pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
             cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
                 vk::ShaderStageFlagBits::eCompute, 0, pc);
             cbs[0].dispatch(groups, 1, 1);
             cbs[0].end();
-
             queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
             queue.waitIdle();
+        };
+
+        std::cout << "[Sort] Starting two-stage batch loop (CAP=" << CAP << ")..." << std::endl;
+        for (int iter = 0; iter < 256; ++iter) {
+            uint32_t tail = m_raySorter->getTailCount();
+            if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
+
+            // Active range
+            uint32_t active = (tail > head) ? (tail - head) : 0;
+            if (active == 0) {
+                // No unprocessed rays AND no new children → done
+                break;
+            }
+
+            // Batch size for this iteration
+            uint32_t N = (active < CAP) ? active : CAP;
+            uint32_t processEnd = head + N;
+
+            m_raySorter->advanceHead(head);
+            uint32_t groups = (N + LOCAL - 1) / LOCAL;
+
+            if (iter % 10 == 0 || N < active) {
+                std::cout << "[Sort] iter " << iter << " head=" << head
+                          << " tail=" << tail << " batch=" << N
+                          << " remain=" << (active - N) << std::endl;
+            }
+
+            // Stage A: Classify — trace rays, set RayAction
+            dispatchPipeline(pipeline.getClassifyPipeline(), groups);
+
+            // Stage B: Sort batch by RayAction (CPU-side)
+            m_raySorter->sortBatchByAction(head, N);
+
+            // Stage C: Process — single interaction, spawn children
+            dispatchPipeline(pipeline.getProcessPipeline(), groups);
+
             iters++;
 
+            // Check for new children
             uint32_t newTail = m_raySorter->getTailCount();
-            if (newTail <= tail) break;
-            head = tail;
+            head = processEnd;
+
+            // Exit if head caught up and no new children
+            if (head >= newTail) {
+                std::cout << "[Sort] iter " << iter << " head=" << head
+                          << " >= newTail=" << newTail << " — done." << std::endl;
+                break;
+            }
         }
-        std::cout << "[Sort] " << iters << " iterations, tail="
-                  << m_raySorter->getTailCount() << std::endl;
+        std::cout << "[Sort] " << iters << " iterations, head=" << head
+                  << " tail=" << m_raySorter->getTailCount() << std::endl;
 
         // 7. Normalize pass
         {

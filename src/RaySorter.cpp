@@ -18,7 +18,8 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
     m_rayBuffer = GPUBuffer::create(
         m_device, rayBufSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eTransferDst,
+            vk::BufferUsageFlagBits::eTransferDst |
+            vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
         m_physDevice
     );
@@ -56,6 +57,24 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
     m_accumStaging = GPUBuffer::create(
         m_device, accumSize,
         vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        m_physDevice
+    );
+
+    // --- Batch staging for CPU-side rayAction sorting ---
+    vk::DeviceSize batchSize = DISPATCH_CAP * sizeof(PackedRay);
+    m_batchStaging = GPUBuffer::create(
+        m_device, batchSize,
+        vk::BufferUsageFlagBits::eTransferSrc |
+            vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eDeviceLocal,
+        m_physDevice
+    );
+    m_batchReadback = GPUBuffer::create(
+        m_device, batchSize,
+        vk::BufferUsageFlagBits::eTransferDst |
+            vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent,
         m_physDevice
@@ -128,7 +147,8 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
     );
 
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -157,7 +177,8 @@ void RaySorter::resetCounters() {
     m_counterStaging.memory.unmapMemory();
 
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -183,7 +204,8 @@ void RaySorter::advanceHead(uint32_t newHead) {
     m_counterStaging.memory.unmapMemory();
 
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -201,7 +223,8 @@ void RaySorter::advanceHead(uint32_t newHead) {
 
 uint32_t RaySorter::getTailCount() {
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -228,7 +251,8 @@ void RaySorter::readbackAccumulator(void* output, uint32_t pixelCount) {
     vk::DeviceSize accumSize = pixelCount * sizeof(PixelEntry);
 
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -246,4 +270,68 @@ void RaySorter::readbackAccumulator(void* output, uint32_t pixelCount) {
     void* mapped = m_accumStaging.memory.mapMemory(0, accumSize);
     std::memcpy(output, mapped, static_cast<size_t>(accumSize));
     m_accumStaging.memory.unmapMemory();
+}
+
+void RaySorter::sortBatchByAction(uint32_t head, uint32_t count) {
+    if (count == 0) return;
+    vk::DeviceSize batchBytes = count * sizeof(PackedRay);
+
+    auto cmdPool = vk::raii::CommandPool(m_device,
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
+    auto cmdBufs = vk::raii::CommandBuffers(m_device,
+        vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
+    auto& cmdBuf = cmdBufs[0];
+    auto queue = m_device.getQueue(0, 0);
+
+    // 1. Copy batch [head, head+count) from ray buffer to batch staging
+    cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy toStaging(head * sizeof(PackedRay), 0, batchBytes);
+    cmdBuf.copyBuffer(*m_rayBuffer.buffer, *m_batchStaging.buffer, toStaging);
+    cmdBuf.end();
+    vk::SubmitInfo submit1({}, {}, *cmdBuf);
+    queue.submit(submit1, nullptr);
+    queue.waitIdle();
+
+    // 2. Copy staging → readback (host-visible)
+    cmdBufs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy toReadback(0, 0, batchBytes);
+    cmdBuf.copyBuffer(*m_batchStaging.buffer, *m_batchReadback.buffer, toReadback);
+    cmdBuf.end();
+    vk::SubmitInfo submit2({}, {}, *cmdBuf);
+    queue.submit(submit2, nullptr);
+    queue.waitIdle();
+
+    // 3. Sort on CPU by rayAction
+    void* mapped = m_batchReadback.memory.mapMemory(0, batchBytes);
+    std::vector<PackedRay> sorted(count);
+    std::memcpy(sorted.data(), mapped, static_cast<size_t>(batchBytes));
+    m_batchReadback.memory.unmapMemory();
+
+    std::sort(sorted.begin(), sorted.end(),
+        [](const PackedRay& a, const PackedRay& b) {
+            return a.rayAction < b.rayAction;
+        });
+
+    // 4. Upload sorted batch: readback → staging
+    void* stagingMapped = m_batchReadback.memory.mapMemory(0, batchBytes);
+    std::memcpy(stagingMapped, sorted.data(), static_cast<size_t>(batchBytes));
+    m_batchReadback.memory.unmapMemory();
+
+    cmdBufs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy toStaging2(0, 0, batchBytes);
+    cmdBuf.copyBuffer(*m_batchReadback.buffer, *m_batchStaging.buffer, toStaging2);
+    cmdBuf.end();
+    vk::SubmitInfo submit3({}, {}, *cmdBuf);
+    queue.submit(submit3, nullptr);
+    queue.waitIdle();
+
+    // 5. Copy staging back to ray buffer
+    cmdBufs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy toRayBuf(0, head * sizeof(PackedRay), batchBytes);
+    cmdBuf.copyBuffer(*m_batchStaging.buffer, *m_rayBuffer.buffer, toRayBuf);
+    cmdBuf.end();
+    vk::SubmitInfo submit4({}, {}, *cmdBuf);
+    queue.submit(submit4, nullptr);
+    queue.waitIdle();
 }

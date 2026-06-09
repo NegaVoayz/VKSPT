@@ -40,6 +40,18 @@ public:
     /// Get normalize pipeline.
     vk::Pipeline getNormalizePipeline() const { return *m_normalizePipeline; }
 
+    /// Phase 5: Load classify shader (trace → set RayAction, no processing).
+    void createClassifyPipeline(const std::string& spirvPath);
+
+    /// Get classify pipeline.
+    vk::Pipeline getClassifyPipeline() const { return *m_classifyPipeline; }
+
+    /// Phase 5: Load process shader (single-interaction, spawns children).
+    void createProcessPipeline(const std::string& spirvPath);
+
+    /// Get process pipeline.
+    vk::Pipeline getProcessPipeline() const { return *m_processPipeline; }
+
     /// Bind the TLAS acceleration structure for the given frame index.
     void bindTLAS(uint32_t frameIndex, vk::AccelerationStructureKHR tlas);
 
@@ -98,4 +110,9 @@ private:
     vk::raii::Pipeline                               m_sortPipeline        = nullptr;
     vk::raii::ShaderModule                           m_normalizeShaderModule = nullptr;
     vk::raii::Pipeline                               m_normalizePipeline     = nullptr;
+
+    vk::raii::ShaderModule                           m_classifyShaderModule = nullptr;
+    vk::raii::Pipeline                               m_classifyPipeline     = nullptr;
+    vk::raii::ShaderModule                           m_processShaderModule  = nullptr;
+    vk::raii::Pipeline                               m_processPipeline      = nullptr;
 };

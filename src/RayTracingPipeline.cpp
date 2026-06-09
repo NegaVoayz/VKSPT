@@ -274,3 +274,31 @@ void RayTracingPipeline::createNormalizePipeline(const std::string& spirvPath) {
     vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
     m_normalizePipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
 }
+
+void RayTracingPipeline::createClassifyPipeline(const std::string& spirvPath) {
+    auto shaderCode = readShaderFile(spirvPath);
+    vk::ShaderModuleCreateInfo shaderInfo(
+        {}, shaderCode.size() * sizeof(uint32_t), shaderCode.data()
+    );
+    m_classifyShaderModule = vk::raii::ShaderModule(m_device, shaderInfo);
+
+    vk::PipelineShaderStageCreateInfo stageInfo(
+        {}, vk::ShaderStageFlagBits::eCompute, *m_classifyShaderModule, "main"
+    );
+    vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
+    m_classifyPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
+}
+
+void RayTracingPipeline::createProcessPipeline(const std::string& spirvPath) {
+    auto shaderCode = readShaderFile(spirvPath);
+    vk::ShaderModuleCreateInfo shaderInfo(
+        {}, shaderCode.size() * sizeof(uint32_t), shaderCode.data()
+    );
+    m_processShaderModule = vk::raii::ShaderModule(m_device, shaderInfo);
+
+    vk::PipelineShaderStageCreateInfo stageInfo(
+        {}, vk::ShaderStageFlagBits::eCompute, *m_processShaderModule, "main"
+    );
+    vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
+    m_processPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
+}
