@@ -45,15 +45,15 @@ public:
         float direction[3];
         float lamEnd;
         float lastSplit[3];
-        float throughput;
+        float throughput;         // Legendre c₀
         float dispersion[3];
         float bounce;             // stored as float
         int   generation;
         int   pixelIndex;         // which output pixel this ray contributes to
         int   rayAction;          // 0=UNPROCESSED, 1=MISS, 2=DIELECTRIC, 3=LAMBERTIAN, 4=METAL, 5=DEAD
         int   insideGlass;        // bool as int
-        int   _pad2;
-        int   _pad3;
+        float decay_c1;           // 1st Legendre coefficient of decay D(x)
+        float decay_c2;           // 2nd Legendre coefficient of decay D(x)
         int   _pad4;
         int   _pad;               // align slot 5 to 16 bytes
         // Hit cache (written by classify, read by process — avoids double-trace)
