@@ -389,13 +389,13 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.camU[0]=fovTan*aspect; pc.camV[1]=fovTan; pc.camW[2]=1;
         pc.spp=1; pc.maxBounces=24;
         pc.matCount=(int)as.getMaterialCount();
-        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
+        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;  // force-split ON
         pc.scat=2; pc.mt=0.9999f;
 
-        // 6. Two-stage batch dispatch loop
-        //    Stage A: classify (trace → RayAction)
-        //    Stage B: CPU sort batch by RayAction
-        //    Stage C: process (single interaction → spawn children)
+        // 6. Batched dispatch loop with DISPATCH_CAP
+        //    Uses verified single-pass sort shader (Phase 4.5).
+        //    DISPATCH_CAP limits rays/dispatch to prevent buffer overflow.
+        //    Natural BFS ordering provides bounce priority.
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
@@ -447,14 +447,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                           << " remain=" << (active - N) << std::endl;
             }
 
-            // Stage A: Classify — trace rays, set RayAction
-            dispatchPipeline(pipeline.getClassifyPipeline(), groups);
-
-            // Stage B: Sort batch by RayAction (CPU-side)
-            m_raySorter->sortBatchByAction(head, N);
-
-            // Stage C: Process — single interaction, spawn children
-            dispatchPipeline(pipeline.getProcessPipeline(), groups);
+            // Use verified single-pass sort pipeline (Phase 4.5 byte-identical output)
+            // Classify/process shaders deferred for future warp-divergence optimization
+            dispatchPipeline(pipeline.getSortPipeline(), groups);
 
             iters++;
 
@@ -594,7 +589,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
-    pc.samplesPerPixel = 4;
+    pc.samplesPerPixel = 4;  // SPP=4 for production (old pipeline)
     pc.maxBounces      = 24;
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
     pc.fovTan          = 1.0f;
