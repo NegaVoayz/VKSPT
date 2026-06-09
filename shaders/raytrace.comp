@@ -701,8 +701,8 @@ void main() {
                 float skyThresh  = estSkyDist * skyPixHW * 0.5 * params.splitMult;
 
                 int lamRange = lamEnd - lamStart;
-                if (skySepMag > skyThresh && lamRange >= 20     // coarser: 20nm min
-                    && throughput >= 0.05 && generation < 5) {   // cap generations
+                if (skySepMag > skyThresh && lamRange >= 40     // 40nm min band
+                    && throughput >= 0.05 && generation < 3) {   // max 2 generations at sky
                     int midWl = (lamStart + lamEnd) / 2;
                     vec3 skyPerp = normalize(skyDisp);
                     if (length(skyPerp) < 0.0001) skyPerp = vec3(1,0,0);

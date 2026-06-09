@@ -684,7 +684,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
     pc.fovTan          = 0.57735f;  // 60° horizontal FOV
     pc.splitMult       = 1.0f;
-    pc.forceSplitWidth = 40.0f;  // force-split bands wider than 40nm for visible dispersion
+    pc.forceSplitWidth = 0.0f;   // off: force-split causes exponential child explosion
     pc.scatterSamples  = 1;
     pc.mergeThreshold  = 0.999f;
     pc.frameIndex      = m_accumFrameCount;
@@ -1076,7 +1076,7 @@ void Renderer::captureScreenshot(const std::string& path,
         pc.camW[0]=camera.camW[0]; pc.camW[1]=camera.camW[1]; pc.camW[2]=camera.camW[2];
         pc.spp=4; pc.maxBounces=24;
         pc.matCount=static_cast<int>(as.getMaterialCount());
-        pc.fovTan=0.57735f; pc.splitMult=1.0f; pc.forceSplitWidth=40.0f;
+        pc.fovTan=0.57735f; pc.splitMult=1.0f; pc.forceSplitWidth=0.0f;
         pc.scatterSamples=1; pc.mergeThreshold=0.999f;
         pc.frameIndex=static_cast<int>(f);
 
