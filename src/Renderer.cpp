@@ -45,7 +45,7 @@ Renderer::~Renderer() {
 
 void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     m_raySorter = std::make_unique<RaySorter>(
-        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1 stays < 4M rays
+        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
     pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
@@ -393,48 +393,21 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.scat=2; pc.mt=0.9999f;
 
         // 6. Batched dispatch loop with DISPATCH_CAP
-        //    Uses verified single-pass sort shader (Phase 4.5).
-        //    DISPATCH_CAP limits rays/dispatch to prevent buffer overflow.
-        //    Natural BFS ordering provides bounce priority.
+        //    Processes rays in 128K batches. Natural BFS ordering gives bounce
+        //    priority. DISPATCH_CAP prevents buffer overflow from force-split.
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
         const uint32_t CAP = RaySorter::DISPATCH_CAP;
 
-        // Helper lambda: dispatch a single compute pipeline
-        auto dispatchPipeline = [&](vk::Pipeline pipe, uint32_t groups) {
-            vk::raii::CommandPool pool(m_device,
-                {vk::CommandPoolCreateFlagBits::eTransient |
-                    vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-                 m_computeQueueFamily});
-            auto cbs = vk::raii::CommandBuffers(m_device,
-                {*pool, vk::CommandBufferLevel::ePrimary, 1});
-            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipe);
-            cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
-            cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
-                vk::ShaderStageFlagBits::eCompute, 0, pc);
-            cbs[0].dispatch(groups, 1, 1);
-            cbs[0].end();
-            queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
-            queue.waitIdle();
-        };
-
-        std::cout << "[Sort] Starting two-stage batch loop (CAP=" << CAP << ")..." << std::endl;
+        std::cout << "[Sort] Starting batch loop (CAP=" << CAP << ")..." << std::endl;
         for (int iter = 0; iter < 256; ++iter) {
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
-
-            // Active range
             uint32_t active = (tail > head) ? (tail - head) : 0;
-            if (active == 0) {
-                // No unprocessed rays AND no new children → done
-                break;
-            }
+            if (active == 0) break;
 
-            // Batch size for this iteration
             uint32_t N = (active < CAP) ? active : CAP;
             uint32_t processEnd = head + N;
 
@@ -447,22 +420,30 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                           << " remain=" << (active - N) << std::endl;
             }
 
-            // Use verified single-pass sort pipeline (Phase 4.5 byte-identical output)
-            // Classify/process shaders deferred for future warp-divergence optimization
-            dispatchPipeline(pipeline.getSortPipeline(), groups);
-
+            // Dispatch single-pass sort shader
+            {
+                vk::raii::CommandPool pool(m_device,
+                    {vk::CommandPoolCreateFlagBits::eTransient |
+                        vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                     m_computeQueueFamily});
+                auto cbs = vk::raii::CommandBuffers(m_device,
+                    {*pool, vk::CommandBufferLevel::ePrimary, 1});
+                cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+                cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
+                cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                    pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+                cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
+                    vk::ShaderStageFlagBits::eCompute, 0, pc);
+                cbs[0].dispatch(groups, 1, 1);
+                cbs[0].end();
+                queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
+                queue.waitIdle();
+            }
             iters++;
 
-            // Check for new children
             uint32_t newTail = m_raySorter->getTailCount();
             head = processEnd;
-
-            // Exit if head caught up and no new children
-            if (head >= newTail) {
-                std::cout << "[Sort] iter " << iter << " head=" << head
-                          << " >= newTail=" << newTail << " — done." << std::endl;
-                break;
-            }
+            if (head >= newTail) break;
         }
         std::cout << "[Sort] " << iters << " iterations, head=" << head
                   << " tail=" << m_raySorter->getTailCount() << std::endl;
@@ -589,7 +570,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
-    pc.samplesPerPixel = 4;  // SPP=4 for production (old pipeline)
+    pc.samplesPerPixel = 4;  // SPP=4 production
     pc.maxBounces      = 24;
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
     pc.fovTan          = 1.0f;
