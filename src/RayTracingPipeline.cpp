@@ -74,10 +74,14 @@ void RayTracingPipeline::createDescriptorSetLayout() {
         9, vk::DescriptorType::eStorageBuffer,
         1, vk::ShaderStageFlagBits::eCompute
     );
+    vk::DescriptorSetLayoutBinding overflowBinding(
+        10, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
     std::vector<vk::DescriptorSetLayoutBinding> bindings = {
         tlasBinding, imageBinding, materialBinding, lightBinding,
         vertexBinding, indexBinding, rangeBinding,
-        rayBufBinding, counterBinding, accumBinding
+        rayBufBinding, counterBinding, accumBinding, overflowBinding
     };
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo({}, bindings);
@@ -97,7 +101,7 @@ void RayTracingPipeline::createDescriptorPool() {
         {vk::DescriptorType::eAccelerationStructureKHR, MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eUniformBuffer,            MAX_FRAMES_IN_FLIGHT * 2},
-        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 6},
+        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 7},
     };
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -242,6 +246,16 @@ void RayTracingPipeline::bindPixelAccum(uint32_t frameIndex, vk::Buffer buf,
     vk::DescriptorBufferInfo info(buf, 0, size);
     vk::WriteDescriptorSet write(
         *m_descriptorSets[frameIndex], 9, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindOverflowBuffer(uint32_t frameIndex, vk::Buffer buf,
+                                             vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 10, 0, 1,
         vk::DescriptorType::eStorageBuffer, nullptr, &info
     );
     m_device.updateDescriptorSets(write, nullptr);

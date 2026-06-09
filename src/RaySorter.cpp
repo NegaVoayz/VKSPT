@@ -80,6 +80,24 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
             vk::MemoryPropertyFlagBits::eHostCoherent,
         m_physDevice
     );
+
+    // --- Overflow buffer: host-visible, shader spills excess children here ---
+    // Layout: [uint32_t overflowTail + 12B pad][PackedRay array]
+    vk::DeviceSize overflowBytes = 16 + OVERFLOW_SIZE * sizeof(PackedRay);
+    m_overflowBuf = GPUBuffer::create(
+        m_device, overflowBytes,
+        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        m_physDevice
+    );
+    // Zero-initialize the overflow counter
+    void* ovMap = m_overflowBuf.memory.mapMemory(0, 16);
+    uint32_t zero = 0;
+    std::memcpy(ovMap, &zero, 4);
+    m_overflowBuf.memory.unmapMemory();
+
+    m_hostStash.reserve(OVERFLOW_SIZE * 4);  // pre-allocate for up to 4× overflow
 }
 
 RaySorter::~RaySorter() {
@@ -335,4 +353,109 @@ void RaySorter::sortBatchByAction(uint32_t head, uint32_t count) {
     vk::SubmitInfo submit4({}, {}, *cmdBuf);
     queue.submit(submit4, nullptr);
     queue.waitIdle();
+}
+
+void RaySorter::clampTail() {
+    // Read current tail from GPU
+    uint32_t gpuTail = getTailCount();
+    if (gpuTail <= MAX_RAYS) return;  // no overflow, no need to clamp
+
+    // Write MAX_RAYS as the new tail (overflow children are stashed, not in ray buf)
+    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(CounterData));
+    CounterData cd;
+    std::memcpy(&cd, mapped, sizeof(CounterData));
+    cd.tail = MAX_RAYS;
+    std::memcpy(mapped, &cd, sizeof(CounterData));
+    m_counterStaging.memory.unmapMemory();
+
+    auto cmdPool = vk::raii::CommandPool(m_device,
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
+    auto cmdBufs = vk::raii::CommandBuffers(m_device,
+        vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
+    auto& cmdBuf = cmdBufs[0];
+
+    // Copy tail field (offset 4, size 4) to counter buffer
+    cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy rgn(4, 4, 4);  // src offset 4 (tail), dst offset 4, size 4
+    cmdBuf.copyBuffer(*m_counterStaging.buffer, *m_counterBuffer.buffer, rgn);
+    cmdBuf.end();
+
+    auto queue = m_device.getQueue(0, 0);
+    vk::SubmitInfo subInfo({}, {}, *cmdBuf);
+    queue.submit(subInfo, nullptr);
+    queue.waitIdle();
+}
+
+uint32_t RaySorter::drainOverflow() {
+    // The overflow buffer is host-visible+coherent — read counter directly
+    void* mapped = m_overflowBuf.memory.mapMemory(0, 16);
+    uint32_t count = 0;
+    std::memcpy(&count, mapped, 4);
+    if (count == 0) { m_overflowBuf.memory.unmapMemory(); return 0; }
+    if (count > OVERFLOW_SIZE) count = OVERFLOW_SIZE;
+
+    // Read overflow rays (offset 16 = after counter header)
+    void* rayData = static_cast<char*>(mapped) + 16;
+    size_t oldSize = m_hostStash.size();
+    m_hostStash.resize(oldSize + count);
+    std::memcpy(m_hostStash.data() + oldSize, rayData, count * sizeof(PackedRay));
+
+    // Reset overflow counter to 0 (in-place, host-visible)
+    uint32_t zero = 0;
+    std::memcpy(mapped, &zero, 4);
+    m_overflowBuf.memory.unmapMemory();
+
+    return count;
+}
+
+uint32_t RaySorter::injectStashed(uint32_t maxCount) {
+    if (m_hostStash.empty() || maxCount == 0) return 0;
+
+    uint32_t count = std::min(maxCount, uint32_t(m_hostStash.size()));
+    vk::DeviceSize bytes = count * sizeof(PackedRay);
+
+    // Upload via staging
+    auto staging = GPUBuffer::createStaging(m_device, m_hostStash.data(), bytes,
+        vk::BufferUsageFlagBits::eTransferSrc, m_physDevice);
+
+    auto queue = m_device.getQueue(0, 0);
+    auto cmdPool = vk::raii::CommandPool(m_device,
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient |
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 0));
+    auto cmdBufs = vk::raii::CommandBuffers(m_device,
+        vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
+
+    // Read current tail, copy stashed rays to tail position
+    uint32_t tail = getTailCount();
+    if (tail > MAX_RAYS) tail = MAX_RAYS;
+    if (tail + count > MAX_RAYS) count = MAX_RAYS - tail;
+    if (count == 0) return 0;
+
+    cmdBufs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy region(0, tail * sizeof(PackedRay), count * sizeof(PackedRay));
+    cmdBufs[0].copyBuffer(*staging.buffer, *m_rayBuffer.buffer, region);
+    cmdBufs[0].end();
+    vk::SubmitInfo si({}, {}, *cmdBufs[0]);
+    queue.submit(si, nullptr);
+    queue.waitIdle();
+
+    // Update tail counter
+    CounterData cd{};
+    cd.head = 0;  // unused in this upload
+    cd.tail = tail + count;
+    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(CounterData));
+    std::memcpy(mapped, &cd, sizeof(CounterData));
+    m_counterStaging.memory.unmapMemory();
+    cmdBufs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy cr(0, 0, 16);
+    cmdBufs[0].copyBuffer(*m_counterStaging.buffer, *m_counterBuffer.buffer, cr);
+    cmdBufs[0].end();
+    vk::SubmitInfo si2({}, {}, *cmdBufs[0]);
+    queue.submit(si2, nullptr);
+    queue.waitIdle();
+
+    // Remove from stash
+    m_hostStash.erase(m_hostStash.begin(), m_hostStash.begin() + count);
+    return count;
 }

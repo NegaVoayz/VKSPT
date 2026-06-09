@@ -79,6 +79,9 @@ public:
     /// Phase 4 sorted pipeline: bind pixel accumulator buffer (binding=9).
     void bindPixelAccum(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
 
+    /// Phase 5: bind overflow buffer (binding=10) for spill-to-host.
+    void bindOverflowBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
         return *m_descriptorSets[frameIndex];

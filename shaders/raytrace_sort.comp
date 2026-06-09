@@ -56,6 +56,13 @@ layout(set = 0, binding = 7, std430) buffer RayBlock { PackedRay rays[]; } rayBu
 layout(set = 0, binding = 8, std430) buffer CounterBlock { uint head; uint tail; } counters;
 // Pixel accumulator: per-pixel color + wl integral (uints for atomic ops)
 layout(set = 0, binding = 9, std430) buffer PixelBlock { PixelEntry entries[]; } pixelAccum;
+// Overflow spill: when main buffer is full, excess children land here
+const uint OVERFLOW_SIZE = 2u * 1024u * 1024u;
+layout(set = 0, binding = 10, std430) buffer OverflowBlock {
+    uint overflowTail;
+    uint _ovPad0, _ovPad1, _ovPad2;
+    PackedRay overflowRays[];
+} overflowBuf;
 
 layout(push_constant) uniform PushConstants {
     vec3  camOrigin;   float _pad0;
@@ -187,10 +194,16 @@ const uint MAX_RAYS = 16u * 1024u * 1024u; // match C++ RaySorter::MAX_RAYS
 
 // ---- Spawn a new ray into the global buffer ----
 void spawnRay(PackedRay r) {
-    // Double-check: pre-check THEN verify slot after atomic (avoids buffer overflow)
     uint slot = atomicAdd(counters.tail, 1u);
-    if (slot >= MAX_RAYS) return;  // buffer full — drop ray silently
-    rayBuf.rays[slot] = r;
+    if (slot < MAX_RAYS) {
+        rayBuf.rays[slot] = r;
+    } else {
+        // Spill to host-visible overflow buffer — CPU drains after dispatch
+        uint ovSlot = atomicAdd(overflowBuf.overflowTail, 1u);
+        if (ovSlot < OVERFLOW_SIZE) {
+            overflowBuf.overflowRays[ovSlot] = r;
+        }
+    }
 }
 
 // =============================================================================

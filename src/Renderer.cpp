@@ -374,6 +374,11 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                                     m_raySorter->getCounterBuffer().size);
         pipeline.bindPixelAccum(0, *m_raySorter->getAccumBuffer().buffer,
                                  m_raySorter->getAccumBuffer().size);
+        pipeline.bindOverflowBuffer(0, *m_raySorter->getOverflowBuffer().buffer,
+                                     m_raySorter->getOverflowBuffer().size);
+
+        // Zero overflow counter before starting
+        m_raySorter->drainOverflow();
 
         // 5. Push constants
         struct SortPC {
@@ -402,10 +407,24 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         const uint32_t LOCAL = 64;
 
         std::cout << "[Sort] Starting multi-dispatch loop..." << std::endl;
-        for (int iter = 0; iter < 64; ++iter) {
+        for (int iter = 0; iter < 128; ++iter) {
+            // If buffer empty but stashed rays remain, inject them
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
-            if (tail <= head) break;
+            if (tail <= head) {
+                if (m_raySorter->stashedCount() == 0) break;
+                // Buffer drained — reset and inject stashed
+                head = 0;
+                m_raySorter->resetCounters();  // head=0, tail=0
+                uint32_t space = RaySorter::MAX_RAYS;
+                uint32_t injected = m_raySorter->injectStashed(
+                    std::min(space, 256u * 1024u));
+                if (injected == 0) break;
+                std::cout << "[Sort] iter " << iter << " reset+inject " << injected
+                          << " remain=" << m_raySorter->stashedCount() << std::endl;
+                tail = m_raySorter->getTailCount();
+                if (tail <= head) continue;
+            }
 
             m_raySorter->advanceHead(head);
             uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
@@ -433,12 +452,31 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             }
             iters++;
 
+            // Drain overflow to host stash
+            uint32_t overflowed = m_raySorter->drainOverflow();
+            if (overflowed > 0) {
+                m_raySorter->clampTail();  // tail went past MAX_RAYS from overflow spawns
+                std::cout << "[Sort] iter " << iter << " overflow " << overflowed
+                          << " stashed=" << m_raySorter->stashedCount() << std::endl;
+            }
+
             uint32_t newTail = m_raySorter->getTailCount();
-            if (newTail <= tail) break;
+            if (newTail <= tail && m_raySorter->stashedCount() == 0) break;
             head = tail;
+
+            // Inject stashed rays if room
+            if (m_raySorter->stashedCount() > 0 && newTail < RaySorter::MAX_RAYS * 3 / 4) {
+                uint32_t space = RaySorter::MAX_RAYS - newTail;
+                uint32_t injected = m_raySorter->injectStashed(std::min(space, 256u * 1024u));
+                if (injected > 0) {
+                    std::cout << "[Sort] iter " << iter << " inject " << injected
+                              << " remain=" << m_raySorter->stashedCount() << std::endl;
+                }
+            }
         }
         std::cout << "[Sort] " << iters << " iterations, tail="
-                  << m_raySorter->getTailCount() << std::endl;
+                  << m_raySorter->getTailCount()
+                  << " stashed=" << m_raySorter->stashedCount() << std::endl;
 
         // 7. Normalize pass
         {
