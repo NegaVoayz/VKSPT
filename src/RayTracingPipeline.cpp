@@ -78,10 +78,32 @@ void RayTracingPipeline::createDescriptorSetLayout() {
         10, vk::DescriptorType::eStorageBuffer,
         1, vk::ShaderStageFlagBits::eCompute
     );
+    vk::DescriptorSetLayoutBinding envMapBinding(
+        11, vk::DescriptorType::eCombinedImageSampler,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    vk::DescriptorSetLayoutBinding normalBinding(
+        12, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    vk::DescriptorSetLayoutBinding frameAccumBinding(
+        13, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    vk::DescriptorSetLayoutBinding normalImageBinding(
+        14, vk::DescriptorType::eStorageImage,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    vk::DescriptorSetLayoutBinding depthImageBinding(
+        15, vk::DescriptorType::eStorageImage,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
     std::vector<vk::DescriptorSetLayoutBinding> bindings = {
         tlasBinding, imageBinding, materialBinding, lightBinding,
         vertexBinding, indexBinding, rangeBinding,
-        rayBufBinding, counterBinding, accumBinding, overflowBinding
+        rayBufBinding, counterBinding, accumBinding, overflowBinding,
+        envMapBinding, normalBinding, frameAccumBinding,
+        normalImageBinding, depthImageBinding
     };
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo({}, bindings);
@@ -99,9 +121,10 @@ void RayTracingPipeline::createPipelineLayout() {
 void RayTracingPipeline::createDescriptorPool() {
     std::vector<vk::DescriptorPoolSize> poolSizes = {
         {vk::DescriptorType::eAccelerationStructureKHR, MAX_FRAMES_IN_FLIGHT},
-        {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT},
+        {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT * 3},
         {vk::DescriptorType::eUniformBuffer,            MAX_FRAMES_IN_FLIGHT * 2},
-        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 7},
+        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 9},
+        {vk::DescriptorType::eCombinedImageSampler,     MAX_FRAMES_IN_FLIGHT},
     };
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -287,6 +310,68 @@ void RayTracingPipeline::createNormalizePipeline(const std::string& spirvPath) {
     );
     vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
     m_normalizePipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
+}
+
+void RayTracingPipeline::bindEnvMap(uint32_t frameIndex, vk::ImageView view,
+                                     vk::Sampler sampler) {
+    vk::DescriptorImageInfo imageInfo(sampler, view, vk::ImageLayout::eShaderReadOnlyOptimal);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 11, 0, 1,
+        vk::DescriptorType::eCombinedImageSampler, &imageInfo
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindNormalSSBO(uint32_t frameIndex, vk::Buffer buf,
+                                         vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 12, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindAccumBuffer(uint32_t frameIndex, vk::Buffer buf,
+                                          vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 13, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindNormalImage(uint32_t frameIndex, vk::ImageView view) {
+    vk::DescriptorImageInfo imageInfo(nullptr, view, vk::ImageLayout::eGeneral);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 14, 0, 1,
+        vk::DescriptorType::eStorageImage, &imageInfo
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindDepthImage(uint32_t frameIndex, vk::ImageView view) {
+    vk::DescriptorImageInfo imageInfo(nullptr, view, vk::ImageLayout::eGeneral);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 15, 0, 1,
+        vk::DescriptorType::eStorageImage, &imageInfo
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::createDenoisePipeline(const std::string& spirvPath) {
+    auto shaderCode = readShaderFile(spirvPath);
+    vk::ShaderModuleCreateInfo shaderInfo(
+        {}, shaderCode.size() * sizeof(uint32_t), shaderCode.data()
+    );
+    m_denoiseShaderModule = vk::raii::ShaderModule(m_device, shaderInfo);
+
+    vk::PipelineShaderStageCreateInfo stageInfo(
+        {}, vk::ShaderStageFlagBits::eCompute, *m_denoiseShaderModule, "main"
+    );
+    vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
+    m_denoisePipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
 }
 
 void RayTracingPipeline::createClassifyPipeline(const std::string& spirvPath) {

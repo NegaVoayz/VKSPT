@@ -49,20 +49,77 @@ vk::raii::SurfaceKHR Window::createSurface(const vk::raii::Instance& instance) c
 }
 
 bool Window::pollEvents() {
+    // Reset per-frame deltas (key states persist across frames)
+    m_input.mouseDX = m_mouseAccumX;
+    m_input.mouseDY = m_mouseAccumY;
+    m_mouseAccumX = 0.0f;
+    m_mouseAccumY = 0.0f;
+    m_input.quitRequested = false;
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_EVENT_QUIT) {
+        switch (event.type) {
+        case SDL_EVENT_QUIT:
             m_open = false;
+            m_input.quitRequested = true;
             return false;
-        }
-        if (event.type == SDL_EVENT_KEY_DOWN) {
+
+        case SDL_EVENT_KEY_DOWN:
             if (event.key.key == SDLK_ESCAPE) {
                 m_open = false;
+                m_input.quitRequested = true;
                 return false;
             }
+            if (event.key.key == SDLK_W) m_input.keyW = true;
+            if (event.key.key == SDLK_A) m_input.keyA = true;
+            if (event.key.key == SDLK_S) m_input.keyS = true;
+            if (event.key.key == SDLK_D) m_input.keyD = true;
+            if (event.key.key == SDLK_LSHIFT) m_input.keyQ = true;
+            if (event.key.key == SDLK_SPACE)  m_input.keyE = true;
+            if (event.key.key == SDLK_T)      m_input.keyT = true;
+            break;
+
+        case SDL_EVENT_KEY_UP:
+            if (event.key.key == SDLK_W) m_input.keyW = false;
+            if (event.key.key == SDLK_A) m_input.keyA = false;
+            if (event.key.key == SDLK_S) m_input.keyS = false;
+            if (event.key.key == SDLK_D) m_input.keyD = false;
+            if (event.key.key == SDLK_LSHIFT) m_input.keyQ = false;
+            if (event.key.key == SDLK_SPACE)  m_input.keyE = false;
+            if (event.key.key == SDLK_T)      m_input.keyT = false;
+            break;
+
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                m_input.mouseLeft = true;
+                setRelativeMouse(true);
+            }
+            break;
+
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                m_input.mouseLeft = false;
+                setRelativeMouse(false);
+            }
+            break;
+
+        case SDL_EVENT_MOUSE_MOTION:
+            // Only accumulate when left button is held
+            if (m_input.mouseLeft) {
+                m_mouseAccumX += event.motion.xrel;
+                m_mouseAccumY += event.motion.yrel;
+            }
+            break;
+
+        default:
+            break;
         }
     }
     return m_open;
+}
+
+void Window::setRelativeMouse(bool enabled) {
+    SDL_SetWindowRelativeMouseMode(m_window, enabled);
 }
 
 std::pair<int, int> Window::getFramebufferSize() const {

@@ -6,8 +6,25 @@
 #include "VulkanContext.h"
 #include "Window.h"
 
+#include <glm/glm.hpp>
+
 #include <memory>
 #include <string>
+
+/// First-person camera state.
+struct Camera {
+    glm::vec3 position{ 0.0f, 0.0f, -5.0f };
+    float yaw   = 0.0f;     // radians, 0 = looking +Z
+    float pitch = 0.0f;     // radians, 0 = horizon
+
+    float moveSpeed = 3.0f;  // world units per second
+    float lookSpeed = 0.002f;
+
+    /// Compute the three camera basis vectors for push constants.
+    /// camW = forward, camU = right × fovTan × aspect, camV = up × fovTan
+    void computeVectors(float fovTan, float aspect,
+                        glm::vec3& camU, glm::vec3& camV, glm::vec3& camW) const;
+};
 
 /// Top-level application: owns all subsystems and runs the main loop.
 class Application {
@@ -34,7 +51,7 @@ private:
     std::unique_ptr<RayTracingPipeline>  m_pipeline;
     std::unique_ptr<Renderer>            m_renderer;
 
+    Camera   m_camera;
     uint32_t m_width;
     uint32_t m_height;
-    bool     m_firstFrame = true;
 };

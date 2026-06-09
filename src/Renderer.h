@@ -20,6 +20,14 @@ public:
         uint32_t height;
     };
 
+    /// Camera parameters passed from the application each frame.
+    struct CameraParams {
+        float origin[3];
+        float camU[3];
+        float camV[3];
+        float camW[3];
+    };
+
     Renderer(
         const vk::raii::Instance&       instance,
         const vk::raii::Device&         device,
@@ -38,10 +46,20 @@ public:
     Renderer& operator=(Renderer&&)      = delete;
 
     /// Dispatch one frame: compute → copy to swapchain → present.
-    void renderFrame(const AccelerationStructure& as, RayTracingPipeline& pipeline);
+    void renderFrame(const AccelerationStructure& as, RayTracingPipeline& pipeline,
+                     const CameraParams& camera = {});
 
     /// Save the current compute output as a PNG file.
     void saveOutputPNG(const std::string& path);
+
+    /// Capture a high-resolution screenshot by rendering offscreen at the given
+    /// resolution for capFrames frames, then saving to path. Blocks until done.
+    void captureScreenshot(const std::string& path,
+                           const AccelerationStructure& as,
+                           RayTracingPipeline& pipeline,
+                           const CameraParams& camera,
+                           uint32_t capWidth, uint32_t capHeight,
+                           uint32_t capFrames);
 
     vk::Extent2D getExtent() const { return {m_config.width, m_config.height}; }
 
@@ -101,6 +119,26 @@ private:
     float                        m_timestampPeriod = 1.0f;  // nanoseconds per tick
     uint64_t                     m_frameCount = 0;
     bool                         m_hasTimestamps = false;
+
+    // Phase 6: Cross-frame accumulation for progressive rendering
+    GPUBuffer   m_accumBuffer;        // device-local SSBO, width×height×4 floats (r,g,b,count)
+    GPUBuffer   m_accumStaging;       // staging for zero-reset
+    CameraParams m_lastCamera{};      // previous frame camera (detect movement → reset)
+    int          m_accumFrameCount = 0;
+
+    /// Zero-fill the accumulation buffer via staging copy.
+    void resetAccumBuffer();
+
+    // Phase 6.5: G-buffer storage images for denoising
+    vk::raii::Image        m_normalImage   = nullptr;
+    vk::raii::DeviceMemory m_normalMemory  = nullptr;
+    vk::raii::ImageView    m_normalView    = nullptr;
+    vk::raii::Image        m_depthImage    = nullptr;
+    vk::raii::DeviceMemory m_depthMemory   = nullptr;
+    vk::raii::ImageView    m_depthView     = nullptr;
+
+    /// Create G-buffer storage images (rgba16f normals, r32f depth).
+    void createGBufferImages();
 
     // Phase 4: Sorted ray tracing pipeline
     std::unique_ptr<RaySorter>   m_raySorter;

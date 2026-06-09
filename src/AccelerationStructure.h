@@ -12,12 +12,13 @@
 class AccelerationStructure {
 public:
     /// Maximum number of materials in the UBO (matches shader array size).
-    static constexpr uint32_t MAX_MATERIALS = 8;
+    static constexpr uint32_t MAX_MATERIALS = 16;
 
-    /// Input vertex data (positions only, interleaved as xyz floats).
+    /// Input vertex data (positions and normals, interleaved as xyz floats).
     struct MeshData {
-        std::vector<float>    vertices;   // interleaved xyz
-        std::vector<uint32_t> indices;    // triangle indices
+        std::vector<float>    vertices;   // interleaved xyz positions
+        std::vector<uint32_t> indices;    // triangle indices (3 per triangle)
+        std::vector<float>    normals;    // interleaved xyz normals (same indexing as vertices; empty = use geometric)
     };
 
     /// Descriptor for a single TLAS instance.
@@ -25,6 +26,12 @@ public:
         MeshData mesh;
         uint32_t customIndex  = 0;   // rayQueryGetIntersectionInstanceCustomIndexEXT
         uint32_t materialID   = 0;   // index into material UBO
+        bool     hasNormals   = false; // per-vertex normals available for smooth interpolation
+        float    transform[3][4] = {  // row-major 3×4 affine transform
+            {1,0,0,0},
+            {0,1,0,0},
+            {0,0,1,0}
+        };
     };
 
     /// CPU-side material data uploaded to the GPU UBO.
@@ -42,7 +49,7 @@ public:
     static constexpr uint32_t MAX_LIGHTS = 4;
 
     /// Maximum number of TLAS instances (must match shader).
-    static constexpr uint32_t MAX_INSTANCES = 8;
+    static constexpr uint32_t MAX_INSTANCES = 16;
 
     /// CPU-side light data. Must match GpuLight in raytrace.comp (std140).
     /// Each light holds 16 SPD samples packed as 4 vec4s (64 bytes).
@@ -103,6 +110,9 @@ public:
     /// Get the persistent index data SSBO for shader normal computation.
     const GPUBuffer& getIndexDataBuffer() const { return m_indexDataBuffer; }
 
+    /// Get the persistent normal data SSBO for smooth normal interpolation.
+    const GPUBuffer& getNormalDataBuffer() const { return m_normalDataBuffer; }
+
     /// Get the instance range SSBO for shader vertex lookup.
     const GPUBuffer& getRangeBuffer() const { return m_rangeBuffer; }
 
@@ -111,6 +121,16 @@ public:
 
     /// Number of materials stored in the UBO.
     uint32_t getMaterialCount() const { return m_materialCount; }
+
+    /// Load environment map from a JPEG/PNG file, upload to GPU.
+    /// Creates VkImage + VkImageView + VkSampler used as binding 11.
+    void loadEnvMap(const std::string& path);
+
+    /// Get the environment map image view.
+    vk::ImageView getEnvMapView() const { return *m_envMapView; }
+
+    /// Get the environment map sampler.
+    vk::Sampler getEnvMapSampler() const { return *m_envMapSampler; }
 
 private:
     void createCommandPool(uint32_t computeQueueFamily);
@@ -158,8 +178,17 @@ private:
     // Persistent geometry SSBOs (kept alive for shader normal computation)
     GPUBuffer                m_vertexDataBuffer;   // concatenated vertex positions (float3)
     GPUBuffer                m_indexDataBuffer;    // concatenated triangle indices (uint)
+    GPUBuffer                m_normalDataBuffer;   // concatenated vertex normals (float3)
     GPUBuffer                m_rangeBuffer;        // per-instance vertex/index ranges
     uint32_t                 m_instanceCount = 0;
     std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
     std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
+    std::vector<std::vector<float>>    m_stagedNormals;    // per-instance vertex normal data
+    std::vector<std::array<std::array<float,4>,3>> m_instanceTransforms;  // per-instance 3×4
+
+    // Environment map texture
+    vk::raii::Image        m_envMapImage    = nullptr;
+    vk::raii::DeviceMemory m_envMapMemory   = nullptr;
+    vk::raii::ImageView    m_envMapView     = nullptr;
+    vk::raii::Sampler      m_envMapSampler  = nullptr;
 };

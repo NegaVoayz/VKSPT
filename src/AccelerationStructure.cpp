@@ -1,6 +1,10 @@
 #include "AccelerationStructure.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
 
 AccelerationStructure::AccelerationStructure(
@@ -53,9 +57,10 @@ void AccelerationStructure::endSingleTimeCommands(vk::raii::CommandBuffer& cmdBu
 // -----------------------------------------------------------------------------
 AccelerationStructure::BlasResult
 AccelerationStructure::buildSingleBLAS(const MeshData& mesh) {
-    // Save vertex/index data for later SSBO upload (shader normal computation)
+    // Save vertex/index/normal data for later SSBO upload (shader normal computation)
     m_stagedVertices.push_back(mesh.vertices);
     m_stagedIndices.push_back(mesh.indices);
+    m_stagedNormals.push_back(mesh.normals);
 
     auto cmdBuf = beginSingleTimeCommands();
 
@@ -200,18 +205,19 @@ void AccelerationStructure::uploadLightBuffer(const GpuLight& skyLight) {
 // -----------------------------------------------------------------------------
 void AccelerationStructure::uploadVertexSSBO() {
     // Build SoA (struct-of-arrays) layout matching shader's InstanceRangeBlock:
-    //   uint vtxOffset[8]; uint vtxCount[8]; uint idxOffset[8]; uint idxCount[8]; uint materialID[8];
-    // Total: 5 × 8 = 40 uints = 160 bytes.
-    std::vector<uint32_t> rangeData(5 * MAX_INSTANCES, 0);
+    //   6 arrays × MAX_INSTANCES uints (now includes useSmoothNormals).
+    std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);
     auto* vtxOff    = &rangeData[0 * MAX_INSTANCES];
     auto* vtxCnt    = &rangeData[1 * MAX_INSTANCES];
     auto* idxOff    = &rangeData[2 * MAX_INSTANCES];
     auto* idxCnt    = &rangeData[3 * MAX_INSTANCES];
     auto* matIDs    = &rangeData[4 * MAX_INSTANCES];
+    auto* smoothN   = &rangeData[5 * MAX_INSTANCES];
 
     // Concatenate all vertex and index data across instances
     std::vector<float>    allVertices;
     std::vector<uint32_t> allIndices;
+    std::vector<float>    allNormals;
 
     for (size_t inst = 0; inst < m_stagedVertices.size() && inst < MAX_INSTANCES; ++inst) {
         vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
@@ -219,11 +225,16 @@ void AccelerationStructure::uploadVertexSSBO() {
         idxOff[inst] = static_cast<uint32_t>(allIndices.size());
         idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
         matIDs[inst] = 0;  // default material; caller can update for specific instances
+        smoothN[inst] = 0;  // Phase 1 path: no smooth normals
 
         allVertices.insert(allVertices.end(),
             m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
         allIndices.insert(allIndices.end(),
             m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
+        if (inst < m_stagedNormals.size() && !m_stagedNormals[inst].empty()) {
+            allNormals.insert(allNormals.end(),
+                m_stagedNormals[inst].begin(), m_stagedNormals[inst].end());
+        }
     }
 
     // Upload vertex data SSBO
@@ -248,7 +259,20 @@ void AccelerationStructure::uploadVertexSSBO() {
         );
     }
 
-    // Upload instance range SSBO (SoA layout, 160 bytes)
+    // Upload normal data SSBO
+    if (!allNormals.empty()) {
+        m_normalDataBuffer = GPUBuffer::createStaging(m_device, allNormals.data(),
+            allNormals.size() * sizeof(float),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    } else {
+        float dummy[4] = {0, 1, 0, 0};
+        m_normalDataBuffer = GPUBuffer::createStaging(m_device, dummy, sizeof(dummy),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    }
+
+    // Upload instance range SSBO
     vk::DeviceSize rangeSize = rangeData.size() * sizeof(uint32_t);
     m_rangeBuffer = GPUBuffer::createStaging(
         m_device, rangeData.data(), rangeSize,
@@ -268,10 +292,16 @@ void AccelerationStructure::buildTLAS(uint32_t instanceCount) {
     std::vector<VkAccelerationStructureInstanceKHR> instances(instanceCount);
     for (uint32_t i = 0; i < instanceCount; ++i) {
         VkAccelerationStructureInstanceKHR& inst = instances[i];
-        // Identity transform
-        std::memset(&inst.transform, 0, sizeof(inst.transform));
-        for (int r = 0; r < 3; ++r) {
-            inst.transform.matrix[r][r] = 1.0f;
+        // Use the per-instance 3×4 row-major transform
+        if (i < m_instanceTransforms.size()) {
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 4; ++c)
+                    inst.transform.matrix[r][c] = m_instanceTransforms[i][r][c];
+        } else {
+            // Identity fallback
+            std::memset(&inst.transform, 0, sizeof(inst.transform));
+            for (int r = 0; r < 3; ++r)
+                inst.transform.matrix[r][r] = 1.0f;
         }
         inst.instanceCustomIndex                    = i;   // used as face/material index in shader
         inst.mask                                   = 0xFF;
@@ -384,24 +414,35 @@ void AccelerationStructure::buildScene(
     m_instanceCount = static_cast<uint32_t>(instances.size());
     m_stagedVertices.clear();
     m_stagedIndices.clear();
+    m_stagedNormals.clear();
     m_blasList.clear();
+    m_instanceTransforms.clear();
 
     for (const auto& inst : instances) {
         m_blasList.push_back(buildSingleBLAS(inst.mesh));
+        m_instanceTransforms.push_back(
+            std::array<std::array<float,4>,3>{{
+                {inst.transform[0][0], inst.transform[0][1], inst.transform[0][2], inst.transform[0][3]},
+                {inst.transform[1][0], inst.transform[1][1], inst.transform[1][2], inst.transform[1][3]},
+                {inst.transform[2][0], inst.transform[2][1], inst.transform[2][2], inst.transform[2][3]}
+            }}
+        );
     }
 
     buildTLAS(m_instanceCount);
 
-    // Build range data with correct material IDs
-    std::vector<uint32_t> rangeData(5 * MAX_INSTANCES, 0);
-    auto* vtxOff = &rangeData[0 * MAX_INSTANCES];
-    auto* vtxCnt = &rangeData[1 * MAX_INSTANCES];
-    auto* idxOff = &rangeData[2 * MAX_INSTANCES];
-    auto* idxCnt = &rangeData[3 * MAX_INSTANCES];
-    auto* matIDs = &rangeData[4 * MAX_INSTANCES];
+    // Build range data with correct material IDs (6 arrays now: +useSmoothNormals)
+    std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);
+    auto* vtxOff  = &rangeData[0 * MAX_INSTANCES];
+    auto* vtxCnt  = &rangeData[1 * MAX_INSTANCES];
+    auto* idxOff  = &rangeData[2 * MAX_INSTANCES];
+    auto* idxCnt  = &rangeData[3 * MAX_INSTANCES];
+    auto* matIDs  = &rangeData[4 * MAX_INSTANCES];
+    auto* smoothN = &rangeData[5 * MAX_INSTANCES];
 
     std::vector<float>    allVertices;
     std::vector<uint32_t> allIndices;
+    std::vector<float>    allNormals;
 
     for (size_t inst = 0; inst < m_stagedVertices.size(); ++inst) {
         vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
@@ -409,11 +450,18 @@ void AccelerationStructure::buildScene(
         idxOff[inst] = static_cast<uint32_t>(allIndices.size());
         idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
         matIDs[inst] = instances[inst].materialID;
+        smoothN[inst] = (instances[inst].hasNormals &&
+                         !m_stagedNormals.empty() &&
+                         !m_stagedNormals[inst].empty()) ? 1u : 0u;
 
         allVertices.insert(allVertices.end(),
             m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
         allIndices.insert(allIndices.end(),
             m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
+        if (inst < m_stagedNormals.size()) {
+            allNormals.insert(allNormals.end(),
+                m_stagedNormals[inst].begin(), m_stagedNormals[inst].end());
+        }
     }
 
     // Upload vertex SSBO
@@ -430,6 +478,20 @@ void AccelerationStructure::buildScene(
             vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
             m_physDevice);
     }
+    // Upload normal SSBO (same indexing as vertex SSBO)
+    // Always create a valid buffer to satisfy binding 12 (Vulkan requires non-null)
+    if (!allNormals.empty()) {
+        m_normalDataBuffer = GPUBuffer::createStaging(m_device, allNormals.data(),
+            allNormals.size() * sizeof(float),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    } else {
+        // Dummy 4-float buffer so the binding is never null
+        float dummy[4] = {0, 1, 0, 0};
+        m_normalDataBuffer = GPUBuffer::createStaging(m_device, dummy, sizeof(dummy),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    }
     // Upload range SSBO
     m_rangeBuffer = GPUBuffer::createStaging(m_device, rangeData.data(),
         rangeData.size() * sizeof(uint32_t),
@@ -438,4 +500,121 @@ void AccelerationStructure::buildScene(
 
     uploadMaterialBuffer(materialData);
     uploadLightBuffer(skyLight);
+}
+
+// -----------------------------------------------------------------------------
+// Environment map loading
+// -----------------------------------------------------------------------------
+void AccelerationStructure::loadEnvMap(const std::string& path) {
+    int width, height, channels;
+    stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    if (!pixels) {
+        throw std::runtime_error("Failed to load env map: " + path);
+    }
+
+    vk::DeviceSize imgSize = static_cast<vk::DeviceSize>(width) * height * 4;
+
+    // Staging buffer for pixel data
+    auto stagingBuf = GPUBuffer::createStaging(
+        m_device, pixels, imgSize,
+        vk::BufferUsageFlagBits::eTransferSrc, m_physDevice
+    );
+    stbi_image_free(pixels);
+
+    // Create image
+    vk::ImageCreateInfo imgInfo(
+        {}, vk::ImageType::e2D, vk::Format::eR8G8B8A8Srgb,
+        vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
+        1, 1, vk::SampleCountFlagBits::e1,
+        vk::ImageTiling::eOptimal,
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+        vk::SharingMode::eExclusive
+    );
+    m_envMapImage = vk::raii::Image(m_device, imgInfo);
+
+    auto memReqs = m_envMapImage.getMemoryRequirements();
+    uint32_t memTypeIdx = 0;
+    auto memProps = m_physDevice.getMemoryProperties();
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+        if ((memReqs.memoryTypeBits & (1u << i)) &&
+            (memProps.memoryTypes[i].propertyFlags &
+             vk::MemoryPropertyFlagBits::eDeviceLocal)) {
+            memTypeIdx = i;
+            break;
+        }
+    }
+    vk::MemoryAllocateInfo memInfo(memReqs.size, memTypeIdx);
+    m_envMapMemory = vk::raii::DeviceMemory(m_device, memInfo);
+    m_envMapImage.bindMemory(*m_envMapMemory, 0);
+
+    // Copy staging → image with layout transitions
+    {
+        auto cmdBuf = beginSingleTimeCommands();
+
+        // Transition: undefined → transfer_dst
+        vk::ImageMemoryBarrier barrier1(
+            {}, vk::AccessFlagBits::eTransferWrite,
+            vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *m_envMapImage,
+            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
+        );
+        cmdBuf.pipelineBarrier(
+            vk::PipelineStageFlagBits::eTopOfPipe,
+            vk::PipelineStageFlagBits::eTransfer,
+            {}, {}, {}, barrier1
+        );
+
+        vk::BufferImageCopy copyRgn(
+            0, 0, 0,
+            vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
+            {0, 0, 0},
+            {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}
+        );
+        cmdBuf.copyBufferToImage(
+            *stagingBuf.buffer, *m_envMapImage,
+            vk::ImageLayout::eTransferDstOptimal, copyRgn
+        );
+
+        // Transition: transfer_dst → shader_read_only
+        vk::ImageMemoryBarrier barrier2(
+            vk::AccessFlagBits::eTransferWrite,
+            vk::AccessFlagBits::eShaderRead,
+            vk::ImageLayout::eTransferDstOptimal,
+            vk::ImageLayout::eShaderReadOnlyOptimal,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *m_envMapImage,
+            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
+        );
+        cmdBuf.pipelineBarrier(
+            vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eComputeShader,
+            {}, {}, {}, barrier2
+        );
+
+        endSingleTimeCommands(cmdBuf);
+    }
+
+    // Image view
+    vk::ImageViewCreateInfo viewInfo(
+        {}, *m_envMapImage, vk::ImageViewType::e2D,
+        vk::Format::eR8G8B8A8Srgb,
+        vk::ComponentMapping{},
+        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
+    );
+    m_envMapView = vk::raii::ImageView(m_device, viewInfo);
+
+    // Sampler
+    vk::SamplerCreateInfo samplerInfo(
+        {}, vk::Filter::eLinear, vk::Filter::eLinear,
+        vk::SamplerMipmapMode::eLinear,
+        vk::SamplerAddressMode::eRepeat,
+        vk::SamplerAddressMode::eClampToEdge,
+        vk::SamplerAddressMode::eClampToEdge,
+        0.0f, false, 1.0f, false, vk::CompareOp::eNever,
+        0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack
+    );
+    m_envMapSampler = vk::raii::Sampler(m_device, samplerInfo);
+
+    std::cout << "  Env map loaded: " << path << " (" << width << "x" << height << ")" << std::endl;
 }

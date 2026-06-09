@@ -82,6 +82,27 @@ public:
     /// Phase 5: bind overflow buffer (binding=10) for spill-to-host.
     void bindOverflowBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
 
+    /// Phase 5: bind environment map (binding=11) combined image sampler.
+    void bindEnvMap(uint32_t frameIndex, vk::ImageView view, vk::Sampler sampler);
+
+    /// Phase 5.5: bind normal data SSBO (binding=12) for smooth interpolation.
+    void bindNormalSSBO(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
+    /// Phase 6: bind cross-frame accumulation buffer (binding=13).
+    void bindAccumBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
+    /// Phase 6.5: bind G-buffer normal storage image (binding=14, rgba16f).
+    void bindNormalImage(uint32_t frameIndex, vk::ImageView view);
+
+    /// Phase 6.5: bind G-buffer depth storage image (binding=15, r32f).
+    void bindDepthImage(uint32_t frameIndex, vk::ImageView view);
+
+    /// Phase 6.5: Load denoise SPIR-V and create denoise compute pipeline.
+    void createDenoisePipeline(const std::string& spirvPath);
+
+    /// Get denoise pipeline.
+    vk::Pipeline getDenoisePipeline() const { return *m_denoisePipeline; }
+
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
         return *m_descriptorSets[frameIndex];
@@ -118,4 +139,6 @@ private:
     vk::raii::Pipeline                               m_classifyPipeline     = nullptr;
     vk::raii::ShaderModule                           m_processShaderModule  = nullptr;
     vk::raii::Pipeline                               m_processPipeline      = nullptr;
+    vk::raii::ShaderModule                           m_denoiseShaderModule  = nullptr;
+    vk::raii::Pipeline                               m_denoisePipeline      = nullptr;
 };

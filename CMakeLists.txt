@@ -87,6 +87,7 @@ compile_shader(raytrace_sort_shader raytrace_sort.comp raytrace_sort.comp.spv)
 compile_shader(normalize_shader normalize.comp normalize.comp.spv)
 compile_shader(classify_shader raytrace_classify.comp raytrace_classify.comp.spv)
 compile_shader(process_shader raytrace_process.comp raytrace_process.comp.spv)
+compile_shader(denoise_shader denoise.comp denoise.comp.spv)
 
 # -----------------------------------------------------------------------------
 # Main executable
@@ -101,6 +102,7 @@ add_executable(vkrt
     src/RayTracingPipeline.cpp
     src/Renderer.cpp
     src/RaySorter.cpp
+    src/SceneConfig.cpp
     src/Spectral.h
 )
 
@@ -120,7 +122,7 @@ target_link_libraries(vkrt PRIVATE
 )
 
 # Ensure shaders are compiled before the executable
-add_dependencies(vkrt raytrace_shader raytrace_sort_shader normalize_shader classify_shader process_shader)
+add_dependencies(vkrt raytrace_shader raytrace_sort_shader normalize_shader classify_shader process_shader denoise_shader)
 
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkrt POST_BUILD
@@ -139,6 +141,9 @@ add_custom_command(TARGET vkrt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/raytrace_process.comp.spv"
         "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace_process.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/denoise.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/denoise.comp.spv"
     COMMENT "Copying shaders to output directory"
 )
 

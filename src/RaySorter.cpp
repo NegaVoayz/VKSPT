@@ -141,7 +141,7 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
                 r.lastSplit[0] = 0.0f;
                 r.lastSplit[1] = 0.0f;
                 r.lastSplit[2] = 0.0f;
-                r.energy     = 1.0f / float(m_spp);  // total per-pixel = 1.0 across all SPP samples
+                r.throughput = 1.0f / float(m_spp);  // total per-pixel = 1.0 across all SPP samples
                 r.dispersion[0] = 0.0f;
                 r.dispersion[1] = 0.0f;
                 r.dispersion[2] = 0.0f;
@@ -150,9 +150,6 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
                 r.pixelIndex = int(py * m_width + px);
                 r.rayAction  = 0;
                 r.insideGlass    = 0;
-                r.fromReflection = 0;
-                r.hadTIR         = 0;
-                r.hadFresnelRefl = 0;
                 r._pad = 0;
             }
         }
