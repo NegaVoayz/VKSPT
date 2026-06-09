@@ -168,7 +168,7 @@ layout(push_constant) uniform PushConstants {
     vec3  camW;        float _pad3;
     int   samplesPerPixel, maxBounces, materialCount;
     float fovTan, splitMult, forceSplitWidth;
-    int   scatterSamples; float _pad4;
+    int   scatterSamples; float mergeThreshold;
 } params;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -227,11 +227,9 @@ vec3 cosineSampleHemisphere(vec3 N, inout uint seed) {
 
 /// Compute chromatic spread: difference in refraction direction between the
 /// two wavelength extremes, orthogonalised to the center direction.
-/// `iorStart`, `iorEnd` are the IORs of the *transmitted* medium at λ_start, λ_end.
-/// `insideGlass` controls eta (glass→air flips the ratio).
-vec3 computeDispersion(vec3 I, vec3 N, float iorStart, float iorEnd, bool insideGlass) {
-    float etaStart = insideGlass ? iorStart : (1.0 / iorStart);
-    float etaEnd   = insideGlass ? iorEnd   : (1.0 / iorEnd);
+/// `etaStart`, `etaEnd` are the PRE-COMPUTED refractive indices (already accounting
+/// for insideGlass) of the *transmitted* medium at λ_start, λ_end.
+vec3 computeDispersion(vec3 I, vec3 N, float etaStart, float etaEnd) {
     vec3 Tstart, Tend;
     bool okS = refractDir(I, N, etaStart, Tstart);
     bool okE = refractDir(I, N, etaEnd,   Tend);
@@ -493,19 +491,23 @@ void main() {
                 }
 
                 int lamMid = (lamStart + lamEnd) / 2;
-                float ior_mid   = cauchyIOR(mat, float(lamMid));
                 float ior_start = cauchyIOR(mat, float(lamStart));
                 float ior_end   = cauchyIOR(mat, float(lamEnd));
+                float ior_mid   = cauchyIOR(mat, float(lamMid));
+
+                // Precompute etas (already account for insideGlass)
+                float eta_start = inGlass ? ior_start : (1.0 / ior_start);
+                float eta_end   = inGlass ? ior_end   : (1.0 / ior_end);
+                float eta_mid   = inGlass ? ior_mid   : (1.0 / ior_mid);
 
                 // Volume absorption (Beer-Lambert): energy *= exp(-α(λ_mid) × tHit)
                 float alphaMid  = computeAbsorption(mat, float(lamMid));
                 energy *= exp(-alphaMid * tHit);
 
-                vec3 newDisp = computeDispersion(rayD, nrm, ior_start, ior_end, inGlass);
-                float eta = inGlass ? ior_mid : (1.0 / ior_mid);
+                vec3 newDisp = computeDispersion(rayD, nrm, eta_start, eta_end);
 
                 vec3 newDir;
-                if (refractDir(rayD, nrm, eta, newDir)) {
+                if (refractDir(rayD, nrm, eta_mid, newDir)) {
                     // ---- Refraction succeeded ----
                     // Fresnel: split energy between reflection and transmission
                     float cosTheta = abs(dot(rayD, nrm));
@@ -541,8 +543,8 @@ void main() {
                     lastSplit = rotateToNewFrame(lastSplit, rayD, newDir);
                     disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
 
-                    // Estimate distance to next surface (conservative; fine-tuned)
-                    float estDist = 1.5;
+                    // Dynamic distance estimate: use actual tHit as prediction for next segment
+                    float estDist = tHit;
                     vec3  predictedSep = lastSplit + disp * estDist;
                     float sepMag       = length(predictedSep);
                     // Pixel angular width at hit distance (FOV-aware)
@@ -563,8 +565,17 @@ void main() {
                     if (length(splitOffsetDir) < 0.0001) splitOffsetDir = vec3(1,0,0);
                     float parentMidWl = float(lamStart + lamEnd) * 0.5;
                     float offsetScaleMain = 0.0002;
+                    // Direction similarity: if violet/red refraction are nearly parallel,
+                    // splitting adds no visible dispersion → merge the band instead.
+                    vec3 dirV, dirR;
+                    bool dirsDiffer = true;
+                    if (refractDir(rayD, nrm, eta_start, dirV) && refractDir(rayD, nrm, eta_end, dirR)) {
+                        dirsDiffer = (abs(dot(dirV, dirR)) < params.mergeThreshold);
+                    }
+
                     bool forceWide = (int(params.forceSplitWidth) > 0) && (lamRange > int(params.forceSplitWidth));
-                    if ((sepMag > pixThresh || alphaVar > 0.05 || forceWide)
+                    if (dirsDiffer &&
+                        (sepMag > pixThresh || alphaVar > 0.05 || forceWide)
                         && lamRange >= 10 &&
                         energy >= 0.05 && generation < 6) {
                         didSplit = true;

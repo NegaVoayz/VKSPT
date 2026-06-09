@@ -26,6 +26,16 @@ Renderer::Renderer(
     createOutputImage();
     createCommandBuffers();
     createSyncObjects();
+
+    // Timestamp queries for GPU profiling
+    auto queueProps = physDevice.getQueueFamilyProperties();
+    auto& qf = queueProps[computeQueueFamily];
+    if (qf.timestampValidBits > 0) {
+        vk::QueryPoolCreateInfo qpInfo({}, vk::QueryType::eTimestamp, MAX_FRAMES_IN_FLIGHT * TIMESTAMPS_PER_FRAME);
+        m_timestampPool   = vk::raii::QueryPool(device, qpInfo);
+        m_timestampPeriod = physDevice.getProperties().limits.timestampPeriod; // nanoseconds
+        m_hasTimestamps   = true;
+    }
 }
 
 Renderer::~Renderer() {
@@ -337,7 +347,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         float splitMult;
         float forceSplitWidth;
         int   scatterSamples;
-        float _padFinal;
+        float mergeThreshold;
     } pc{};
     pc.camOrigin[0] = 0.0f;  pc.camOrigin[1] = 0.0f;  pc.camOrigin[2] = -5.0f;
     float aspect = float(m_config.width) / float(m_config.height);
@@ -352,6 +362,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.splitMult       = 1.0f;  // split threshold multiplier
     pc.forceSplitWidth = 40.0f;  // force-split bands wider than 40nm
     pc.scatterSamples  = 2;     // Lambertian multi-scatter rays per hit
+    pc.mergeThreshold  = 0.9999f; // skip split when violet/red dirs nearly identical
 
     cmdBuf.pushConstants<PushConstants>(
         pipeline.getPipelineLayout(),
@@ -359,10 +370,23 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         0, pc
     );
 
+    // Timestamp: reset + write start
+    if (m_hasTimestamps) {
+        cmdBuf.resetQueryPool(*m_timestampPool, frameIdx * TIMESTAMPS_PER_FRAME, TIMESTAMPS_PER_FRAME);
+        cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eComputeShader,
+                              *m_timestampPool, frameIdx * TIMESTAMPS_PER_FRAME);
+    }
+
     // Dispatch compute
     uint32_t groupsX = (m_config.width  + 7) / 8;
     uint32_t groupsY = (m_config.height + 7) / 8;
     cmdBuf.dispatch(groupsX, groupsY, 1);
+
+    // Timestamp: write end
+    if (m_hasTimestamps) {
+        cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eComputeShader,
+                              *m_timestampPool, frameIdx * TIMESTAMPS_PER_FRAME + 1);
+    }
 
     // Barrier: compute write → transfer read (keep GENERAL layout)
     vk::ImageMemoryBarrier outputBarrier(
@@ -426,6 +450,26 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     // Subsequent frames overlap CPU/GPU via fences waited at start of next frame.
     if (m_currentFrame == 0) {
         m_device.waitForFences(*m_inFlightFences[frameIdx], true, UINT64_MAX);
+    }
+
+    // Timestamp readback & reporting every 60 frames
+    if (m_hasTimestamps && m_currentFrame >= 2) {
+        uint32_t prevFrame = (m_currentFrame - 1) % MAX_FRAMES_IN_FLIGHT;
+        uint64_t results[TIMESTAMPS_PER_FRAME];
+        vk::Result r = static_cast<vk::Device>(*m_device).getQueryPoolResults(
+            *m_timestampPool,
+            prevFrame * TIMESTAMPS_PER_FRAME, TIMESTAMPS_PER_FRAME,
+            sizeof(results), results, sizeof(uint64_t),
+            vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait
+        );
+        if (r == vk::Result::eSuccess && results[0] > 0 && results[1] > results[0]) {
+            float gpuTimeMs = float(results[1] - results[0]) * m_timestampPeriod / 1e6f;
+            m_frameCount++;
+            if (m_frameCount % 60 == 0) {
+                std::cout << "[GPU] frame " << m_frameCount
+                          << " compute time: " << gpuTimeMs << " ms" << std::endl;
+            }
+        }
     }
 
     m_currentFrame++;

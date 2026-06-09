@@ -89,4 +89,11 @@ private:
     std::vector<vk::raii::Semaphore> m_imageAvailableSem;   // MAX_FRAMES_IN_FLIGHT
     std::vector<vk::raii::Semaphore> m_renderFinishedSem;   // swapchainImageCount
     std::vector<vk::raii::Fence>     m_inFlightFences;       // MAX_FRAMES_IN_FLIGHT
+
+    // Timestamp queries for GPU profiling
+    static constexpr uint32_t TIMESTAMPS_PER_FRAME = 2;  // start + end
+    vk::raii::QueryPool          m_timestampPool = nullptr;
+    float                        m_timestampPeriod = 1.0f;  // nanoseconds per tick
+    uint64_t                     m_frameCount = 0;
+    bool                         m_hasTimestamps = false;
 };
