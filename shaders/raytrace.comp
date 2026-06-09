@@ -995,9 +995,31 @@ void main() {
                 }
             }
             else if (matType == MATERIAL_METAL) {
-                // Metal: specular reflection with albedo-tinted throughput loss
-                vec3 metalAlbedo = mat.albedo.rgb;
-                throughput *= dot(metalAlbedo, vec3(0.333));  // average reflectance
+                // Metal: wavelength-selective specular reflection.
+                // Fit reflectance R(λ) to 2nd-order Legendre from RGB albedo:
+                //   R(380nm) = albedo.b,  R(580nm) = albedo.g,  R(780nm) = albedo.r
+                vec3 ma = mat.albedo.rgb;
+                float r0 = ma.g + (ma.r + ma.b - 2.0*ma.g) / 6.0;
+                float r1 = (ma.r - ma.b) * 0.5;
+                float r2 = (ma.r + ma.b - 2.0*ma.g) / 3.0;
+
+                // Multiply decay D(x) by reflectance R(x) via 3-point quadrature
+                float lamMidF = float(lamStart + lamEnd) * 0.5;
+                float halfWF  = float(lamEnd - lamStart) * 0.5;
+                const float SQRT_3_5 = 0.77459667;
+                const float W0 = 5.0/9.0, W1 = 8.0/9.0, W2 = 5.0/9.0;
+                float newD[3];
+                for (int k = 0; k < 3; k++) {
+                    float xk = (k == 0) ? -SQRT_3_5 : ((k == 1) ? 0.0 : SQRT_3_5);
+                    float Dk = evalDecay(throughput, decayC1, decayC2, xk);
+                    float Rk = evalDecay(r0, r1, r2, xk);
+                    newD[k] = Dk * Rk;
+                }
+                throughput = 0.5 * (W0*newD[0] + W1*newD[1] + W2*newD[2]);
+                decayC1    = 1.5 * (W0*newD[0]*(-SQRT_3_5) + W2*newD[2]*SQRT_3_5);
+                float p2_0 = 0.4, p2_1 = -0.5, p2_2 = 0.4;
+                decayC2    = 2.5 * (W0*newD[0]*p2_0 + W1*newD[1]*p2_1 + W2*newD[2]*p2_2);
+
                 vec3 reflDir = reflectDir(rayD, nrm);
                 rayD       = reflDir;
                 rayO       = pos + reflDir * 0.01;
