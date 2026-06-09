@@ -70,10 +70,14 @@ void RayTracingPipeline::createDescriptorSetLayout() {
         8, vk::DescriptorType::eStorageBuffer,
         1, vk::ShaderStageFlagBits::eCompute
     );
+    vk::DescriptorSetLayoutBinding accumBinding(
+        9, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
     std::vector<vk::DescriptorSetLayoutBinding> bindings = {
         tlasBinding, imageBinding, materialBinding, lightBinding,
         vertexBinding, indexBinding, rangeBinding,
-        rayBufBinding, counterBinding
+        rayBufBinding, counterBinding, accumBinding
     };
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo({}, bindings);
@@ -93,7 +97,7 @@ void RayTracingPipeline::createDescriptorPool() {
         {vk::DescriptorType::eAccelerationStructureKHR, MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eUniformBuffer,            MAX_FRAMES_IN_FLIGHT * 2},
-        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 5},
+        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 6},
     };
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -231,4 +235,28 @@ void RayTracingPipeline::bindCounterBuffer(uint32_t frameIndex, vk::Buffer buf,
         vk::DescriptorType::eStorageBuffer, nullptr, &info
     );
     m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindPixelAccum(uint32_t frameIndex, vk::Buffer buf,
+                                         vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 9, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::createSortPipeline(const std::string& spirvPath) {
+    auto shaderCode = readShaderFile(spirvPath);
+    vk::ShaderModuleCreateInfo shaderInfo(
+        {}, shaderCode.size() * sizeof(uint32_t), shaderCode.data()
+    );
+    m_sortShaderModule = vk::raii::ShaderModule(m_device, shaderInfo);
+
+    vk::PipelineShaderStageCreateInfo stageInfo(
+        {}, vk::ShaderStageFlagBits::eCompute, *m_sortShaderModule, "main"
+    );
+    vk::ComputePipelineCreateInfo pipelineInfo({}, stageInfo, *m_pipelineLayout);
+    m_sortPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineInfo);
 }

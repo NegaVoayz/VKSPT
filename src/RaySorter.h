@@ -47,14 +47,22 @@ public:
     };
     static_assert(sizeof(PackedRay) == 96, "PackedRay must match shader layout");
 
-    /// GPU-side action counter buffer layout.
-    /// Indexed by action type. Reset to 0 each iteration.
-    struct alignas(16) ActionCounters {
-        uint32_t counts[ACTION_COUNT];   // atomic counters per action
-        uint32_t activeTotal;            // total active rays this iteration
-        float    _pad[1];                // align to 16 bytes (32 bytes)
+    /// GPU-side counter buffer layout (matches shader CounterBlock).
+    /// head: start of active ray range (set by CPU between dispatches)
+    /// tail: next write position (atomic counter for new ray appends)
+    struct alignas(16) CounterData {
+        uint32_t head;
+        uint32_t tail;
+        float    _pad[2];   // pad to 16 bytes
     };
-    static_assert(sizeof(ActionCounters) == 32, "ActionCounters size mismatch");
+    static_assert(sizeof(CounterData) == 16, "CounterData size mismatch");
+
+    /// Per-pixel accumulator entry (matches shader PixelEntry, 6 uints).
+    struct alignas(4) PixelEntry {
+        uint32_t colorR, colorG, colorB;
+        uint32_t wlR, wlG, wlB;
+    };
+    static_assert(sizeof(PixelEntry) == 24, "PixelEntry size mismatch");
 
     RaySorter(const vk::raii::Device& device,
               const vk::raii::PhysicalDevice& physDevice,
@@ -79,11 +87,14 @@ public:
     /// Get the pixel accumulator buffer for descriptor binding.
     const GPUBuffer& getAccumBuffer() const { return m_accumBuffer; }
 
-    /// Upload reset counters to GPU.
+    /// Upload reset counters to GPU (head=0, tail=activeRayCount).
     void resetCounters();
 
-    /// Read back active ray count from GPU (for loop termination check).
-    uint32_t getActiveRayCount();
+    /// Advance the head pointer (processed up to this index).
+    void advanceHead(uint32_t newHead);
+
+    /// Read back tail (next write position) from GPU.
+    uint32_t getTailCount();
 
     /// Read back pixel accumulator for final output.
     void readbackAccumulator(void* output, uint32_t pixelCount);

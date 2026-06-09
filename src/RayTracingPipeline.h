@@ -28,6 +28,12 @@ public:
     /// Load SPIR-V shader and create the compute pipeline.
     void createPipeline(const std::string& spirvPath);
 
+    /// Phase 4: Load sorted pipeline shader and create a second compute pipeline.
+    void createSortPipeline(const std::string& spirvPath);
+
+    /// Get sorted pipeline.
+    vk::Pipeline getSortPipeline() const { return *m_sortPipeline; }
+
     /// Bind the TLAS acceleration structure for the given frame index.
     void bindTLAS(uint32_t frameIndex, vk::AccelerationStructureKHR tlas);
 
@@ -51,6 +57,9 @@ public:
 
     /// Phase 4 sorted pipeline: bind action counter buffer (binding=8).
     void bindCounterBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
+    /// Phase 4 sorted pipeline: bind pixel accumulator buffer (binding=9).
+    void bindPixelAccum(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
 
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
@@ -79,4 +88,6 @@ private:
     std::vector<vk::raii::DescriptorSet> m_descriptorSets;  // one per frame-in-flight
     vk::raii::ShaderModule                           m_shaderModule        = nullptr;
     vk::raii::Pipeline                               m_pipeline            = nullptr;
+    vk::raii::ShaderModule                           m_sortShaderModule    = nullptr;
+    vk::raii::Pipeline                               m_sortPipeline        = nullptr;
 };

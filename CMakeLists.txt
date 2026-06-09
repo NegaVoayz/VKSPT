@@ -83,6 +83,8 @@ function(compile_shader TARGET_NAME SRC_FILE OUTPUT_NAME)
 endfunction()
 
 compile_shader(raytrace_shader raytrace.comp raytrace.comp.spv)
+compile_shader(raytrace_sort_shader raytrace_sort.comp raytrace_sort.comp.spv)
+compile_shader(normalize_shader normalize.comp normalize.comp.spv)
 
 # -----------------------------------------------------------------------------
 # Main executable
@@ -116,7 +118,7 @@ target_link_libraries(vkrt PRIVATE
 )
 
 # Ensure shaders are compiled before the executable
-add_dependencies(vkrt raytrace_shader)
+add_dependencies(vkrt raytrace_shader raytrace_sort_shader normalize_shader)
 
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkrt POST_BUILD

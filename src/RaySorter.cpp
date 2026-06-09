@@ -23,8 +23,8 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
         m_physDevice
     );
 
-    // --- Counter buffer (device-local + host-visible staging for readback) ---
-    vk::DeviceSize counterSize = sizeof(ActionCounters);
+    // --- Counter buffer (head/tail, 16 bytes) ---
+    vk::DeviceSize counterSize = sizeof(CounterData);
     m_counterBuffer = GPUBuffer::create(
         m_device, counterSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
@@ -42,9 +42,9 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
         m_physDevice
     );
 
-    // --- Pixel accumulator (framebuffer-sized + staging for readback) ---
+    // --- Pixel accumulator (per-pixel PixelEntry, 24 bytes per pixel) ---
     uint32_t pixelCount = m_width * m_height;
-    vk::DeviceSize accumSize = pixelCount * 4 * sizeof(float); // vec4 per pixel
+    vk::DeviceSize accumSize = pixelCount * sizeof(PixelEntry);
     m_accumBuffer = GPUBuffer::create(
         m_device, accumSize,
         vk::BufferUsageFlagBits::eStorageBuffer |
@@ -59,12 +59,6 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
             vk::MemoryPropertyFlagBits::eHostCoherent,
         m_physDevice
     );
-
-    // Reset accum to zero
-    std::vector<float> zeroAccum(pixelCount * 4, 0.0f);
-    void* mapped = m_accumStaging.memory.mapMemory(0, accumSize);
-    std::memcpy(mapped, zeroAccum.data(), static_cast<size_t>(accumSize));
-    m_accumStaging.memory.unmapMemory();
 }
 
 RaySorter::~RaySorter() {
@@ -73,8 +67,6 @@ RaySorter::~RaySorter() {
 
 void RaySorter::initRays(const float* camOrigin, const float* camU,
                           const float* camV, const float* camW, float fovTan) {
-    // Build initial rays on CPU and upload via staging.
-    // Each pixel gets SPP rays with sub-pixel jitter.
     uint32_t pixelCount = m_width * m_height;
     uint32_t totalRays = pixelCount * m_spp;
     m_activeRayCount = std::min(totalRays, MAX_RAYS);
@@ -87,14 +79,12 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
             for (uint32_t s = 0; s < m_spp && base + s < m_activeRayCount; ++s) {
                 PackedRay& r = rays[base + s];
 
-                // Sub-pixel jitter
                 float jx = (float(s * 127 + px * 31) / 257.0f) - 0.5f;
                 float jy = (float(s * 251 + py * 67) / 251.0f) - 0.5f;
                 float u = (float(px) + 0.5f + jx) / float(m_width) * 2.0f - 1.0f;
                 float v = (float(py) + 0.5f + jy) / float(m_height) * 2.0f - 1.0f;
                 v = -v;
 
-                // camDir = normalize(camW + u*camU + v*camV)
                 float dx = camW[0] + u * camU[0] + v * camV[0];
                 float dy = camW[1] + u * camU[1] + v * camV[1];
                 float dz = camW[2] + u * camU[2] + v * camV[2];
@@ -118,7 +108,7 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
                 r.bounce     = 0.0f;
                 r.generation = 0;
                 r.pixelIndex = int(py * m_width + px);
-                r.rayAction  = 0; // UNPROCESSED
+                r.rayAction  = 0;
                 r.insideGlass    = 0;
                 r.fromReflection = 0;
                 r.hadTIR         = 0;
@@ -128,18 +118,15 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
         }
     }
 
-    // Upload via staging buffer
+    // Upload via staging
     vk::DeviceSize uploadSize = m_activeRayCount * sizeof(PackedRay);
     auto staging = GPUBuffer::createStaging(
         m_device, rays.data(), uploadSize,
-        vk::BufferUsageFlagBits::eTransferSrc,
-        m_physDevice
+        vk::BufferUsageFlagBits::eTransferSrc, m_physDevice
     );
 
-    // Copy staging → device buffer
     auto cmdPool = vk::raii::CommandPool(m_device,
-        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient,
-                                  0)); // use queue family 0 (compute)
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
         vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
     auto& cmdBuf = cmdBufs[0];
@@ -153,16 +140,20 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
     vk::SubmitInfo submit({}, {}, *cmdBuf);
     queue.submit(submit, nullptr);
     queue.waitIdle();
+
+    // Set initial counters: head=0, tail=activeRayCount
+    resetCounters();
 }
 
 void RaySorter::resetCounters() {
-    // Upload zeroed counters
-    ActionCounters zeros{};
-    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(ActionCounters));
-    std::memcpy(mapped, &zeros, sizeof(ActionCounters));
+    CounterData cd{};
+    cd.head = 0;
+    cd.tail = m_activeRayCount;
+
+    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(CounterData));
+    std::memcpy(mapped, &cd, sizeof(CounterData));
     m_counterStaging.memory.unmapMemory();
 
-    // Copy staging → counter buffer
     auto cmdPool = vk::raii::CommandPool(m_device,
         vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
@@ -170,7 +161,7 @@ void RaySorter::resetCounters() {
     auto& cmdBuf = cmdBufs[0];
 
     cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-    vk::BufferCopy region(0, 0, sizeof(ActionCounters));
+    vk::BufferCopy region(0, 0, sizeof(CounterData));
     cmdBuf.copyBuffer(*m_counterStaging.buffer, *m_counterBuffer.buffer, region);
     cmdBuf.end();
 
@@ -180,8 +171,15 @@ void RaySorter::resetCounters() {
     queue.waitIdle();
 }
 
-uint32_t RaySorter::getActiveRayCount() {
-    // Copy counter buffer → staging, then read back
+void RaySorter::advanceHead(uint32_t newHead) {
+    // Upload new head value, keep tail as-is
+    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(CounterData));
+    CounterData cd;
+    std::memcpy(&cd, mapped, sizeof(CounterData));
+    cd.head = newHead;
+    std::memcpy(mapped, &cd, sizeof(CounterData));
+    m_counterStaging.memory.unmapMemory();
+
     auto cmdPool = vk::raii::CommandPool(m_device,
         vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
     auto cmdBufs = vk::raii::CommandBuffers(m_device,
@@ -189,7 +187,25 @@ uint32_t RaySorter::getActiveRayCount() {
     auto& cmdBuf = cmdBufs[0];
 
     cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-    vk::BufferCopy region(0, 0, sizeof(ActionCounters));
+    vk::BufferCopy region(0, 0, sizeof(uint32_t));  // only copy head
+    cmdBuf.copyBuffer(*m_counterStaging.buffer, *m_counterBuffer.buffer, region);
+    cmdBuf.end();
+
+    auto queue = m_device.getQueue(0, 0);
+    vk::SubmitInfo submit({}, {}, *cmdBuf);
+    queue.submit(submit, nullptr);
+    queue.waitIdle();
+}
+
+uint32_t RaySorter::getTailCount() {
+    auto cmdPool = vk::raii::CommandPool(m_device,
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));
+    auto cmdBufs = vk::raii::CommandBuffers(m_device,
+        vk::CommandBufferAllocateInfo(*cmdPool, vk::CommandBufferLevel::ePrimary, 1));
+    auto& cmdBuf = cmdBufs[0];
+
+    cmdBuf.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    vk::BufferCopy region(0, 0, sizeof(CounterData));
     cmdBuf.copyBuffer(*m_counterBuffer.buffer, *m_counterStaging.buffer, region);
     cmdBuf.end();
 
@@ -198,16 +214,16 @@ uint32_t RaySorter::getActiveRayCount() {
     queue.submit(submit, nullptr);
     queue.waitIdle();
 
-    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(ActionCounters));
-    ActionCounters counters;
-    std::memcpy(&counters, mapped, sizeof(ActionCounters));
+    void* mapped = m_counterStaging.memory.mapMemory(0, sizeof(CounterData));
+    CounterData cd;
+    std::memcpy(&cd, mapped, sizeof(CounterData));
     m_counterStaging.memory.unmapMemory();
 
-    return counters.activeTotal;
+    return cd.tail;
 }
 
 void RaySorter::readbackAccumulator(void* output, uint32_t pixelCount) {
-    vk::DeviceSize accumSize = pixelCount * 4 * sizeof(float);
+    vk::DeviceSize accumSize = pixelCount * sizeof(PixelEntry);
 
     auto cmdPool = vk::raii::CommandPool(m_device,
         vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eTransient, 0));

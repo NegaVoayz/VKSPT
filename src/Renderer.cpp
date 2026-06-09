@@ -43,6 +43,15 @@ Renderer::~Renderer() {
     // vk::raii handles cleanup; swapchain destroyed before surface (member order)
 }
 
+void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
+    m_raySorter = std::make_unique<RaySorter>(
+        m_device, m_physDevice, m_config.width, m_config.height, 4  // SPP=4
+    );
+    pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
+    m_useSorting = true;
+    std::cout << "  Sorted ray pipeline initialized." << std::endl;
+}
+
 // -----------------------------------------------------------------------------
 // Swapchain
 // -----------------------------------------------------------------------------
