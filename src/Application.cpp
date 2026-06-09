@@ -75,8 +75,9 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
         cfg
     );
 
-    // Phase 4.5: Initialize sorted ray tracing pipeline
-    m_renderer->initSortedPipeline(*m_pipeline);
+    // Phase 4.5: Sorted pipeline deferred — classify/process shaders need fixes.
+    // Overflow spill-to-host mechanism available when buffer capacity is needed.
+    // m_renderer->initSortedPipeline(*m_pipeline);
 
     std::cout << "Initialization complete!" << std::endl;
 }

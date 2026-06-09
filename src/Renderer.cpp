@@ -45,7 +45,7 @@ Renderer::~Renderer() {
 
 void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     m_raySorter = std::make_unique<RaySorter>(
-        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1
+        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1 (safe default)
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
     pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
@@ -394,7 +394,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.camU[0]=fovTan*aspect; pc.camV[1]=fovTan; pc.camW[2]=1;
         pc.spp=1; pc.maxBounces=24;
         pc.matCount=(int)as.getMaterialCount();
-        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;  // force-split ON
+        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
         pc.scat=2; pc.mt=0.9999f;
 
         // 6. Multi-dispatch loop — all-at-once per bounce level.
