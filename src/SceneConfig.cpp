@@ -136,9 +136,9 @@ void buildTransformMatrix(const glm::vec3& scale,
 
 // Known object element names in the XML schema
 static const char* kObjectNames[] = {
-    "Duck", "Bunny", "Dragon", "Venus", "Asschercut", "FudanLogo", "Prism"
+    "Duck", "Bunny", "Dragon", "Venus", "Asschercut", "FudanLogo", "Prism", "Checkerboard"
 };
-static constexpr int kNumObjectNames = 7;
+static constexpr int kNumObjectNames = 8;
 
 /// Read a float attribute from an XMLElement, with fallback value.
 static float xmlFloat(tinyxml2::XMLElement* el, const char* attr, float fallback = 0.0f) {

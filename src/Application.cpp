@@ -181,6 +181,14 @@ void Application::initScene() {
             mat.params[0] = obj.ior;    // base IOR
             mat.params[1] = 0.0f;       // roughness (smooth glass)
             mat.params[2] = 0.0f;       // MATERIAL_DIELECTRIC
+        } else if (obj.objFilename.find("checkerboard") != std::string::npos) {
+            // Checkerboard — procedural pattern in shader
+            mat.albedo[0] = obj.diffuse.r;
+            mat.albedo[1] = obj.diffuse.g;
+            mat.albedo[2] = obj.diffuse.b;
+            mat.params[0] = 1.0f;
+            mat.params[1] = 1.0f / std::max(obj.shininess, 1.0f);
+            mat.params[2] = 3.0f;       // MATERIAL_CHECKERBOARD
         } else {
             // Lambertian (diffuse)
             mat.albedo[0] = obj.diffuse.r;

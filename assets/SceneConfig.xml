@@ -61,6 +61,17 @@
         <Shiness p="125.0"/>
     </Prism>
 
+    <Checkerboard>
+        <Args filename="checkerboard.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Scale x="1.0" y="1.0" z="1.0"/>
+        <Rotation x="0.0" y="0.0" z="0.0"/>
+        <Translation x="0.0" y="0.0" z="0.0"/>
+        <RefractiveIndex x="1.0"/>
+        <Albedo x="0.8" y="0.8" z="0.8" w="0.0"/>
+        <Diffuse r="0.8" g="0.8" b="0.8"/>
+        <Shiness p="10.0"/>
+    </Checkerboard>
+
     <Bunny>
         <Args filename="bunny-mesh.obj" display="1" normalinterpolation="1" rendermethod="1"/>
         <Scale x="0.3" y="0.3" z="0.3"/>
