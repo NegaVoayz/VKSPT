@@ -397,16 +397,17 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
         pc.scat=2; pc.mt=0.9999f;
 
-        // 6. Multi-dispatch loop — all-at-once per bounce level.
-        //    Single-pass sort shader (trace + process in one dispatch).
-        //    Classify/process two-stage deferred: hit-cache fields ready in PackedRay,
-        //    shaders compile but large dispatches cause TDR timeout.
+        // 6. Chunked two-stage dispatch with operation sorting.
+        //    Splits large generations into 128K chunks to avoid TDR timeout.
+        //    Each chunk: classify (trace+cache) → CPU sort by RayAction → process.
+        //    Sorting consecutive rays by action reduces warp divergence.
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
+        const uint32_t CHUNK = 128u * 1024u;  // max rays per chunk
 
-        auto dispatchPipeline = [&](vk::Pipeline pipe, uint32_t groups) {
+        auto dispatchPipe = [&](vk::Pipeline pipe, uint32_t groups) {
             vk::raii::CommandPool pool(m_device,
                 {vk::CommandPoolCreateFlagBits::eTransient |
                     vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -425,28 +426,39 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             queue.waitIdle();
         };
 
-        std::cout << "[Sort] Starting two-stage dispatch loop..." << std::endl;
-        for (int iter = 0; iter < 128; ++iter) {
+        std::cout << "[Sort] Starting chunked two-stage loop (chunk=" << CHUNK << ")..." << std::endl;
+        for (int iter = 0; iter < 512; ++iter) {
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
-            if (tail <= head) {
+            uint32_t active = (tail > head) ? (tail - head) : 0;
+            if (active == 0) {
                 if (m_raySorter->stashedCount() == 0) break;
                 head = 0; m_raySorter->resetCounters();
-                uint32_t injected = m_raySorter->injectStashed(
-                    std::min(RaySorter::MAX_RAYS, 256u * 1024u));
-                if (injected == 0) break;
+                m_raySorter->injectStashed(std::min(RaySorter::MAX_RAYS, CHUNK));
                 tail = m_raySorter->getTailCount();
-                if (tail <= head) continue;
+                active = (tail > head) ? (tail - head) : 0;
+                if (active == 0) continue;
             }
 
+            uint32_t N = (active < CHUNK) ? active : CHUNK;
+            uint32_t processEnd = head + N;
             m_raySorter->advanceHead(head);
-            uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
+            uint32_t groups = (N + LOCAL - 1) / LOCAL;
 
-            std::cout << "[Sort] iter " << iter << " head=" << head
-                      << " tail=" << tail << " groups=" << groups << std::endl;
+            if (iter % 20 == 0 || N < active) {
+                std::cout << "[Sort] iter " << iter << " head=" << head
+                          << " tail=" << tail << " chunk=" << N
+                          << " remain=" << (active - N) << std::endl;
+            }
 
-            // Single-pass sort shader (trace + process in one dispatch)
-            dispatchPipeline(pipeline.getSortPipeline(), groups);
+            // Stage A: Classify (trace, cache hit info, set RayAction)
+            dispatchPipe(pipeline.getClassifyPipeline(), groups);
+
+            // Stage B: Sort by RayAction (CPU-side, <1ms for 128K rays)
+            m_raySorter->sortBatchByAction(head, N);
+
+            // Stage C: Process (read cached hit info, no re-trace)
+            dispatchPipe(pipeline.getProcessPipeline(), groups);
 
             iters++;
 
@@ -454,11 +466,11 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             if (overflowed > 0) { m_raySorter->clampTail(); }
 
             uint32_t newTail = m_raySorter->getTailCount();
-            if (newTail <= tail && m_raySorter->stashedCount() == 0) break;
-            head = tail;
+            head = processEnd;
+            if (head >= newTail && m_raySorter->stashedCount() == 0) break;
         }
-        std::cout << "[Sort] " << iters << " iterations, tail="
-                  << m_raySorter->getTailCount()
+        std::cout << "[Sort] " << iters << " iterations, head=" << head
+                  << " tail=" << m_raySorter->getTailCount()
                   << " stashed=" << m_raySorter->stashedCount() << std::endl;
 
         // 7. Normalize pass
