@@ -45,14 +45,14 @@ Renderer::~Renderer() {
 
 void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     m_raySorter = std::make_unique<RaySorter>(
-        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1 (safe default)
+        m_device, m_physDevice, m_config.width, m_config.height, 1  // SPP=1
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
     pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
     pipeline.createClassifyPipeline("shaders/raytrace_classify.comp.spv");
     pipeline.createProcessPipeline("shaders/raytrace_process.comp.spv");
     m_useSorting = true;
-    std::cout << "  Sorted ray pipeline initialized (classify + sort + process + normalize)." << std::endl;
+    std::cout << "  Sorted ray pipeline initialized." << std::endl;
 }
 
 // -----------------------------------------------------------------------------
