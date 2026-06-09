@@ -392,35 +392,27 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;  // force-split ON
         pc.scat=2; pc.mt=0.9999f;
 
-        // 6. Batched dispatch loop with DISPATCH_CAP
-        //    Processes rays in 128K batches. Natural BFS ordering gives bounce
-        //    priority. DISPATCH_CAP prevents buffer overflow from force-split.
+        // 6. Multi-dispatch loop — all-at-once per bounce level.
+        //    Each iteration processes the entire active generation before
+        //    moving to the next. This minimizes peak memory (only one
+        //    generation's children in buffer at a time).
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
-        const uint32_t CAP = RaySorter::DISPATCH_CAP;
 
-        std::cout << "[Sort] Starting batch loop (CAP=" << CAP << ")..." << std::endl;
-        for (int iter = 0; iter < 256; ++iter) {
+        std::cout << "[Sort] Starting multi-dispatch loop..." << std::endl;
+        for (int iter = 0; iter < 64; ++iter) {
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
-            uint32_t active = (tail > head) ? (tail - head) : 0;
-            if (active == 0) break;
-
-            uint32_t N = (active < CAP) ? active : CAP;
-            uint32_t processEnd = head + N;
+            if (tail <= head) break;
 
             m_raySorter->advanceHead(head);
-            uint32_t groups = (N + LOCAL - 1) / LOCAL;
+            uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
 
-            if (iter % 10 == 0 || N < active) {
-                std::cout << "[Sort] iter " << iter << " head=" << head
-                          << " tail=" << tail << " batch=" << N
-                          << " remain=" << (active - N) << std::endl;
-            }
+            std::cout << "[Sort] iter " << iter << " head=" << head
+                      << " tail=" << tail << " groups=" << groups << std::endl;
 
-            // Dispatch single-pass sort shader
             {
                 vk::raii::CommandPool pool(m_device,
                     {vk::CommandPoolCreateFlagBits::eTransient |
@@ -442,11 +434,11 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             iters++;
 
             uint32_t newTail = m_raySorter->getTailCount();
-            head = processEnd;
-            if (head >= newTail) break;
+            if (newTail <= tail) break;
+            head = tail;
         }
-        std::cout << "[Sort] " << iters << " iterations, head=" << head
-                  << " tail=" << m_raySorter->getTailCount() << std::endl;
+        std::cout << "[Sort] " << iters << " iterations, tail="
+                  << m_raySorter->getTailCount() << std::endl;
 
         // 7. Normalize pass
         {

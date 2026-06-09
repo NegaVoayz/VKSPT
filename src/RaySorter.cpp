@@ -63,7 +63,8 @@ RaySorter::RaySorter(const vk::raii::Device&         device,
     );
 
     // --- Batch staging for CPU-side rayAction sorting ---
-    vk::DeviceSize batchSize = DISPATCH_CAP * sizeof(PackedRay);
+    constexpr uint32_t BATCH_CAP = 128 * 1024;
+    vk::DeviceSize batchSize = BATCH_CAP * sizeof(PackedRay);
     m_batchStaging = GPUBuffer::create(
         m_device, batchSize,
         vk::BufferUsageFlagBits::eTransferSrc |
