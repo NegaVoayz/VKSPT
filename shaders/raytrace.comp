@@ -906,7 +906,7 @@ void main() {
                     disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
 
                     // Adaptive split (restored)
-                    float estDist = max(tHit, 100.0);  // assume at least 100 units to next hit (sky is far)
+                    float estDist = max(tHit, 20.0);   // reasonable far-field estimate
                     vec3  predictedSep = lastSplit + disp * estDist;
                     float sepMag       = length(predictedSep);
                     float pixHalfWidth = params.fovTan / float(sz.x);
