@@ -29,6 +29,7 @@ struct PackedRay {
     vec3 dispersion; float bounce;
     int generation; int pixelIndex; int rayAction; int insideGlass;
     int fromReflection; int hadTIR; int hadFresnelRefl; int _pad;
+    float tHit; int primitiveID; int instanceID; int materialID;
 };
 
 struct PixelEntry {
@@ -57,7 +58,7 @@ layout(set = 0, binding = 8, std430) buffer CounterBlock { uint head; uint tail;
 // Pixel accumulator: per-pixel color + wl integral (uints for atomic ops)
 layout(set = 0, binding = 9, std430) buffer PixelBlock { PixelEntry entries[]; } pixelAccum;
 // Overflow spill: when main buffer is full, excess children land here
-const uint OVERFLOW_SIZE = 2u * 1024u * 1024u;
+const uint OVERFLOW_SIZE = 1u * 1024u * 1024u;
 layout(set = 0, binding = 10, std430) buffer OverflowBlock {
     uint overflowTail;
     uint _ovPad0, _ovPad1, _ovPad2;

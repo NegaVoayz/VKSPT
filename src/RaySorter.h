@@ -21,7 +21,7 @@ public:
     /// For 800×600×4 SPP = 1.92M initial rays, with splits up to ~4×:
     /// 8M rays × 80 bytes = 640 MB. We use 4M (320 MB) and drop overflow.
     static constexpr uint32_t MAX_RAYS = 16 * 1024 * 1024; // 16M rays (1.5GB)
-    static constexpr uint32_t OVERFLOW_SIZE = 2 * 1024 * 1024; // 2M ray overflow (192MB, host-visible)
+    static constexpr uint32_t OVERFLOW_SIZE = 1 * 1024 * 1024; // 1M ray overflow (112MB, host-visible)
 
     /// Number of action buckets.
     static constexpr uint32_t ACTION_COUNT = 6;
@@ -38,7 +38,7 @@ public:
     };
 
     /// Packed ray structure matching the GLSL std430 layout.
-    /// Total: 80 bytes
+    /// Total: 112 bytes (7 × vec4)
     struct alignas(16) PackedRay {
         float origin[3];
         float lamStart;           // stored as float, cast to int in shader
@@ -55,9 +55,14 @@ public:
         int   fromReflection;
         int   hadTIR;
         int   hadFresnelRefl;
-        int   _pad;               // align to 96 bytes (6 × 16)
+        int   _pad;               // align slot 5 to 16 bytes
+        // Hit cache (written by classify, read by process — avoids double-trace)
+        float tHit;               // distance to intersection
+        int   primitiveID;        // triangle index
+        int   instanceID;         // instance custom index
+        int   materialID;         // material index from instanceRanges lookup
     };
-    static_assert(sizeof(PackedRay) == 96, "PackedRay must match shader layout");
+    static_assert(sizeof(PackedRay) == 112, "PackedRay must match shader layout");
 
     /// GPU-side counter buffer layout (matches shader CounterBlock).
     /// head: start of active ray range (set by CPU between dispatches)

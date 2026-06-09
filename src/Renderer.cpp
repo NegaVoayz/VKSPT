@@ -398,30 +398,43 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.scat=2; pc.mt=0.9999f;
 
         // 6. Multi-dispatch loop — all-at-once per bounce level.
-        //    Each iteration processes the entire active generation before
-        //    moving to the next. This minimizes peak memory (only one
-        //    generation's children in buffer at a time).
+        //    Single-pass sort shader (trace + process in one dispatch).
+        //    Classify/process two-stage deferred: hit-cache fields ready in PackedRay,
+        //    shaders compile but large dispatches cause TDR timeout.
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
 
-        std::cout << "[Sort] Starting multi-dispatch loop..." << std::endl;
+        auto dispatchPipeline = [&](vk::Pipeline pipe, uint32_t groups) {
+            vk::raii::CommandPool pool(m_device,
+                {vk::CommandPoolCreateFlagBits::eTransient |
+                    vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                 m_computeQueueFamily});
+            auto cbs = vk::raii::CommandBuffers(m_device,
+                {*pool, vk::CommandBufferLevel::ePrimary, 1});
+            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipe);
+            cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+            cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
+                vk::ShaderStageFlagBits::eCompute, 0, pc);
+            cbs[0].dispatch(groups, 1, 1);
+            cbs[0].end();
+            queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
+            queue.waitIdle();
+        };
+
+        std::cout << "[Sort] Starting two-stage dispatch loop..." << std::endl;
         for (int iter = 0; iter < 128; ++iter) {
-            // If buffer empty but stashed rays remain, inject them
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
             if (tail <= head) {
                 if (m_raySorter->stashedCount() == 0) break;
-                // Buffer drained — reset and inject stashed
-                head = 0;
-                m_raySorter->resetCounters();  // head=0, tail=0
-                uint32_t space = RaySorter::MAX_RAYS;
+                head = 0; m_raySorter->resetCounters();
                 uint32_t injected = m_raySorter->injectStashed(
-                    std::min(space, 256u * 1024u));
+                    std::min(RaySorter::MAX_RAYS, 256u * 1024u));
                 if (injected == 0) break;
-                std::cout << "[Sort] iter " << iter << " reset+inject " << injected
-                          << " remain=" << m_raySorter->stashedCount() << std::endl;
                 tail = m_raySorter->getTailCount();
                 if (tail <= head) continue;
             }
@@ -432,47 +445,17 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             std::cout << "[Sort] iter " << iter << " head=" << head
                       << " tail=" << tail << " groups=" << groups << std::endl;
 
-            {
-                vk::raii::CommandPool pool(m_device,
-                    {vk::CommandPoolCreateFlagBits::eTransient |
-                        vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-                     m_computeQueueFamily});
-                auto cbs = vk::raii::CommandBuffers(m_device,
-                    {*pool, vk::CommandBufferLevel::ePrimary, 1});
-                cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-                cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
-                cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                    pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
-                cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
-                    vk::ShaderStageFlagBits::eCompute, 0, pc);
-                cbs[0].dispatch(groups, 1, 1);
-                cbs[0].end();
-                queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
-                queue.waitIdle();
-            }
+            // Single-pass sort shader (trace + process in one dispatch)
+            dispatchPipeline(pipeline.getSortPipeline(), groups);
+
             iters++;
 
-            // Drain overflow to host stash
             uint32_t overflowed = m_raySorter->drainOverflow();
-            if (overflowed > 0) {
-                m_raySorter->clampTail();  // tail went past MAX_RAYS from overflow spawns
-                std::cout << "[Sort] iter " << iter << " overflow " << overflowed
-                          << " stashed=" << m_raySorter->stashedCount() << std::endl;
-            }
+            if (overflowed > 0) { m_raySorter->clampTail(); }
 
             uint32_t newTail = m_raySorter->getTailCount();
             if (newTail <= tail && m_raySorter->stashedCount() == 0) break;
             head = tail;
-
-            // Inject stashed rays if room
-            if (m_raySorter->stashedCount() > 0 && newTail < RaySorter::MAX_RAYS * 3 / 4) {
-                uint32_t space = RaySorter::MAX_RAYS - newTail;
-                uint32_t injected = m_raySorter->injectStashed(std::min(space, 256u * 1024u));
-                if (injected > 0) {
-                    std::cout << "[Sort] iter " << iter << " inject " << injected
-                              << " remain=" << m_raySorter->stashedCount() << std::endl;
-                }
-            }
         }
         std::cout << "[Sort] " << iters << " iterations, tail="
                   << m_raySorter->getTailCount()

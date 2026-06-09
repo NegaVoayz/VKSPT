@@ -34,6 +34,7 @@ struct PackedRay {
     vec3 dispersion; float bounce;
     int generation; int pixelIndex; int rayAction; int insideGlass;
     int fromReflection; int hadTIR; int hadFresnelRefl; int _pad;
+    float tHit; int primitiveID; int instanceID; int materialID;
 };
 
 // ---- Descriptors ----
@@ -95,11 +96,19 @@ void main() {
         return;
     }
 
-    // Hit — determine action from material type
-    int mi      = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
-    uint matIdx = instanceRanges.materialID[mi];
+    // Hit — determine action from material type, cache hit info
+    float tHit     = rayQueryGetIntersectionTEXT(rq, true);
+    int   primID   = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+    int   mi       = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
+    uint  matIdx   = instanceRanges.materialID[mi];
     GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
     int matType = int(mat.params.z);
+
+    // Cache hit info so process shader doesn't need to trace again
+    r.tHit        = tHit;
+    r.primitiveID = primID;
+    r.instanceID  = mi;
+    r.materialID  = int(matIdx);
 
     if      (matType == MATERIAL_DIELECTRIC)  r.rayAction = 2;
     else if (matType == MATERIAL_LAMBERTIAN)  r.rayAction = 3;

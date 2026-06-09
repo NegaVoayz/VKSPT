@@ -30,6 +30,7 @@ struct PackedRay {
     vec3 dispersion; float bounce;
     int generation; int pixelIndex; int rayAction; int insideGlass;
     int fromReflection; int hadTIR; int hadFresnelRefl; int _pad;
+    float tHit; int primitiveID; int instanceID; int materialID;
 };
 
 struct PixelEntry {
@@ -265,27 +266,16 @@ void main() {
     // ---- DEAD (5) or TERMINATED (6): consume ray silently ----
     if (action == 5 || action == 6) return;
 
-    // ---- Trace to get geometry for DIELECTRIC/LAMBERTIAN/METAL ----
-    rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                          rayO, 0.001, rayD, 10000.0);
-    while (rayQueryProceedEXT(rq)) {}
-
-    // If trace misses (shouldn't happen if classify was correct, but guard):
-    if (rayQueryGetIntersectionTypeEXT(rq, true) !=
-        gl_RayQueryCommittedIntersectionTriangleEXT) {
-        return;  // Ray consumed, no sky contribution (classify should have caught this)
-    }
-
-    float tHit  = rayQueryGetIntersectionTEXT(rq, true);
+    // ---- Read cached hit info from classify pass (NO re-trace) ----
+    float tHit  = r.tHit;
     lastSplit  += disp * tHit;
     vec3 pos    = rayO + rayD * tHit;
-    int  mi     = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
-    int  primID = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+    int  mi     = r.instanceID;
+    int  primID = r.primitiveID;
     vec3 nrm    = computeGeometricNormal(mi, primID);
     if (dot(nrm, -rayD) < 0.0) nrm = -nrm;
 
-    uint matIdx = instanceRanges.materialID[mi];
+    uint matIdx = uint(r.materialID);
     GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
 
     // =========================================================================
