@@ -102,7 +102,7 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
                 r.lastSplit[0] = 0.0f;
                 r.lastSplit[1] = 0.0f;
                 r.lastSplit[2] = 0.0f;
-                r.energy     = 1.0f;
+                r.energy     = 1.0f / float(m_spp);  // total per-pixel = 1.0 across all SPP samples
                 r.dispersion[0] = 0.0f;
                 r.dispersion[1] = 0.0f;
                 r.dispersion[2] = 0.0f;

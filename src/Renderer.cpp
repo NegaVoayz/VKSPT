@@ -45,7 +45,7 @@ Renderer::~Renderer() {
 
 void Renderer::initSortedPipeline(RayTracingPipeline& pipeline) {
     m_raySorter = std::make_unique<RaySorter>(
-        m_device, m_physDevice, m_config.width, m_config.height, 4
+        m_device, m_physDevice, m_config.width, m_config.height, 2
     );
     pipeline.createSortPipeline("shaders/raytrace_sort.comp.spv");
     pipeline.createNormalizePipeline("shaders/normalize.comp.spv");
@@ -403,6 +403,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                       << " tail=" << tail << std::endl;
             if (tail <= head) break;
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;  // clamp
+
+            // Don't dispatch empty range
+            if (tail <= head) break;
 
             m_raySorter->advanceHead(head);
             uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;

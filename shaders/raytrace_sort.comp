@@ -187,7 +187,8 @@ const uint MAX_RAYS = 4u * 1024u * 1024u;  // match C++ RaySorter::MAX_RAYS
 
 // ---- Spawn a new ray into the global buffer ----
 void spawnRay(PackedRay r) {
-    // Quick reject if buffer appears full (racy but safe — check below also)
+    // Pre-check to avoid runaway tail growth when buffer is full
+    if (counters.tail >= MAX_RAYS) return;
     uint slot = atomicAdd(counters.tail, 1u);
     if (slot < MAX_RAYS) rayBuf.rays[slot] = r;
 }
