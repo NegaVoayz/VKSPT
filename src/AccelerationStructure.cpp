@@ -182,7 +182,7 @@ void AccelerationStructure::uploadMaterialBuffer(const std::vector<MaterialGPU>&
 // -----------------------------------------------------------------------------
 // Upload sky/environment light SPD (D65 illuminant)
 // -----------------------------------------------------------------------------
-void AccelerationStructure::uploadLightBuffer(const GpuLight& skyLight) {
+void AccelerationStructure::uploadLightBuffer(const std::vector<GpuLight>& lights) {
     vk::DeviceSize bufSize = MAX_LIGHTS * sizeof(GpuLight);
 
     m_lightBuffer = GPUBuffer::create(
@@ -193,10 +193,11 @@ void AccelerationStructure::uploadLightBuffer(const GpuLight& skyLight) {
         m_physDevice
     );
 
-    // Upload MAX_LIGHTS elements (first = sky light, rest = zeroed)
+    // Upload up to MAX_LIGHTS elements
     void* mapped = m_lightBuffer.memory.mapMemory(0, bufSize);
     std::memset(mapped, 0, static_cast<size_t>(bufSize));
-    std::memcpy(mapped, &skyLight, sizeof(GpuLight));
+    size_t copyCount = std::min(lights.size(), size_t(MAX_LIGHTS));
+    std::memcpy(mapped, lights.data(), copyCount * sizeof(GpuLight));
     m_lightBuffer.memory.unmapMemory();
 }
 
@@ -403,13 +404,13 @@ void AccelerationStructure::buildTwoInstance(
     const std::vector<MaterialGPU>& materialData,
     const GpuLight& skyLight)
 {
-    buildScene({inst0, inst1}, materialData, skyLight);
+    buildScene({inst0, inst1}, materialData, {skyLight});
 }
 
 void AccelerationStructure::buildScene(
     const std::vector<InstanceInfo>& instances,
     const std::vector<MaterialGPU>& materialData,
-    const GpuLight& skyLight)
+    const std::vector<GpuLight>&    lights)
 {
     m_instanceCount = static_cast<uint32_t>(instances.size());
     m_stagedVertices.clear();
@@ -499,7 +500,7 @@ void AccelerationStructure::buildScene(
         m_physDevice);
 
     uploadMaterialBuffer(materialData);
-    uploadLightBuffer(skyLight);
+    uploadLightBuffer(lights);
 }
 
 // -----------------------------------------------------------------------------

@@ -201,15 +201,78 @@ void Application::initScene() {
         materials.push_back(mat);
     }
 
-    // ---- Light buffer (ambient + sky) ----
-    AccelerationStructure::GpuLight skyLight{};
-    float ambientScale = desc.ambient.strength;
-    for (int i = 0; i < 16; ++i) {
-        skyLight.spd[i] = std::max(ambientScale, 0.1f);
+    // ---- Light buffer ----
+    // Fill up to MAX_LIGHTS (4) lights: slot 0 = ambient/sky, then point/spot/dir lights
+    std::vector<AccelerationStructure::GpuLight> gpuLights;
+    constexpr uint32_t MAX_LIGHTS = 4;
+
+    // Slot 0: ambient/sky (type 3)
+    {
+        AccelerationStructure::GpuLight amb;
+        float as = desc.ambient.strength;
+        amb.pos_type[0] = 0.0f; amb.pos_type[1] = 0.0f; amb.pos_type[2] = 0.0f;
+        amb.pos_type[3] = 3.0f;  // LIGHT_AMBIENT
+        amb.color_intensity[0] = desc.ambient.color.r;
+        amb.color_intensity[1] = desc.ambient.color.g;
+        amb.color_intensity[2] = desc.ambient.color.b;
+        amb.color_intensity[3] = as;
+        gpuLights.push_back(amb);
+    }
+
+    // Point lights
+    for (const auto& pl : desc.pointLights) {
+        if (gpuLights.size() >= MAX_LIGHTS) break;
+        AccelerationStructure::GpuLight l{};
+        l.pos_type[0] = pl.pos.x; l.pos_type[1] = pl.pos.y; l.pos_type[2] = pl.pos.z;
+        l.pos_type[3] = 0.0f;  // LIGHT_POINT
+        l.color_intensity[0] = pl.color.r;
+        l.color_intensity[1] = pl.color.g;
+        l.color_intensity[2] = pl.color.b;
+        l.color_intensity[3] = pl.intensity;
+        l.dir_inner[0] = 0.0f; l.dir_inner[1] = 0.0f; l.dir_inner[2] = 0.0f;
+        l.dir_inner[3] = 0.0f;
+        l.outer_range[0] = 0.0f;
+        l.outer_range[1] = pl.maxDist;
+        gpuLights.push_back(l);
+    }
+
+    // Spot lights
+    for (const auto& sl : desc.spotLights) {
+        if (gpuLights.size() >= MAX_LIGHTS) break;
+        AccelerationStructure::GpuLight l{};
+        l.pos_type[0] = sl.pos.x; l.pos_type[1] = sl.pos.y; l.pos_type[2] = sl.pos.z;
+        l.pos_type[3] = 2.0f;  // LIGHT_SPOT
+        l.color_intensity[0] = sl.color.r;
+        l.color_intensity[1] = sl.color.g;
+        l.color_intensity[2] = sl.color.b;
+        l.color_intensity[3] = sl.intensity;
+        l.dir_inner[0] = sl.dir.x; l.dir_inner[1] = sl.dir.y; l.dir_inner[2] = sl.dir.z;
+        l.dir_inner[3] = sl.inner;
+        l.outer_range[0] = sl.outer;
+        l.outer_range[1] = sl.maxDist;
+        gpuLights.push_back(l);
+    }
+
+    // Directional lights
+    for (const auto& dl : desc.dirLights) {
+        if (gpuLights.size() >= MAX_LIGHTS) break;
+        AccelerationStructure::GpuLight l{};
+        l.pos_type[0] = dl.dir.x; l.pos_type[1] = dl.dir.y; l.pos_type[2] = dl.dir.z;
+        l.pos_type[3] = 1.0f;  // LIGHT_DIRECTIONAL
+        l.color_intensity[0] = dl.color.r;
+        l.color_intensity[1] = dl.color.g;
+        l.color_intensity[2] = dl.color.b;
+        l.color_intensity[3] = dl.intensity;
+        gpuLights.push_back(l);
+    }
+
+    // Pad to MAX_LIGHTS
+    while (gpuLights.size() < MAX_LIGHTS) {
+        gpuLights.push_back(AccelerationStructure::GpuLight{});
     }
 
     // Build the acceleration structures + upload materials/lights
-    m_as->buildScene(instances, materials, skyLight);
+    m_as->buildScene(instances, materials, gpuLights);
 
     // Load environment map
     m_as->loadEnvMap("../../assets/envmap.jpg");

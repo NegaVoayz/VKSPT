@@ -354,8 +354,15 @@ void scaleDecay(inout float c0, inout float c1, inout float c2, float s) {
 // Light struct
 // =============================================================================
 struct GpuLight {
-    vec4 spd[4];   // 16 floats = SPD sampled at the 16 reference wavelengths
+    vec4 pos_type;         // xyz=position/direction, w=type: 0=point,1=directional,2=spot,3=ambient
+    vec4 color_intensity;  // rgb=color, a=intensity
+    vec4 dir_inner;        // xyz=direction (spot/dir), w=innerAngle (degrees, spot)
+    vec4 outer_range;      // x=outerAngle (spot), y=maxDistance, z/w unused
 };
+const int LIGHT_POINT       = 0;
+const int LIGHT_DIRECTIONAL = 1;
+const int LIGHT_SPOT        = 2;
+const int LIGHT_AMBIENT     = 3;
 
 // =============================================================================
 // Descriptors
@@ -393,9 +400,75 @@ layout(set = 0, binding = 11) uniform sampler2D envMap;
 
 /// Sample the sky/environment light SPD at a given reference index.
 float sampleLightSPD(int refIdx) {
-    int slot = refIdx / 4;
-    int comp = refIdx % 4;
-    return lights.items[0].spd[slot][comp];
+    return lights.items[0].color_intensity.x;  // ambient intensity
+}
+
+// =============================================================================
+// Direct lighting (next-event estimation)
+// =============================================================================
+
+/// Sample direct lighting from all lights at a surface hit point.
+/// Returns linear sRGB contribution (to be gamma-corrected later).
+vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
+    vec3 contrib = vec3(0.0);
+
+    for (int li = 0; li < 4; li++) {
+        vec4 ptype = lights.items[li].pos_type;
+        int ltype = int(ptype.w);
+        if (ltype == LIGHT_AMBIENT) continue;
+
+        vec4 cinfo = lights.items[li].color_intensity;
+        vec3 lcolor = cinfo.rgb;
+        float lintensity = cinfo.a;
+        if (lintensity <= 0.0) continue;
+
+        vec3 toLight;
+        float distToLight;
+        float tMax;
+        vec3 lpos = ptype.xyz;
+
+        if (ltype == LIGHT_DIRECTIONAL) {
+            toLight = normalize(-lpos);  // pos_type stores direction for dir lights
+            distToLight = 1e6;
+            tMax = 10000.0;
+        } else {
+            toLight = lpos - pos;
+            distToLight = length(toLight);
+            float maxDist = lights.items[li].outer_range.y;
+            if (distToLight > maxDist && maxDist > 0.0) continue;
+            toLight /= distToLight;
+            tMax = distToLight * 0.999;
+        }
+
+        float nDotL = dot(nrm, toLight);
+        if (nDotL <= 0.0) continue;
+
+        float spotAtt = 1.0;
+        if (ltype == LIGHT_SPOT) {
+            vec4 dinfo = lights.items[li].dir_inner;
+            vec3 ldir = dinfo.xyz;
+            float inAng  = dinfo.w * 3.14159265 / 180.0;
+            float outAng = lights.items[li].outer_range.x * 3.14159265 / 180.0;
+            float cosPhi = dot(-toLight, normalize(ldir));
+            float cosIn  = cos(inAng);
+            float cosOut = cos(outAng);
+            spotAtt = clamp((cosPhi - cosOut) / max(cosIn - cosOut, 0.001), 0.0, 1.0);
+            if (spotAtt <= 0.0) continue;
+        }
+
+        rayQueryEXT rq;
+        rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
+                              pos + nrm * 0.01, 0.001, toLight, tMax);
+        while (rayQueryProceedEXT(rq)) {}
+        if (rayQueryGetIntersectionTypeEXT(rq, true) !=
+            gl_RayQueryCommittedIntersectionTriangleEXT) {
+            float r2 = distToLight * distToLight + 1.0;
+            float att = lintensity / max(r2, 1.0);
+            if (ltype == LIGHT_DIRECTIONAL) att = lintensity;
+            contrib += lcolor * (albedo * 0.31831) * (att * nDotL * spotAtt);
+        }
+    }
+    return contrib;
 }
 
 layout(push_constant) uniform PushConstants {
@@ -685,6 +758,10 @@ void main() {
                 float attMix = mix(1.0, attAvg, sat);
                 throughput *= attMix * (0.07 + 0.93 * lum);
 
+                // Direct lighting
+                vec3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
+                colorAccum += linearToSRGB(directLin);
+
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
                     if (rand1(rng) > survive) break;
@@ -743,6 +820,10 @@ void main() {
 
                 float attMix = mix(1.0, attAvg, sat);
                 throughput *= attMix * (0.07 + 0.93 * lum);
+
+                // Direct lighting from point/spot/directional lights
+                vec3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.rgb, rng);
+                colorAccum += linearToSRGB(directLin);
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);

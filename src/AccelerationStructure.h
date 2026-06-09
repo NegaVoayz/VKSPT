@@ -52,11 +52,13 @@ public:
     static constexpr uint32_t MAX_INSTANCES = 16;
 
     /// CPU-side light data. Must match GpuLight in raytrace.comp (std140).
-    /// Each light holds 16 SPD samples packed as 4 vec4s (64 bytes).
-    /// The shader declares `GpuLight items[MAX_LIGHTS]`; we upload exactly
-    /// MAX_LIGHTS elements so buffer size matches shader expectation.
+    /// 4 × vec4 = 64 bytes per light, MAX_LIGHTS = 4 = 256 bytes total.
+    /// Light types: 0=point, 1=directional, 2=spot, 3=ambient/sky
     struct alignas(16) GpuLight {
-        float spd[16] = {};       // SPD sampled at the 16 reference wavelengths (380–780 nm)
+        float pos_type[4];        // xyz=position, w=type
+        float color_intensity[4]; // rgb=color, a=intensity
+        float dir_inner[4];       // xyz=direction, w=innerAngle (degrees, for spot)
+        float outer_range[4];     // x=outerAngle (spot), y=maxDistance, z/w unused
     };
 
     AccelerationStructure(
@@ -89,7 +91,7 @@ public:
     void buildScene(
         const std::vector<InstanceInfo>& instances,
         const std::vector<MaterialGPU>& materialData,
-        const GpuLight& skyLight
+        const std::vector<GpuLight>&    lights
     );
 
     /// Get the TLAS handle for descriptor binding.
@@ -147,7 +149,7 @@ private:
 
     void buildTLAS(uint32_t instanceCount);
     void uploadMaterialBuffer(const std::vector<MaterialGPU>& data);
-    void uploadLightBuffer(const GpuLight& skyLight);
+    void uploadLightBuffer(const std::vector<GpuLight>& lights);
     void uploadVertexSSBO();
 
     const vk::raii::Device&          m_device;
