@@ -75,8 +75,10 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
         cfg
     );
 
-    // Phase 4.5: Sorted ray tracing pipeline (verified correct)
-    m_renderer->initSortedPipeline(*m_pipeline);
+    // Phase 5: Sorted pipeline shelved — not faster, not more precise.
+    // Infrastructure retained: classify/process shaders, hit-cache PackedRay,
+    // overflow spill-to-host, CPU sortBatchByAction.
+    // m_renderer->initSortedPipeline(*m_pipeline);
 
     std::cout << "Initialization complete!" << std::endl;
 }
