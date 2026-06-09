@@ -49,11 +49,11 @@
 
     <Prism>
         <Args filename="prism.obj" display="1" normalinterpolation="0" rendermethod="1"/>
-        <Scale x="0.6" y="0.8" z="0.6"/>
+        <Scale x="4" y="4" z="2"/>
         <Rotation x="0.0" y="200.0" z="0.0"/>
         <Translation x="0.0" y="0.3" z="-3.0"/>
         <RefractiveIndex x="1.5"/>
-        <DispersionB value="0.020"/>
+        <DispersionB value="0.008"/>
         <AbsorptionA x="0.0" y="0.0" z="0.0"/>
         <AbsorptionB x="0.0" y="0.0" z="0.0"/>
         <Albedo x="0.0" y="0.5" z="0.1" w="0.8"/>
@@ -89,7 +89,7 @@
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="-1.0" y="2.0" z="-19.0"/>
         <RefractiveIndex x="0.0"/>   <!-- IOR=0 → metal -->
-        <Albedo x="0.0" y="10.0" z="0.8" w="0.0"/>
+        <Albedo x="0.95" y="0.70" z="0.25" w="0.0"/>   <!-- gold -->
         <Diffuse r="0.9" g="0.9" b="0.9"/>
         <Shiness p="1425.0"/>
     </Venus>
