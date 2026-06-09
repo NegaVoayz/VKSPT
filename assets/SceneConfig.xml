@@ -90,7 +90,7 @@
         <Translation x="-1.0" y="2.0" z="-19.0"/>
         <RefractiveIndex x="0.0"/>   <!-- IOR=0 → metal -->
         <Albedo x="0.95" y="0.70" z="0.25" w="0.0"/>   <!-- gold -->
-        <Diffuse r="0.9" g="0.9" b="0.9"/>
+        <Diffuse r="0.95" g="0.70" b="0.25"/>   <!-- gold reflectance -->
         <Shiness p="1425.0"/>
     </Venus>
     
