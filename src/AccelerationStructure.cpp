@@ -53,6 +53,10 @@ void AccelerationStructure::endSingleTimeCommands(vk::raii::CommandBuffer& cmdBu
 // -----------------------------------------------------------------------------
 AccelerationStructure::BlasResult
 AccelerationStructure::buildSingleBLAS(const MeshData& mesh) {
+    // Save vertex/index data for later SSBO upload (shader normal computation)
+    m_stagedVertices.push_back(mesh.vertices);
+    m_stagedIndices.push_back(mesh.indices);
+
     auto cmdBuf = beginSingleTimeCommands();
 
     // --- Vertex buffer ---
@@ -171,6 +175,90 @@ void AccelerationStructure::uploadMaterialBuffer(const std::vector<MaterialGPU>&
 }
 
 // -----------------------------------------------------------------------------
+// Upload sky/environment light SPD (D65 illuminant)
+// -----------------------------------------------------------------------------
+void AccelerationStructure::uploadLightBuffer(const GpuLight& skyLight) {
+    vk::DeviceSize bufSize = MAX_LIGHTS * sizeof(GpuLight);
+
+    m_lightBuffer = GPUBuffer::create(
+        m_device, bufSize,
+        vk::BufferUsageFlagBits::eUniformBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        m_physDevice
+    );
+
+    // Upload MAX_LIGHTS elements (first = sky light, rest = zeroed)
+    void* mapped = m_lightBuffer.memory.mapMemory(0, bufSize);
+    std::memset(mapped, 0, static_cast<size_t>(bufSize));
+    std::memcpy(mapped, &skyLight, sizeof(GpuLight));
+    m_lightBuffer.memory.unmapMemory();
+}
+
+// -----------------------------------------------------------------------------
+// Upload vertex/index data as SSBOs for shader geometric normal computation
+// -----------------------------------------------------------------------------
+void AccelerationStructure::uploadVertexSSBO() {
+    // Build SoA (struct-of-arrays) layout matching shader's InstanceRangeBlock:
+    //   uint vtxOffset[8]; uint vtxCount[8]; uint idxOffset[8]; uint idxCount[8]; uint materialID[8];
+    // Total: 5 × 8 = 40 uints = 160 bytes.
+    std::vector<uint32_t> rangeData(5 * MAX_INSTANCES, 0);
+    auto* vtxOff    = &rangeData[0 * MAX_INSTANCES];
+    auto* vtxCnt    = &rangeData[1 * MAX_INSTANCES];
+    auto* idxOff    = &rangeData[2 * MAX_INSTANCES];
+    auto* idxCnt    = &rangeData[3 * MAX_INSTANCES];
+    auto* matIDs    = &rangeData[4 * MAX_INSTANCES];
+
+    // Concatenate all vertex and index data across instances
+    std::vector<float>    allVertices;
+    std::vector<uint32_t> allIndices;
+
+    for (size_t inst = 0; inst < m_stagedVertices.size() && inst < MAX_INSTANCES; ++inst) {
+        vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
+        vtxCnt[inst] = static_cast<uint32_t>(m_stagedVertices[inst].size());
+        idxOff[inst] = static_cast<uint32_t>(allIndices.size());
+        idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
+        matIDs[inst] = 0;  // default material; caller can update for specific instances
+
+        allVertices.insert(allVertices.end(),
+            m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
+        allIndices.insert(allIndices.end(),
+            m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
+    }
+
+    // Upload vertex data SSBO
+    if (!allVertices.empty()) {
+        vk::DeviceSize vSize = allVertices.size() * sizeof(float);
+        m_vertexDataBuffer = GPUBuffer::createStaging(
+            m_device, allVertices.data(), vSize,
+            vk::BufferUsageFlagBits::eStorageBuffer |
+                vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice
+        );
+    }
+
+    // Upload index data SSBO
+    if (!allIndices.empty()) {
+        vk::DeviceSize iSize = allIndices.size() * sizeof(uint32_t);
+        m_indexDataBuffer = GPUBuffer::createStaging(
+            m_device, allIndices.data(), iSize,
+            vk::BufferUsageFlagBits::eStorageBuffer |
+                vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice
+        );
+    }
+
+    // Upload instance range SSBO (SoA layout, 160 bytes)
+    vk::DeviceSize rangeSize = rangeData.size() * sizeof(uint32_t);
+    m_rangeBuffer = GPUBuffer::createStaging(
+        m_device, rangeData.data(), rangeSize,
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress,
+        m_physDevice
+    );
+}
+
+// -----------------------------------------------------------------------------
 // Build TLAS from N instances (BLAS must already be in m_blasList)
 // -----------------------------------------------------------------------------
 void AccelerationStructure::buildTLAS(uint32_t instanceCount) {
@@ -266,9 +354,14 @@ void AccelerationStructure::buildTLAS(uint32_t instanceCount) {
 // Phase 1: single mesh → single BLAS → single-instance TLAS
 // -----------------------------------------------------------------------------
 void AccelerationStructure::build(const MeshData& mesh) {
+    m_instanceCount = 1;
+    m_stagedVertices.clear();
+    m_stagedIndices.clear();
+
     m_blasList.clear();
     m_blasList.push_back(buildSingleBLAS(mesh));
     buildTLAS(1);
+    uploadVertexSSBO();
 }
 
 // -----------------------------------------------------------------------------
@@ -277,15 +370,72 @@ void AccelerationStructure::build(const MeshData& mesh) {
 void AccelerationStructure::buildTwoInstance(
     const InstanceInfo& inst0,
     const InstanceInfo& inst1,
-    const std::vector<MaterialGPU>& materialData)
+    const std::vector<MaterialGPU>& materialData,
+    const GpuLight& skyLight)
 {
-    m_blasList.clear();
-    m_blasList.push_back(buildSingleBLAS(inst0.mesh));
-    m_blasList.push_back(buildSingleBLAS(inst1.mesh));
+    buildScene({inst0, inst1}, materialData, skyLight);
+}
 
-    // Override the instanceCustomIndex to match what the shader expects
-    // (we'll set it in buildTLAS based on the order in the instances array)
-    buildTLAS(2);
+void AccelerationStructure::buildScene(
+    const std::vector<InstanceInfo>& instances,
+    const std::vector<MaterialGPU>& materialData,
+    const GpuLight& skyLight)
+{
+    m_instanceCount = static_cast<uint32_t>(instances.size());
+    m_stagedVertices.clear();
+    m_stagedIndices.clear();
+    m_blasList.clear();
+
+    for (const auto& inst : instances) {
+        m_blasList.push_back(buildSingleBLAS(inst.mesh));
+    }
+
+    buildTLAS(m_instanceCount);
+
+    // Build range data with correct material IDs
+    std::vector<uint32_t> rangeData(5 * MAX_INSTANCES, 0);
+    auto* vtxOff = &rangeData[0 * MAX_INSTANCES];
+    auto* vtxCnt = &rangeData[1 * MAX_INSTANCES];
+    auto* idxOff = &rangeData[2 * MAX_INSTANCES];
+    auto* idxCnt = &rangeData[3 * MAX_INSTANCES];
+    auto* matIDs = &rangeData[4 * MAX_INSTANCES];
+
+    std::vector<float>    allVertices;
+    std::vector<uint32_t> allIndices;
+
+    for (size_t inst = 0; inst < m_stagedVertices.size(); ++inst) {
+        vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
+        vtxCnt[inst] = static_cast<uint32_t>(m_stagedVertices[inst].size());
+        idxOff[inst] = static_cast<uint32_t>(allIndices.size());
+        idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
+        matIDs[inst] = instances[inst].materialID;
+
+        allVertices.insert(allVertices.end(),
+            m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
+        allIndices.insert(allIndices.end(),
+            m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
+    }
+
+    // Upload vertex SSBO
+    if (!allVertices.empty()) {
+        m_vertexDataBuffer = GPUBuffer::createStaging(m_device, allVertices.data(),
+            allVertices.size() * sizeof(float),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    }
+    // Upload index SSBO
+    if (!allIndices.empty()) {
+        m_indexDataBuffer = GPUBuffer::createStaging(m_device, allIndices.data(),
+            allIndices.size() * sizeof(uint32_t),
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            m_physDevice);
+    }
+    // Upload range SSBO
+    m_rangeBuffer = GPUBuffer::createStaging(m_device, rangeData.data(),
+        rangeData.size() * sizeof(uint32_t),
+        vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+        m_physDevice);
 
     uploadMaterialBuffer(materialData);
+    uploadLightBuffer(skyLight);
 }

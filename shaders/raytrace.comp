@@ -6,7 +6,7 @@
 // =============================================================================
 const int LAMBDA_MIN           = 380;
 const int LAMBDA_MAX           = 780;
-const int SPECTRAL_STACK_MAX    = 16;
+const int SPECTRAL_STACK_MAX    = 32;
 const int NUM_REF_SAMPLES       = 16;   // for spectral integral reference points
 
 const int MATERIAL_DIELECTRIC = 0;
@@ -14,7 +14,9 @@ const int MATERIAL_METAL      = 1;
 const int MATERIAL_LAMBERTIAN = 2;
 
 struct GpuMaterial {
-    vec4 cauchyA, cauchyB, albedo, params;  // params: x=ior, y=rough, z=type
+    vec4 cauchyA, cauchyB;     // refractive index: n(λ) = A + B/λ²
+    vec4 absorpA, absorpB;     // absorption: α(λ) = A + B/λ² [m⁻¹]
+    vec4 albedo, params;       // params: x=ior, y=rough, z=type
 };
 
 // =============================================================================
@@ -31,6 +33,9 @@ struct RayState {
     int  bounce;         // bounces already taken
     int  generation;     // split generation counter (0 = never split)
     bool insideGlass;    // currently inside a dielectric?
+    bool fromReflection; // came from a Fresnel reflection? (exclude from wl integral)
+    bool hadTIR;         // underwent total internal reflection?
+    bool hadFresnelRefl; // underwent Fresnel partial reflection?
 };
 
 // =============================================================================
@@ -83,11 +88,78 @@ float spectralAbsorption(float lam, vec3 albedo) {
 }
 
 // =============================================================================
+// Material absorption — Cauchy-form volume absorption
+// =============================================================================
+
+/// Compute volume absorption coefficient for a material at wavelength λ.
+/// α(λ) = A + B/λ²   (λ in nm, internally converted to μm)
+float computeAbsorption(GpuMaterial m, float lamNm) {
+    float lu = lamNm * 1e-3, l2 = lu * lu;
+    return m.absorpA.y + m.absorpB.y / l2;  // use green channel (representative)
+}
+
+/// Reconstruct a plausible SPD from an RGB colour (metamerism).
+/// Uses a Gaussian peak at the dominant wavelength + flat baseline.
+/// Output: spd[16] populated with estimated spectral power at 16 ref wavelengths.
+void estimateSpectrumFromRGB(vec3 rgb, out float spd[NUM_REF_SAMPLES]) {
+    float domLambda = rgbToDomLambda(rgb);
+    float lum       = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float maxC = max(max(rgb.r, rgb.g), rgb.b);
+    float minC = min(min(rgb.r, rgb.g), rgb.b);
+    float sat  = (maxC - minC) / max(maxC, 0.001);
+
+    // Narrow peak for saturated, broad for desaturated
+    float sigma = mix(30.0, 250.0, 1.0 - sat);
+
+    for (int i = 0; i < NUM_REF_SAMPLES; i++) {
+        float lam = LAMBDA_MIN + float(LAMBDA_MAX - LAMBDA_MIN)
+                    * (float(i) + 0.5) / float(NUM_REF_SAMPLES);
+        float d = lam - domLambda;
+        float d2 = d * d;
+        spd[i] = lum * exp(-0.5 * d2 / (sigma * sigma));
+        // Broad baseline for desaturated colours
+        spd[i] += lum * (1.0 - sat) * 0.3;
+    }
+}
+
+// =============================================================================
+// Light struct
+// =============================================================================
+struct GpuLight {
+    vec4 spd[4];   // 16 floats = SPD sampled at the 16 reference wavelengths
+};
+
+// =============================================================================
 // Descriptors
 // =============================================================================
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 1, rgba8) uniform image2D outputImage;
 layout(set = 0, binding = 2) uniform MaterialBlock { GpuMaterial items[8]; } materials;
+layout(set = 0, binding = 3) uniform LightBlock   { GpuLight    items[4]; } lights;
+
+// Phase 4: Geometry SSBOs for proper geometric normal computation
+layout(set = 0, binding = 4, std430) buffer VertexBlock { float v[]; } vertexData;
+layout(set = 0, binding = 5, std430) buffer IndexBlock  { uint  i[]; } indexData;
+
+// Instance range block — SoA layout:
+//   uint vtxOffset[MAX_INSTANCES]; uint vtxCount[MAX_INSTANCES];
+//   uint idxOffset[MAX_INSTANCES]; uint idxCount[MAX_INSTANCES];
+//   uint materialID[MAX_INSTANCES];
+const int MAX_INSTANCES = 8;
+layout(set = 0, binding = 6, std430) buffer InstanceRangeBlock {
+    uint vtxOffset[MAX_INSTANCES];
+    uint vtxCount[MAX_INSTANCES];
+    uint idxOffset[MAX_INSTANCES];
+    uint idxCount[MAX_INSTANCES];
+    uint materialID[MAX_INSTANCES];
+} instanceRanges;
+
+/// Sample the sky/environment light SPD at a given reference index.
+float sampleLightSPD(int refIdx) {
+    int slot = refIdx / 4;
+    int comp = refIdx % 4;
+    return lights.items[0].spd[slot][comp];
+}
 
 layout(push_constant) uniform PushConstants {
     vec3  camOrigin;   float _pad0;
@@ -95,17 +167,25 @@ layout(push_constant) uniform PushConstants {
     vec3  camV;        float _pad2;
     vec3  camW;        float _pad3;
     int   samplesPerPixel, maxBounces, materialCount;
-    float _pad4;
+    float fovTan, splitMult, forceSplitWidth;
+    int   scatterSamples; float _pad4;
 } params;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // =============================================================================
-// Sky — blue-to-white gradient
+// Sky — grayscale checkerboard (no rainbow, to isolate prism dispersion)
 // =============================================================================
-vec3 skyColorRGB(vec3 d) {
-    float t = 0.5 * (d.y + 1.0);
-    return mix(vec3(0.53, 0.81, 0.92), vec3(1.0, 1.0, 1.0), t);
+float skyDirectionalFactor(vec3 d) {
+    // Checkerboard based on ray direction
+    float u = 0.5 + 0.5 * atan(d.x, d.z) / 3.14159265;
+    float v = 0.5 + 0.5 * d.y / length(vec2(d.x, d.z));
+    float a = step(0.5, fract(u * 12.0));
+    float b = step(0.5, fract(v * 8.0));
+    return mix(0.3, 1.0, (a != b) ? 1.0 : 0.0);  // checker modulates brightness
+}
+vec3 skyTintRGB(vec3 d) {
+    return vec3(1.0);  // neutral white — no color in background
 }
 
 // =============================================================================
@@ -167,6 +247,37 @@ vec3 rotateToNewFrame(vec3 v, vec3 oldDir, vec3 newDir) {
 }
 
 // =============================================================================
+// Phase 4: Geometric normal from vertex data (SSBO)
+// =============================================================================
+
+/// Compute the geometric face normal for a hit triangle using vertex SSBO data.
+/// Uses instanceID (from instanceCustomIndex) and primitiveID to look up vertices.
+vec3 computeGeometricNormal(int instanceID, int primitiveID) {
+    uint vOff = instanceRanges.vtxOffset[instanceID];
+    uint iOff = instanceRanges.idxOffset[instanceID];
+
+    // Get the 3 vertex indices for this triangle
+    uint i0 = indexData.i[iOff + uint(primitiveID) * 3u + 0u];
+    uint i1 = indexData.i[iOff + uint(primitiveID) * 3u + 1u];
+    uint i2 = indexData.i[iOff + uint(primitiveID) * 3u + 2u];
+
+    // Read vertex positions (each vertex = 3 consecutive floats: x, y, z)
+    vec3 v0 = vec3(vertexData.v[vOff + i0 * 3u + 0u],
+                   vertexData.v[vOff + i0 * 3u + 1u],
+                   vertexData.v[vOff + i0 * 3u + 2u]);
+    vec3 v1 = vec3(vertexData.v[vOff + i1 * 3u + 0u],
+                   vertexData.v[vOff + i1 * 3u + 1u],
+                   vertexData.v[vOff + i1 * 3u + 2u]);
+    vec3 v2 = vec3(vertexData.v[vOff + i2 * 3u + 0u],
+                   vertexData.v[vOff + i2 * 3u + 1u],
+                   vertexData.v[vOff + i2 * 3u + 2u]);
+
+    vec3 e0 = v1 - v0;
+    vec3 e1 = v2 - v0;
+    return normalize(cross(e0, e1));
+}
+
+// =============================================================================
 // Main — adaptive spectral path tracing with per-pixel ray stack
 // =============================================================================
 
@@ -175,11 +286,9 @@ void main() {
     ivec2 sz = imageSize(outputImage);
     if (px.x >= sz.x || px.y >= sz.y) return;
 
-    vec2 uv = (vec2(px) + 0.5) / vec2(sz) * 2.0 - 1.0;  uv.y = -uv.y;
     vec3 origin  = params.camOrigin;
-    vec3 camDir  = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
 
-    // ---- Precompute spectral reference samples (same as Phase 2.5) ----
+    // ---- Precompute spectral reference samples (same for all SPP samples) ----
     int  refLambda[NUM_REF_SAMPLES];
     vec3 refWlRGB[NUM_REF_SAMPLES];
     vec3 fullSpecRef = vec3(0.0);
@@ -191,32 +300,45 @@ void main() {
     }
     fullSpecRef /= float(NUM_REF_SAMPLES);  // white reference (Phase 2.5 normalisation)
 
-    // ---- Per-pixel ray stack ----
+    // ---- Per-pixel ray stack (reused across SPP samples) ----
     RayState rayStack[SPECTRAL_STACK_MAX];
-    int stackTop = 0;
 
-    // Seed stack with one full-spectrum ray
-    RayState init;
-    init.origin      = origin;
-    init.direction   = camDir;
-    init.last_split  = vec3(0.0);
-    init.dispersion  = vec3(0.0);
-    init.lam_start   = LAMBDA_MIN;
-    init.lam_end     = LAMBDA_MAX;
-    init.energy      = 1.0;
-    init.bounce      = 0;
-    init.generation  = 0;
-    init.insideGlass = false;
-    rayStack[stackTop++] = init;
+    vec3 pixelColor = vec3(0.0);
+    int spp = max(1, params.samplesPerPixel);
 
-    vec3  colorAccum      = vec3(0.0);
-    vec3  totalWlIntegral  = vec3(0.0);   // sum of wlContribs for normalisation
-    int   totalRays        = 0;
-    uint  rngBase          = wangHash(uint(px.x) * 1973u + uint(px.y) * 9277u);
+    for (int sp = 0; sp < spp; sp++) {
+        // Per-sample RNG seed + sub-pixel jitter for antialiasing
+        uint rngBase = wangHash(uint(px.x) * 1973u + uint(px.y) * 9277u + uint(sp) * 2654435761u);
+        float jx = (float(rngBase & 0xFFFFu) / 65536.0) - 0.5;
+        float jy = (float((rngBase >> 16u) & 0xFFFFu) / 65536.0) - 0.5;
+        vec2 uv = (vec2(px) + 0.5 + vec2(jx, jy)) / vec2(sz) * 2.0 - 1.0;
+        uv.y = -uv.y;
+        vec3 camDir = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
+
+        int stackTop = 0;
+
+        // Seed stack with one full-band ray
+        RayState init;
+        init.origin      = origin;
+        init.direction   = camDir;
+        init.last_split  = vec3(0.0);
+        init.dispersion  = vec3(0.0);
+        init.lam_start   = LAMBDA_MIN;
+        init.lam_end     = LAMBDA_MAX;
+        init.energy      = 1.0;
+        init.bounce      = 0;
+        init.generation  = 0;
+        init.insideGlass = false;
+        init.fromReflection = false;
+        init.hadTIR = false;
+        init.hadFresnelRefl = false;
+        rayStack[stackTop++] = init;
+
+        vec3  colorAccum     = vec3(0.0);
+        vec3  totalWlIntegral = vec3(0.0);   // sum of wlContribs for normalisation
 
     while (stackTop > 0) {
         RayState r = rayStack[--stackTop];
-        totalRays++;
         uint rng = wangHash(rngBase ^ uint(stackTop + 1) * 127u);
 
         // ---- Extract ray locals ----
@@ -227,10 +349,16 @@ void main() {
         float energy     = r.energy;
         int   lamStart   = r.lam_start;
         int   lamEnd     = r.lam_end;
-        bool  inGlass    = r.insideGlass;
-        int   generation = r.generation;
+        bool  inGlass       = r.insideGlass;
+        int   generation    = r.generation;
+        bool  fromRefl      = r.fromReflection;
+        bool  hadTIR        = r.hadTIR;
+        bool  hadFresnel    = r.hadFresnelRefl;
 
         for (int bounce = r.bounce; bounce < params.maxBounces; ++bounce) {
+            // Phase 4: Energy culling — terminate negligible rays early
+            if (energy < 0.005) break;
+
             rayQueryEXT rq;
             rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
                                   rayO, 0.001, rayD, 10000.0);
@@ -238,17 +366,25 @@ void main() {
 
             if (rayQueryGetIntersectionTypeEXT(rq, true) !=
                 gl_RayQueryCommittedIntersectionTriangleEXT) {
-                // ---- Miss → sky ----
-                // Integrate wavelengthToRGB across this ray's range
+                // ---- Miss → sky (environment light with D65 SPD × directional tint) ----
+                // Integrate: light_SPD(λ) × wavelengthToRGB(λ) × energy × skyTint × directionFactor
+                vec3 skyTint   = skyTintRGB(rayD);
+                float dirFac   = skyDirectionalFactor(rayD);
                 vec3 wlContrib = vec3(0.0);
+                vec3 spdContrib = vec3(0.0);
                 for (int ri = 0; ri < NUM_REF_SAMPLES; ri++) {
                     float w = step(float(lamStart), float(refLambda[ri]))
                             * step(float(refLambda[ri]), float(lamEnd));
-                    wlContrib += refWlRGB[ri] * w;
+                    float lightSPD = sampleLightSPD(ri);
+                    spdContrib += refWlRGB[ri] * w * lightSPD;
+                    wlContrib  += refWlRGB[ri] * w;
                 }
-                wlContrib /= float(NUM_REF_SAMPLES);
-                colorAccum      += skyColorRGB(rayD) * energy * wlContrib;
-                totalWlIntegral += wlContrib;
+                spdContrib /= float(NUM_REF_SAMPLES);
+                wlContrib  /= float(NUM_REF_SAMPLES);
+                colorAccum      += skyTint * energy * spdContrib * dirFac;
+                if (!r.fromReflection) {
+                    totalWlIntegral += wlContrib;  // only primary rays count for normalization
+                }
                 break;
             }
 
@@ -258,25 +394,14 @@ void main() {
             vec3   pos  = rayO + rayD * tHit;
             int    mi   = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
 
-            // --- Compute geometric face normal ---
-            // All TLAS instances use identity transforms, so ObjectToWorld
-            // is always identity → cannot use it for the normal.
-            // Instead, hardcode normals per instance based on known geometry.
-            // HACK for Phase 3: entry face (mi==0) and exit face (mi==1).
-            // TODO Phase 4: bind vertex buffers as SSBO and compute normals properly.
-            vec3 nrm;
-            if (mi == 0) {
-                // Entry face: vertices (-8,-4,2), (8,-4,12), (0,8,2)
-                //  Normal = cross((16,0,10), (8,12,0)) = (-120, 80, 192)
-                nrm = normalize(vec3(-120.0, 80.0, 192.0));
-            } else {
-                // Exit face: vertices (-10,-6,8), (10,-6,4), (0,10,14)
-                //  Normal = cross((20,0,-4), (10,16,6)) = (64, -160, 320)
-                nrm = normalize(vec3(64.0, -160.0, 320.0));
-            }
+            // --- Compute geometric face normal from vertex SSBO ---
+            int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+            vec3 nrm = computeGeometricNormal(mi, primitiveID);
             if (dot(nrm, -rayD) < 0.0) nrm = -nrm;   // face the incoming ray
 
-            GpuMaterial mat = materials.items[clamp(mi, 0, 7)];
+            // Look up material via per-instance materialID
+            uint matIdx = instanceRanges.materialID[mi];
+            GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
             int matType = int(mat.params.z);
 
             if (matType == MATERIAL_LAMBERTIAN) {
@@ -289,17 +414,92 @@ void main() {
                     energy /= survive;
                 }
 
+                // ---- Multi-scatter: N random directions, energy/N each ----
+                int scatCount = int(params.scatterSamples);
+                if (scatCount < 1) scatCount = 1;
+                if (scatCount > 4) scatCount = 4;   // cap to keep stack usage bounded
+                float scatEnergy = energy / float(scatCount);
+
+                // Push scatCount-1 rays to stack, keep the last inline
+                for (int s = 0; s < scatCount - 1; s++) {
+                    if (stackTop < SPECTRAL_STACK_MAX) {
+                        vec3 sDir = cosineSampleHemisphere(nrm, rng);
+                        RayState scat;
+                        scat.origin      = pos + sDir * 0.01;
+                        scat.direction   = sDir;
+                        scat.last_split  = vec3(0.0);
+                        scat.dispersion  = vec3(0.0);
+                        scat.lam_start   = lamStart;
+                        scat.lam_end     = lamEnd;
+                        scat.energy      = scatEnergy;
+                        scat.bounce      = bounce + 1;
+                        scat.generation  = generation;
+                        scat.insideGlass = false;
+                        scat.fromReflection = fromRefl;
+                        scat.hadTIR = hadTIR;
+                        scat.hadFresnelRefl = hadFresnel;
+                        rayStack[stackTop++] = scat;
+                    }
+                }
+
+                // Continue inline with the last scatter direction
                 rayD       = cosineSampleHemisphere(nrm, rng);
                 rayO       = pos + rayD * 0.01;
+                energy     = scatEnergy;
                 lastSplit  = vec3(0.0);
                 disp       = vec3(0.0);
                 inGlass    = false;
             }
             else if (matType == MATERIAL_DIELECTRIC) {
+                // Force-split before refraction if band is too wide.
+                // This ensures each narrow-band beam refracts at its own IOR,
+                // producing more precise dispersion with many beams.
+                int lamRange = lamEnd - lamStart;
+                int forceWidth = int(params.forceSplitWidth);
+                if (lamRange > forceWidth && forceWidth > 0 && generation < 6) {
+                    int midWl = (lamStart + lamEnd) / 2;
+                    // Offset in refraction plane, perpendicular to ray, proportional to wavelength diff
+                    // Direction: cross(cross(rayD, nrm), rayD) — tangent to surface, ⟂ ray, in refraction plane
+                    vec3 perpDir = normalize(cross(cross(rayD, nrm), rayD));
+                    if (length(perpDir) < 0.0001) perpDir = vec3(1,0,0); // fallback for normal incidence
+                    float parentMid = float(lamStart + lamEnd) * 0.5;
+                    float violetMid = float(lamStart + midWl) * 0.5;
+                    float redMid    = float(midWl + lamEnd) * 0.5;
+                    float offsetScale = 0.0002;  // world units per nm wavelength difference
+
+                    // Violet child → push to stack (will re-enter this same face)
+                    if (stackTop < SPECTRAL_STACK_MAX) {
+                        RayState forceChild;
+                        forceChild.origin      = rayO + perpDir * (parentMid - violetMid) * offsetScale;
+                        forceChild.direction   = rayD;
+                        forceChild.last_split  = lastSplit;
+                        forceChild.dispersion  = disp;
+                        forceChild.lam_start   = lamStart;
+                        forceChild.lam_end     = midWl;
+                        forceChild.energy      = energy;
+                        forceChild.bounce      = bounce;
+                        forceChild.generation  = generation + 1;
+                        forceChild.insideGlass = inGlass;
+                        forceChild.fromReflection = fromRefl;
+                        forceChild.hadTIR = hadTIR;
+                        forceChild.hadFresnelRefl = hadFresnel;
+                        rayStack[stackTop++] = forceChild;
+                    }
+                    // Red child → continue inline, offset opposite direction
+                    lamStart   = midWl;
+                    generation = generation + 1;
+                    lamRange   = lamEnd - lamStart;  // update for below
+                    rayO       = rayO + perpDir * (parentMid - redMid) * offsetScale;
+                }
+
                 int lamMid = (lamStart + lamEnd) / 2;
                 float ior_mid   = cauchyIOR(mat, float(lamMid));
                 float ior_start = cauchyIOR(mat, float(lamStart));
                 float ior_end   = cauchyIOR(mat, float(lamEnd));
+
+                // Volume absorption (Beer-Lambert): energy *= exp(-α(λ_mid) × tHit)
+                float alphaMid  = computeAbsorption(mat, float(lamMid));
+                energy *= exp(-alphaMid * tHit);
 
                 vec3 newDisp = computeDispersion(rayD, nrm, ior_start, ior_end, inGlass);
                 float eta = inGlass ? ior_mid : (1.0 / ior_mid);
@@ -307,6 +507,36 @@ void main() {
                 vec3 newDir;
                 if (refractDir(rayD, nrm, eta, newDir)) {
                     // ---- Refraction succeeded ----
+                    // Fresnel: split energy between reflection and transmission
+                    float cosTheta = abs(dot(rayD, nrm));
+                    float R0 = ((ior_mid - 1.0) / (ior_mid + 1.0));
+                    R0 = R0 * R0;
+                    float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
+
+                    // Push reflected ray (stays in same medium)
+                    float reflEnergy = energy * fresnelR;
+                    if (stackTop < SPECTRAL_STACK_MAX && reflEnergy > 0.005) {
+                        vec3 reflDir = reflectDir(rayD, nrm);
+                        RayState refl;
+                        refl.origin      = pos + reflDir * 0.01;
+                        refl.direction   = reflDir;
+                        refl.last_split  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
+                        refl.dispersion  = disp - 2.0 * dot(disp, nrm) * nrm;
+                        refl.lam_start   = lamStart;
+                        refl.lam_end     = lamEnd;
+                        refl.energy      = reflEnergy;
+                        refl.bounce      = bounce + 1;
+                        refl.generation  = generation;
+                        refl.insideGlass = inGlass;
+                        refl.fromReflection = true;
+                        refl.hadTIR = hadTIR;
+                        refl.hadFresnelRefl = true;  // this IS a Fresnel reflection
+                        rayStack[stackTop++] = refl;
+                    }
+
+                    // Transmitted continues with reduced energy
+                    energy *= (1.0 - fresnelR);
+
                     // Transform accumulated separation to new tangent plane
                     lastSplit = rotateToNewFrame(lastSplit, rayD, newDir);
                     disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
@@ -315,29 +545,52 @@ void main() {
                     float estDist = 1.5;
                     vec3  predictedSep = lastSplit + disp * estDist;
                     float sepMag       = length(predictedSep);
-                    float pixThresh    = estDist * 2.0 / float(sz.y);
+                    // Pixel angular width at hit distance (FOV-aware)
+                    float pixHalfWidth = params.fovTan / float(sz.x);
+                    float pixThresh    = estDist * pixHalfWidth * 2.0 * params.splitMult;
 
                     int lamRange = lamEnd - lamStart;
 
-                    if (sepMag > pixThresh && lamRange >= 10 &&
-                        energy >= 0.05 && generation < 5) {
+                    // Absorption variation across band (additional split driver)
+                    float alphaStart = computeAbsorption(mat, float(lamStart));
+                    float alphaEnd   = computeAbsorption(mat, float(lamEnd));
+                    float alphaVar   = abs(exp(-alphaStart * tHit) - exp(-alphaEnd * tHit));
+
+                    // Split if: dispersion exceeds pixel, OR absorption varies, OR band too wide
+                    bool didSplit = false;
+                    // Offset direction: perpendicular to exit direction, in refraction plane
+                    vec3 splitOffsetDir = normalize(cross(cross(newDir, nrm), newDir));
+                    if (length(splitOffsetDir) < 0.0001) splitOffsetDir = vec3(1,0,0);
+                    float parentMidWl = float(lamStart + lamEnd) * 0.5;
+                    float offsetScaleMain = 0.0002;
+                    bool forceWide = (int(params.forceSplitWidth) > 0) && (lamRange > int(params.forceSplitWidth));
+                    if ((sepMag > pixThresh || alphaVar > 0.05 || forceWide)
+                        && lamRange >= 10 &&
+                        energy >= 0.05 && generation < 6) {
+                        didSplit = true;
                         // === SPLIT at wavelength midpoint ===
                         int midWl       = (lamStart + lamEnd) / 2;
                         float fracViolet = float(midWl - lamStart) / float(lamRange);
                         int   nextGen    = generation + 1;
 
                         // Violet child (shorter λ) → push to stack
+                        // Offset perpendicular to exit direction, proportional to wavelength diff
+                        float violetMidWl = float(lamStart + midWl) * 0.5;
+
                         RayState violet;
-                        violet.origin      = pos + newDir * 0.01;
+                        violet.origin      = pos + newDir * 0.01 + splitOffsetDir * (parentMidWl - violetMidWl) * offsetScaleMain;
                         violet.direction   = newDir;
                         violet.last_split  = predictedSep;
                         violet.dispersion  = disp;
                         violet.lam_start   = lamStart;
                         violet.lam_end     = midWl;
-                        violet.energy      = energy * fracViolet;
+                        violet.energy      = energy;   // full energy — spectral range handles fraction
                         violet.bounce      = bounce + 1;
                         violet.generation  = nextGen;
                         violet.insideGlass = !inGlass;
+                        violet.fromReflection = r.fromReflection;
+                        violet.hadTIR = hadTIR;
+                        violet.hadFresnelRefl = hadFresnel;
 
                         if (stackTop < SPECTRAL_STACK_MAX) {
                             rayStack[stackTop++] = violet;
@@ -345,7 +598,7 @@ void main() {
 
                         // Red child (longer λ) → continue inline
                         lamStart   = midWl;
-                        energy    *= (1.0 - fracViolet);
+                        // energy unchanged — spectral range handles fraction
                         generation = nextGen;
                         // lastSplit, disp unchanged (children inherit)
                     }
@@ -353,10 +606,16 @@ void main() {
 
                     rayD    = newDir;
                     rayO    = pos + newDir * 0.01;
+                    if (didSplit) {
+                        // Offset red child opposite to violet child (wavelength-dependent position)
+                        float redMidWl = float(lamStart + lamEnd) * 0.5;
+                        rayO += splitOffsetDir * (parentMidWl - redMidWl) * offsetScaleMain;
+                    }
                     inGlass = !inGlass;
                 }
                 else {
                     // ---- Total Internal Reflection ----
+                    hadTIR = true;
                     newDir     = reflectDir(rayD, nrm);
                     lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                     disp       = disp - 2.0 * dot(disp, nrm) * nrm;
@@ -365,14 +624,29 @@ void main() {
                     // inGlass unchanged (still in same medium)
                 }
             }
+            else if (matType == MATERIAL_METAL) {
+                // Metal: specular reflection with albedo-tinted energy loss
+                vec3 metalAlbedo = mat.albedo.rgb;
+                energy *= dot(metalAlbedo, vec3(0.333));  // average reflectance
+                vec3 reflDir = reflectDir(rayD, nrm);
+                rayD       = reflDir;
+                rayO       = pos + reflDir * 0.01;
+                lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
+                disp       = disp - 2.0 * dot(disp, nrm) * nrm;
+                inGlass    = false;
+            }
             else {
-                // Metal or unknown → absorb
+                // Unknown → absorb
                 break;
             }
         } // bounce loop
     } // stack loop
 
-    // ---- Normalise by total accumulated spectral integral ----
-    colorAccum /= max(totalWlIntegral, vec3(0.001));
-    imageStore(outputImage, px, vec4(colorAccum, 1.0));
+        // ---- Normalise this sample by its spectral integral ----
+        colorAccum /= max(totalWlIntegral, vec3(0.001));
+        pixelColor += colorAccum;
+    } // SPP loop
+
+    pixelColor /= float(spp);
+    imageStore(outputImage, px, vec4(pixelColor, 1.0));
 }

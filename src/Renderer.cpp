@@ -287,11 +287,17 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         throw std::runtime_error("Failed to acquire swapchain image.");
     }
 
-    // Bind descriptor (TLAS + output image + material buffer) for this frame index
+    // Bind descriptor (TLAS + output image + material buffer + light buffer) for this frame index
     pipeline.bindTLAS(frameIdx, as.getTLAS());
     pipeline.bindOutputImage(frameIdx, *m_outputView, nullptr);
     pipeline.bindMaterialBuffer(frameIdx, *as.getMaterialBuffer().buffer,
                                  as.getMaterialBuffer().size);
+    pipeline.bindLightBuffer(frameIdx, *as.getLightBuffer().buffer,
+                              as.getLightBuffer().size);
+    pipeline.bindGeometrySSBOs(frameIdx,
+        *as.getVertexDataBuffer().buffer, as.getVertexDataBuffer().size,
+        *as.getIndexDataBuffer().buffer,  as.getIndexDataBuffer().size,
+        *as.getRangeBuffer().buffer,      as.getRangeBuffer().size);
 
     // Record command buffer
     auto& cmdBuf = m_commandBuffers[frameIdx];
@@ -327,7 +333,11 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         int   samplesPerPixel;
         int   maxBounces;
         int   materialCount;
-        float _pad4;
+        float fovTan;
+        float splitMult;
+        float forceSplitWidth;
+        int   scatterSamples;
+        float _padFinal;
     } pc{};
     pc.camOrigin[0] = 0.0f;  pc.camOrigin[1] = 0.0f;  pc.camOrigin[2] = -5.0f;
     float aspect = float(m_config.width) / float(m_config.height);
@@ -335,9 +345,13 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.camU[0] = fovTan * aspect;  pc.camU[1] = 0.0f;  pc.camU[2] = 0.0f;
     pc.camV[0] = 0.0f;             pc.camV[1] = fovTan; pc.camV[2] = 0.0f;
     pc.camW[0] = 0.0f;             pc.camW[1] = 0.0f;    pc.camW[2] = 1.0f;
-    pc.samplesPerPixel = 16;
-    pc.maxBounces      = 8;
+    pc.samplesPerPixel = 4;
+    pc.maxBounces      = 24;
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
+    pc.fovTan          = 1.0f;  // tan(horizontalHalfFov) for 90° FOV
+    pc.splitMult       = 1.0f;  // split threshold multiplier
+    pc.forceSplitWidth = 40.0f;  // force-split bands wider than 40nm
+    pc.scatterSamples  = 2;     // Lambertian multi-scatter rays per hit
 
     cmdBuf.pushConstants<PushConstants>(
         pipeline.getPipelineLayout(),

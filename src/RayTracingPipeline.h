@@ -37,6 +37,15 @@ public:
     /// Bind the material uniform buffer for the given frame index.
     void bindMaterialBuffer(uint32_t frameIndex, vk::Buffer buffer, vk::DeviceSize size);
 
+    /// Bind the light uniform buffer for the given frame index.
+    void bindLightBuffer(uint32_t frameIndex, vk::Buffer buffer, vk::DeviceSize size);
+
+    /// Bind geometry SSBOs (vertex data, index data, instance ranges) for shader normals.
+    void bindGeometrySSBOs(uint32_t frameIndex,
+                           vk::Buffer vertexBuf, vk::DeviceSize vertexSize,
+                           vk::Buffer indexBuf,  vk::DeviceSize indexSize,
+                           vk::Buffer rangeBuf,  vk::DeviceSize rangeSize);
+
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
         return *m_descriptorSets[frameIndex];

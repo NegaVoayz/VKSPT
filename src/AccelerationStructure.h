@@ -28,12 +28,28 @@ public:
     };
 
     /// CPU-side material data uploaded to the GPU UBO.
-    /// Must match GpuMaterial in spectral_common.slang (std140, 64 bytes).
+    /// Must match GpuMaterial in raytrace.comp (std140).
     struct alignas(16) MaterialGPU {
-        float cauchyA[4] = {};    // (R, G, B, _)
-        float cauchyB[4] = {};    // (R, G, B, _) — B for λ in μm
+        float cauchyA[4] = {};    // (R, G, B, _) — IOR Cauchy A
+        float cauchyB[4] = {};    // (R, G, B, _) — IOR Cauchy B (λ in μm)
+        float absorpA[4] = {};    // (R, G, B, _) — absorption Cauchy A: α(λ)=A+B/λ² [m⁻¹]
+        float absorpB[4] = {};    // (R, G, B, _) — absorption Cauchy B
         float albedo[4]   = {};   // (R, G, B, _)
         float params[4]   = {};   // (ior, roughness, type, _)
+    };
+
+    /// Maximum number of lights in the light UBO.
+    static constexpr uint32_t MAX_LIGHTS = 4;
+
+    /// Maximum number of TLAS instances (must match shader).
+    static constexpr uint32_t MAX_INSTANCES = 8;
+
+    /// CPU-side light data. Must match GpuLight in raytrace.comp (std140).
+    /// Each light holds 16 SPD samples packed as 4 vec4s (64 bytes).
+    /// The shader declares `GpuLight items[MAX_LIGHTS]`; we upload exactly
+    /// MAX_LIGHTS elements so buffer size matches shader expectation.
+    struct alignas(16) GpuLight {
+        float spd[16] = {};       // SPD sampled at the 16 reference wavelengths (380–780 nm)
     };
 
     AccelerationStructure(
@@ -58,7 +74,15 @@ public:
     void buildTwoInstance(
         const InstanceInfo& inst0,
         const InstanceInfo& inst1,
-        const std::vector<MaterialGPU>& materialData
+        const std::vector<MaterialGPU>& materialData,
+        const GpuLight& skyLight
+    );
+
+    /// Build N instances with their BLAS + TLAS + materials + lights.
+    void buildScene(
+        const std::vector<InstanceInfo>& instances,
+        const std::vector<MaterialGPU>& materialData,
+        const GpuLight& skyLight
     );
 
     /// Get the TLAS handle for descriptor binding.
@@ -69,6 +93,21 @@ public:
 
     /// Get the material uniform buffer for descriptor binding.
     const GPUBuffer& getMaterialBuffer() const { return m_materialBuffer; }
+
+    /// Get the light uniform buffer for descriptor binding.
+    const GPUBuffer& getLightBuffer() const { return m_lightBuffer; }
+
+    /// Get the persistent vertex data SSBO for shader normal computation.
+    const GPUBuffer& getVertexDataBuffer() const { return m_vertexDataBuffer; }
+
+    /// Get the persistent index data SSBO for shader normal computation.
+    const GPUBuffer& getIndexDataBuffer() const { return m_indexDataBuffer; }
+
+    /// Get the instance range SSBO for shader vertex lookup.
+    const GPUBuffer& getRangeBuffer() const { return m_rangeBuffer; }
+
+    /// Number of TLAS instances.
+    uint32_t getInstanceCount() const { return m_instanceCount; }
 
     /// Number of materials stored in the UBO.
     uint32_t getMaterialCount() const { return m_materialCount; }
@@ -88,6 +127,8 @@ private:
 
     void buildTLAS(uint32_t instanceCount);
     void uploadMaterialBuffer(const std::vector<MaterialGPU>& data);
+    void uploadLightBuffer(const GpuLight& skyLight);
+    void uploadVertexSSBO();
 
     const vk::raii::Device&          m_device;
     const vk::raii::PhysicalDevice&  m_physDevice;
@@ -110,4 +151,15 @@ private:
     // Material uniform buffer
     GPUBuffer m_materialBuffer;
     uint32_t  m_materialCount = 0;
+
+    // Light uniform buffer (sky/environment SPD)
+    GPUBuffer m_lightBuffer;
+
+    // Persistent geometry SSBOs (kept alive for shader normal computation)
+    GPUBuffer                m_vertexDataBuffer;   // concatenated vertex positions (float3)
+    GPUBuffer                m_indexDataBuffer;    // concatenated triangle indices (uint)
+    GPUBuffer                m_rangeBuffer;        // per-instance vertex/index ranges
+    uint32_t                 m_instanceCount = 0;
+    std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
+    std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
 };

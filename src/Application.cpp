@@ -83,54 +83,74 @@ Application::~Application() {
 }
 
 void Application::initScene() {
-    // Phase 3: BK7 glass prism — two non-parallel faces forming a wedge.
-    //
-    // Camera at (0,0,-5) looking +Z.
-    // Rays enter the entry face (Z≈2-3), travel through the glass interior,
-    // and exit through the exit face (Z≈3-4). The two faces share an apex at
-    // (0, 1.2, 3.0). Different wavelengths refract at different angles
-    // (Cauchy dispersion) → rainbow projects onto the sky.
-    //
-    // Wedge angle ≈ 56° between face normals.
-    // Both faces use BK7 glass with per-channel Cauchy coefficients.
+    // Phase 4: Diamond prism + reflective ground plane.
+    // Camera at (0,0,-5) looking +Z, 90° horizontal FOV.
 
-    // Entry face — ~37° tilt, large, covers entire view
-    AccelerationStructure::InstanceInfo entryFace;
-    entryFace.mesh.vertices = {
-        -8.0f, -4.0f,  2.0f,
-         8.0f, -4.0f, 12.0f,
-         0.0f,  8.0f,  2.0f,
+    std::vector<AccelerationStructure::InstanceInfo> instances;
+    std::vector<AccelerationStructure::MaterialGPU> materials(2);
+
+    // ---- Instance 0: BK7 triangular prism ----
+    // Triangular cross-section in XZ, extruded in Y.
+    // Entry face at Z=2: rectangle facing camera.
+    // Far faces meet at apex Z=10 (face angle 26.6°, below BK7 41.2° critical).
+    AccelerationStructure::InstanceInfo prism;
+    prism.mesh.vertices = {
+        // Near rectangle (Z=2)
+        -5.0f, -4.0f, 2.0f,   // 0: A  bottom-left
+         5.0f, -4.0f, 2.0f,   // 1: B  bottom-right
+         5.0f,  5.0f, 2.0f,   // 2: C  top-right
+        -5.0f,  5.0f, 2.0f,   // 3: D  top-left
+        // Apex edge (Z=6, depth=4, face angle 51° → incidence 39° < 41° critical)
+         0.0f, -4.0f, 6.0f,   // 4: E  apex bottom
+         0.0f,  5.0f, 6.0f,   // 5: F  apex top
     };
-    entryFace.mesh.indices = {0, 1, 2};
-    entryFace.customIndex  = 0;
-    entryFace.materialID   = 0;
-
-    // Dummy second instance (never hit); full prism needs a closed mesh volume
-    AccelerationStructure::InstanceInfo exitFace;
-    exitFace.mesh.vertices = {
-        -0.01f, 0.0f,  100.0f,
-         0.01f, 0.0f,  100.0f,
-         0.0f,   0.01f, 100.0f,
+    // 8 triangles: entry, 2 slanted far faces, top, bottom (no exit cap — V-shape)
+    prism.mesh.indices = {
+        // Entry face (Z=2, outward -Z): D,C,B + D,B,A
+        3, 2, 1,  3, 1, 0,
+        // Top cap (Y=5, outward +Y): D,F,C  (C is (5,5,2), F is (0,5,10))
+        3, 5, 2,
+        // Bottom cap (Y=-4, outward -Y): A,B,E
+        0, 1, 4,
+        // Far-right face: B,C,F,E (B-C and F-E edges)
+        1, 2, 5,  1, 5, 4,
+        // Far-left face: A,E,F,D  (A-D and E-F edges)
+        0, 4, 5,  0, 5, 3,
     };
-    exitFace.mesh.indices = {0, 1, 2};
-    exitFace.customIndex  = 1;
-    exitFace.materialID   = 0;   // same BK7 material
+    prism.customIndex = 0;
+    prism.materialID  = 0;
+    instances.push_back(prism);
 
-    std::vector<AccelerationStructure::MaterialGPU> materials(1);
-    // BK7 glass: n(λ) = A + B/λ²  (λ in μm)
-    // Coefficients from design doc §10.A:
-    //   A_r=1.513 A_g=1.519 A_b=1.528
-    //   B_r=0.0045 B_g=0.0045 B_b=0.0045
-    auto& bk7 = materials[0];
-    bk7.cauchyA[0] = 1.513f; bk7.cauchyA[1] = 1.519f; bk7.cauchyA[2] = 1.528f; bk7.cauchyA[3] = 0.0f;
-    bk7.cauchyB[0] = 0.0045f; bk7.cauchyB[1] = 0.0045f; bk7.cauchyB[2] = 0.0045f; bk7.cauchyB[3] = 0.0f;
-    bk7.params[0] = 1.517f;  // base IOR (sodium D-line)
-    bk7.params[1] = 0.0f;     // roughness
-    bk7.params[2] = 0.0f;     // DIELECTRIC
-    bk7.params[3] = 0.0f;
+    // ---- Instance 1: Ground plane for reflection test ----
+    AccelerationStructure::InstanceInfo ground;
+    ground.mesh.vertices = {
+        -20.0f, -5.0f, -5.0f,
+         20.0f, -5.0f, -5.0f,
+         20.0f, -5.0f, 30.0f,
+        -20.0f, -5.0f, 30.0f,
+    };
+    ground.mesh.indices = {0, 1, 2, 0, 2, 3};  // upward normal
+    ground.customIndex = 1;
+    ground.materialID  = 1;  // white Lambertian
+    instances.push_back(ground);
 
-    m_as->buildTwoInstance(entryFace, exitFace, materials);
-    std::cout << "  Built BLASx2 + TLAS: BK7 prism wedge for adaptive spectral tracing." << std::endl;
+    // ---- Material 0: BK7 Glass ----
+    auto& glass = materials[0];
+    glass.cauchyA[0] = 1.513f; glass.cauchyA[1] = 1.519f; glass.cauchyA[2] = 1.528f; glass.cauchyA[3] = 0.0f;
+    glass.cauchyB[0] = 0.0045f; glass.cauchyB[1] = 0.0045f; glass.cauchyB[2] = 0.0045f; glass.cauchyB[3] = 0.0f;
+    glass.params[0] = 1.517f; glass.params[2] = 0.0f;  // DIELECTRIC
+
+    // ---- Material 1: White Lambertian ground ----
+    auto& whiteGround = materials[1];
+    whiteGround.albedo[0] = 0.85f; whiteGround.albedo[1] = 0.85f; whiteGround.albedo[2] = 0.85f;
+    whiteGround.params[2] = 2.0f;  // LAMBERTIAN
+
+    // ---- Flat white light SPD ----
+    AccelerationStructure::GpuLight skyLight;
+    for (int i = 0; i < 16; ++i) skyLight.spd[i] = 1.0f;
+
+    m_as->buildScene(instances, materials, skyLight);
+    std::cout << "  Built scene: diamond prism + white ground plane." << std::endl;
 }
 
 void Application::run() {
