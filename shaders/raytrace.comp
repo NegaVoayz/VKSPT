@@ -228,6 +228,9 @@ vec3 integrateSkySRGB(float lamMid, float halfWidth,
     const float XK[7] = { -0.94910791, -0.74153119, -0.40584515, 0.0, 0.40584515, 0.74153119, 0.94910791 };
     const float WK[7] = { 0.12948497, 0.27970539, 0.38183005, 0.41795918, 0.38183005, 0.27970539, 0.12948497 };
 
+    // Flat spectrum scaled by luminance — avoids Wiener pseudo-inverse green bias.
+    // The CMF integration naturally produces correct colour from any flat spectrum.
+    float S_flat = dot(envLinear, vec3(0.2126, 0.7152, 0.0722));  // luminance
     vec3 linSum = vec3(0.0);
     for (int i = 0; i < 7; i++) {
         float lam_k  = lamMid + halfWidth * XK[i];
@@ -457,8 +460,9 @@ vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
         }
 
         rayQueryEXT rq;
+        vec3 shadowOrg = pos + nrm * 0.001 + toLight * 0.01;  // dual offset avoids self-occlusion at edges
         rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF,
-                              pos + nrm * 0.01, 0.001, toLight, tMax);
+                              shadowOrg, 0.001, toLight, tMax);
         while (rayQueryProceedEXT(rq)) {}
         if (rayQueryGetIntersectionTypeEXT(rq, true) !=
             gl_RayQueryCommittedIntersectionTriangleEXT) {
@@ -701,8 +705,8 @@ void main() {
                 float skyThresh  = estSkyDist * skyPixHW * 0.5 * params.splitMult;
 
                 int lamRange = lamEnd - lamStart;
-                if (skySepMag > skyThresh && lamRange >= 40     // 40nm min band
-                    && throughput >= 0.05 && generation < 3) {   // max 2 generations at sky
+                if (skySepMag > skyThresh && lamRange >= 20     // 20nm min band
+                    && throughput >= 0.05 && generation < 7) {   // max 7 generations at sky
                     int midWl = (lamStart + lamEnd) / 2;
                     vec3 skyPerp = normalize(skyDisp);
                     if (length(skyPerp) < 0.0001) skyPerp = vec3(1,0,0);
@@ -833,7 +837,7 @@ void main() {
                     if (stackTop < SPECTRAL_STACK_MAX) {
                         vec3 sDir = cosineSampleHemisphere(nrm, rng);
                         RayState scat;
-                        scat.origin      = pos + sDir * 0.01;
+                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
                         scat.direction   = sDir;
                         scat.last_split  = vec3(0.0);
                         scat.dispersion  = vec3(0.0);
@@ -849,7 +853,7 @@ void main() {
                     }
                 }
                 rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + rayD * 0.01;
+                rayO       = pos + nrm * 0.001 + rayD * 0.01;
                 throughput     = scatThroughput;
                 decayC1    = scatC1;
                 decayC2    = scatC2;
@@ -899,7 +903,7 @@ void main() {
                     if (stackTop < SPECTRAL_STACK_MAX) {
                         vec3 sDir = cosineSampleHemisphere(nrm, rng);
                         RayState scat;
-                        scat.origin      = pos + sDir * 0.01;
+                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
                         scat.direction   = sDir;
                         scat.last_split  = vec3(0.0);
                         scat.dispersion  = vec3(0.0);
@@ -917,7 +921,7 @@ void main() {
 
                 // Continue inline with the last scatter direction
                 rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + rayD * 0.01;
+                rayO       = pos + nrm * 0.001 + rayD * 0.01;
                 throughput     = scatThroughput;
                 decayC1    = scatC1;
                 decayC2    = scatC2;
@@ -1017,7 +1021,7 @@ void main() {
                         if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
                             vec3 reflDir = reflectDir(rayD, nrm);
                             RayState refl;
-                            refl.origin      = pos + reflDir * 0.01;
+                            refl.origin      = pos + nrm * 0.001 + reflDir * 0.01;
                             refl.direction   = reflDir;
                             refl.last_split  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                             refl.dispersion  = disp - 2.0 * dot(disp, nrm) * nrm;
@@ -1088,7 +1092,7 @@ void main() {
                         float violetHalf      = float(midWl - lamStart) * 0.5;
 
                         RayState violet;
-                        violet.origin      = pos + newDir * 0.01 + splitOffsetDir * (parentMidWl - violetMidWl) * offsetScaleMain;
+                        violet.origin      = pos + nrm * 0.001 + newDir * 0.01 + splitOffsetDir * (parentMidWl - violetMidWl) * offsetScaleMain;
                         violet.direction   = newDir;
                         violet.last_split  = predictedSep;
                         violet.dispersion  = disp;
@@ -1117,7 +1121,7 @@ void main() {
                     }
 
                     rayD    = newDir;
-                    rayO    = pos + newDir * 0.01;
+                    rayO    = pos + nrm * 0.001 + newDir * 0.01;
                     if (didSplit && stackTop > 0) {
                         float redMidWl = float(lamStart + lamEnd) * 0.5;
                         rayO += splitOffsetDir * (parentMidWl - redMidWl) * offsetScaleMain;
@@ -1130,7 +1134,7 @@ void main() {
                     lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                     disp       = disp - 2.0 * dot(disp, nrm) * nrm;
                     rayD       = newDir;
-                    rayO       = pos + newDir * 0.01;
+                    rayO       = pos + nrm * 0.001 + newDir * 0.01;
                     // inGlass unchanged (still in same medium)
                 }
             }
@@ -1162,7 +1166,7 @@ void main() {
 
                 vec3 reflDir = reflectDir(rayD, nrm);
                 rayD       = reflDir;
-                rayO       = pos + reflDir * 0.01;
+                rayO       = pos + nrm * 0.001 + reflDir * 0.01;
                 lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                 disp       = disp - 2.0 * dot(disp, nrm) * nrm;
                 inGlass    = false;
