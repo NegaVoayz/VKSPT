@@ -871,31 +871,40 @@ void main() {
                 vec3 newDir;
                 if (refractDir(rayD, nrm, eta_mid, newDir)) {
                     // ---- Refraction succeeded ----
-                    // Fresnel: split throughput between reflection and transmission
+                    // Fresnel: split throughput between reflection and transmission.
+                    // Only push reflection when entering glass (air→glass).
+                    // Exit reflections (glass→air) cause ghost cascades inside glass
+                    // and make the scene look brighter through glass.
                     float cosTheta = abs(dot(rayD, nrm));
                     float R0 = ((ior_mid - 1.0) / (ior_mid + 1.0));
                     R0 = R0 * R0;
                     float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
 
-                    float reflThroughput = throughput * fresnelR;
-                    float reflC1 = decayC1 * fresnelR;
-                    float reflC2 = decayC2 * fresnelR;
-                    if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
-                        vec3 reflDir = reflectDir(rayD, nrm);
-                        RayState refl;
-                        refl.origin      = pos + reflDir * 0.01;
-                        refl.direction   = reflDir;
-                        refl.last_split  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
-                        refl.dispersion  = disp - 2.0 * dot(disp, nrm) * nrm;
-                        refl.lam_start   = lamStart;
-                        refl.lam_end     = lamEnd;
-                        refl.throughput      = reflThroughput;
-                        refl.decay_c1    = reflC1;
-                        refl.decay_c2    = reflC2;
-                        refl.bounce      = bounce + 1;
-                        refl.generation  = generation;
-                        refl.insideGlass = inGlass;
-                        rayStack[stackTop++] = refl;
+                    if (!inGlass) {
+                        // Entry: push Fresnel reflection (visible glass reflection)
+                        float reflThroughput = throughput * fresnelR;
+                        if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
+                            vec3 reflDir = reflectDir(rayD, nrm);
+                            RayState refl;
+                            refl.origin      = pos + reflDir * 0.01;
+                            refl.direction   = reflDir;
+                            refl.last_split  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
+                            refl.dispersion  = disp - 2.0 * dot(disp, nrm) * nrm;
+                            refl.lam_start   = lamStart;
+                            refl.lam_end     = lamEnd;
+                            refl.throughput      = reflThroughput;
+                            refl.decay_c1    = decayC1 * fresnelR;
+                            refl.decay_c2    = decayC2 * fresnelR;
+                            refl.bounce      = bounce + 1;
+                            refl.generation  = generation;
+                            refl.insideGlass = inGlass;
+                            rayStack[stackTop++] = refl;
+                        }
+                        throughput *= (1.0 - fresnelR);
+                        decayC1    *= (1.0 - fresnelR);
+                        decayC2    *= (1.0 - fresnelR);
+                    } else {
+                        // Exit: no internal reflection, but transmission still loses energy
                         throughput *= (1.0 - fresnelR);
                         decayC1    *= (1.0 - fresnelR);
                         decayC2    *= (1.0 - fresnelR);
