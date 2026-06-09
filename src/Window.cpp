@@ -9,7 +9,7 @@ Window::Window(int width, int height, const std::string& title) {
 
     m_window = SDL_CreateWindow(
         title.c_str(), width, height,
-        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+        SDL_WINDOW_VULKAN
     );
     if (!m_window) {
         SDL_Quit();
