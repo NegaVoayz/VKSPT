@@ -385,9 +385,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         } pc{};
         pc.camOrigin[0]=0; pc.camOrigin[1]=0; pc.camOrigin[2]=-5;
         pc.camU[0]=fovTan*aspect; pc.camV[1]=fovTan; pc.camW[2]=1;
-        pc.spp=4; pc.maxBounces=24;
+        pc.spp=1; pc.maxBounces=24;
         pc.matCount=(int)as.getMaterialCount();
-        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=0.0f;  // force-split OFF: avoids ray explosion
+        pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
         pc.scat=2; pc.mt=0.9999f;
 
         // 6. Multi-dispatch loop
@@ -559,11 +559,18 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.samplesPerPixel = 4;
     pc.maxBounces      = 24;
     pc.materialCount   = static_cast<int>(as.getMaterialCount());
-    pc.fovTan          = 1.0f;  // tan(horizontalHalfFov) for 90° FOV
-    pc.splitMult       = 1.0f;  // split threshold multiplier
-    pc.forceSplitWidth = 40.0f;  // force-split bands wider than 40nm
-    pc.scatterSamples  = 2;     // Lambertian multi-scatter rays per hit
-    pc.mergeThreshold  = 0.9999f; // skip split when violet/red dirs nearly identical
+    pc.fovTan          = 1.0f;
+    pc.splitMult       = 1.0f;
+    pc.forceSplitWidth = 40.0f;
+    pc.scatterSamples  = 2;
+    pc.mergeThreshold  = 0.9999f;
+    pc.maxBounces      = 24;
+    pc.materialCount   = static_cast<int>(as.getMaterialCount());
+    pc.fovTan          = 1.0f;
+    pc.splitMult       = 1.0f;
+    pc.forceSplitWidth = 40.0f;
+    pc.scatterSamples  = 2;
+    pc.mergeThreshold  = 0.9999f;
 
     cmdBuf.pushConstants<PushConstants>(
         pipeline.getPipelineLayout(),

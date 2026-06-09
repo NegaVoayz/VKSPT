@@ -20,7 +20,7 @@ public:
     /// Maximum number of rays in the global buffer.
     /// For 800×600×4 SPP = 1.92M initial rays, with splits up to ~4×:
     /// 8M rays × 80 bytes = 640 MB. We use 4M (320 MB) and drop overflow.
-    static constexpr uint32_t MAX_RAYS = 8 * 1024 * 1024;  // 8M rays (768MB), fits RTX 4060 8GB
+    static constexpr uint32_t MAX_RAYS = 16 * 1024 * 1024; // 16M rays (1.5GB), RTX 4060 8GB
 
     /// Number of action buckets.
     static constexpr uint32_t ACTION_COUNT = 6;
