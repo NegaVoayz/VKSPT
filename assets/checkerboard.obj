@@ -1,0 +1,7 @@
+# Checkerboard floor quad at y=-6
+v -10 -6 -10
+v 10 -6 -10
+v 10 -6 10
+v -10 -6 10
+f 1 2 3
+f 1 3 4
