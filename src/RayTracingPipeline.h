@@ -46,6 +46,12 @@ public:
                            vk::Buffer indexBuf,  vk::DeviceSize indexSize,
                            vk::Buffer rangeBuf,  vk::DeviceSize rangeSize);
 
+    /// Phase 4 sorted pipeline: bind global ray buffer (binding=7).
+    void bindRayBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
+    /// Phase 4 sorted pipeline: bind action counter buffer (binding=8).
+    void bindCounterBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
+
     /// Get the descriptor set for the given frame index.
     vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
         return *m_descriptorSets[frameIndex];

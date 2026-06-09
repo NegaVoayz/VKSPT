@@ -61,9 +61,19 @@ void RayTracingPipeline::createDescriptorSetLayout() {
         6, vk::DescriptorType::eStorageBuffer,
         1, vk::ShaderStageFlagBits::eCompute
     );
+    // Phase 4 sorted pipeline: global ray buffer + counters
+    vk::DescriptorSetLayoutBinding rayBufBinding(
+        7, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
+    vk::DescriptorSetLayoutBinding counterBinding(
+        8, vk::DescriptorType::eStorageBuffer,
+        1, vk::ShaderStageFlagBits::eCompute
+    );
     std::vector<vk::DescriptorSetLayoutBinding> bindings = {
         tlasBinding, imageBinding, materialBinding, lightBinding,
-        vertexBinding, indexBinding, rangeBinding
+        vertexBinding, indexBinding, rangeBinding,
+        rayBufBinding, counterBinding
     };
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo({}, bindings);
@@ -83,7 +93,7 @@ void RayTracingPipeline::createDescriptorPool() {
         {vk::DescriptorType::eAccelerationStructureKHR, MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eStorageImage,             MAX_FRAMES_IN_FLIGHT},
         {vk::DescriptorType::eUniformBuffer,            MAX_FRAMES_IN_FLIGHT * 2},
-        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 3},
+        {vk::DescriptorType::eStorageBuffer,            MAX_FRAMES_IN_FLIGHT * 5},
     };
     vk::DescriptorPoolCreateInfo poolInfo(
         vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -201,4 +211,24 @@ void RayTracingPipeline::bindGeometrySSBOs(uint32_t frameIndex,
                         vk::DescriptorType::eStorageBuffer, nullptr, &rangeInfo);
 
     m_device.updateDescriptorSets(writes, nullptr);
+}
+
+void RayTracingPipeline::bindRayBuffer(uint32_t frameIndex, vk::Buffer buf,
+                                        vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 7, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
+}
+
+void RayTracingPipeline::bindCounterBuffer(uint32_t frameIndex, vk::Buffer buf,
+                                            vk::DeviceSize size) {
+    vk::DescriptorBufferInfo info(buf, 0, size);
+    vk::WriteDescriptorSet write(
+        *m_descriptorSets[frameIndex], 8, 0, 1,
+        vk::DescriptorType::eStorageBuffer, nullptr, &info
+    );
+    m_device.updateDescriptorSets(write, nullptr);
 }

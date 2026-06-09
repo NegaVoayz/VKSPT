@@ -96,6 +96,7 @@ add_executable(vkrt
     src/AccelerationStructure.cpp
     src/RayTracingPipeline.cpp
     src/Renderer.cpp
+    src/RaySorter.cpp
     src/Spectral.h
 )
 
