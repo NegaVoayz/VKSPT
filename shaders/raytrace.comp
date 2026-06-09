@@ -219,7 +219,7 @@ vec3 integrateSkySRGB(float lamMid, float halfWidth,
     float bandWidth = halfWidth * 2.0;
     // Analytical shortcut: near-full visible band with uniform decay
     // ∫ S(λ)·CMF(λ) dλ = (1,1,1) by construction of display CMFs
-    if (bandWidth > 360.0 && abs(c1) < 0.001 && abs(c2) < 0.001) {
+    if (bandWidth > 350.0 && abs(c1) < 0.001 && abs(c2) < 0.001) {
         return envLinear * c0;
     }
 
