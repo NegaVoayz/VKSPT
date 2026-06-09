@@ -80,8 +80,9 @@ void RaySorter::initRays(const float* camOrigin, const float* camU,
             for (uint32_t s = 0; s < m_spp && base + s < m_activeRayCount; ++s) {
                 PackedRay& r = rays[base + s];
 
-                float jx = (float(s * 127 + px * 31) / 257.0f) - 0.5f;
-                float jy = (float(s * 251 + py * 67) / 251.0f) - 0.5f;
+                uint32_t h = px * 1973u + py * 9277u + s * 2654435761u;
+                float jx = float(h & 0xFFFFu) / 65536.0f - 0.5f;
+                float jy = float((h >> 16u) & 0xFFFFu) / 65536.0f - 0.5f;
                 float u = (float(px) + 0.5f + jx) / float(m_width) * 2.0f - 1.0f;
                 float v = (float(py) + 0.5f + jy) / float(m_height) * 2.0f - 1.0f;
                 v = -v;
