@@ -252,13 +252,13 @@ float rgbToDomLambda(vec3 rgb) {
 float spectralAbsorption(float lam, vec3 albedo) {
     float nl  = rgbToDomLambda(albedo);
     float d   = lam - nl;
-    float att = exp(-0.5 * d * d / 6400.0);   // σ = 80 nm (softer spectral selectivity)
+    float att = exp(-0.5 * d * d / 7200.0);   // σ ≈ 60 nm
     float lum = dot(albedo, vec3(0.299, 0.587, 0.114));
     float maxC = max(max(albedo.r, albedo.g), albedo.b);
     float minC = min(min(albedo.r, albedo.g), albedo.b);
     float sat  = (maxC - minC) / max(maxC, 0.001);
     float attMix = mix(1.0, att, sat);
-    return attMix * (0.1 + 0.9 * lum);       // 10% baseline, 90% luminance-driven
+    return attMix * (0.07 + 0.93 * lum);       // 7% baseline, 93% luminance-driven
 }
 
 // =============================================================================
@@ -744,10 +744,10 @@ void main() {
                 float lamS = float(lamStart), lamE = float(lamEnd);
                 float lamM = (lamS + lamE) * 0.5;
                 float dS = lamS - nl, dM = lamM - nl, dE = lamE - nl;
-                float attAvg = (exp(-0.5*dS*dS/6400.0) + exp(-0.5*dM*dM/6400.0) + exp(-0.5*dE*dE/6400.0)) / 3.0;   // σ=80nm — softer selectivity
+                float attAvg = (exp(-0.5*dS*dS/7200.0) + exp(-0.5*dM*dM/7200.0) + exp(-0.5*dE*dE/7200.0)) / 3.0;   // σ≈60nm
 
                 float attMix = mix(1.0, attAvg, sat);
-                throughput *= attMix * (0.1 + 0.9 * lum);
+                throughput *= attMix * (0.07 + 0.93 * lum);
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
@@ -906,7 +906,7 @@ void main() {
                     disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
 
                     // Adaptive split (restored)
-                    float estDist = max(tHit, 20.0);   // reasonable far-field estimate
+                    float estDist = max(tHit, 10.0);   // moderate far-field estimate
                     vec3  predictedSep = lastSplit + disp * estDist;
                     float sepMag       = length(predictedSep);
                     float pixHalfWidth = params.fovTan / float(sz.x);
