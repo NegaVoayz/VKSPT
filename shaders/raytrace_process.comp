@@ -177,13 +177,25 @@ float skyDirectionalFactor(vec3 d) {
 }
 vec3 skyTintRGB(vec3 d) { return vec3(1.0); }
 
-const uint MAX_RAYS = 32u * 1024u * 1024u;
+const uint MAX_RAYS = 16u * 1024u * 1024u;
+const uint OVERFLOW_SIZE = 1u * 1024u * 1024u;
 
-// ---- Spawn a new ray into the global buffer ----
+layout(set = 0, binding = 10, std430) buffer OverflowBlock {
+    uint overflowTail;
+    uint _ovPad0, _ovPad1, _ovPad2;
+    PackedRay overflowRays[];
+} overflowBuf;
+
 void spawnRay(PackedRay r) {
     uint slot = atomicAdd(counters.tail, 1u);
-    if (slot >= MAX_RAYS) return;
-    rayBuf.rays[slot] = r;
+    if (slot < MAX_RAYS) {
+        rayBuf.rays[slot] = r;
+    } else {
+        uint ovSlot = atomicAdd(overflowBuf.overflowTail, 1u);
+        if (ovSlot < OVERFLOW_SIZE) {
+            overflowBuf.overflowRays[ovSlot] = r;
+        }
+    }
 }
 
 // =============================================================================

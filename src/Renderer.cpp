@@ -397,81 +397,53 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pc.ft=fovTan; pc.sm=1.0f; pc.fsw=40.0f;
         pc.scat=2; pc.mt=0.9999f;
 
-        // 6. Chunked two-stage dispatch with operation sorting.
-        //    Splits large generations into 128K chunks to avoid TDR timeout.
-        //    Each chunk: classify (trace+cache) → CPU sort by RayAction → process.
-        //    Sorting consecutive rays by action reduces warp divergence.
+        // 6. Multi-dispatch — all-at-once per bounce level.
+        //    Single-pass shader: trace + process in one dispatch.
+        //    Classify/process + sort shaders ready but chunked dispatch too slow
+        //    (3 pipeline stages per chunk × 500+ chunks = minutes per frame).
         auto queue = m_device.getQueue(m_computeQueueFamily, 0);
         uint32_t head = 0;
         int iters = 0;
         const uint32_t LOCAL = 64;
-        const uint32_t CHUNK = 128u * 1024u;  // max rays per chunk
 
-        auto dispatchPipe = [&](vk::Pipeline pipe, uint32_t groups) {
-            vk::raii::CommandPool pool(m_device,
-                {vk::CommandPoolCreateFlagBits::eTransient |
-                    vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-                 m_computeQueueFamily});
-            auto cbs = vk::raii::CommandBuffers(m_device,
-                {*pool, vk::CommandBufferLevel::ePrimary, 1});
-            cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-            cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipe);
-            cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
-            cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
-                vk::ShaderStageFlagBits::eCompute, 0, pc);
-            cbs[0].dispatch(groups, 1, 1);
-            cbs[0].end();
-            queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
-            queue.waitIdle();
-        };
-
-        std::cout << "[Sort] Starting chunked two-stage loop (chunk=" << CHUNK << ")..." << std::endl;
-        for (int iter = 0; iter < 512; ++iter) {
+        std::cout << "[Sort] Starting dispatch loop..." << std::endl;
+        for (int iter = 0; iter < 64; ++iter) {
             uint32_t tail = m_raySorter->getTailCount();
             if (tail > RaySorter::MAX_RAYS) tail = RaySorter::MAX_RAYS;
-            uint32_t active = (tail > head) ? (tail - head) : 0;
-            if (active == 0) {
-                if (m_raySorter->stashedCount() == 0) break;
-                head = 0; m_raySorter->resetCounters();
-                m_raySorter->injectStashed(std::min(RaySorter::MAX_RAYS, CHUNK));
-                tail = m_raySorter->getTailCount();
-                active = (tail > head) ? (tail - head) : 0;
-                if (active == 0) continue;
-            }
+            if (tail <= head) break;
 
-            uint32_t N = (active < CHUNK) ? active : CHUNK;
-            uint32_t processEnd = head + N;
             m_raySorter->advanceHead(head);
-            uint32_t groups = (N + LOCAL - 1) / LOCAL;
+            uint32_t groups = (tail - head + LOCAL - 1) / LOCAL;
 
-            if (iter % 20 == 0 || N < active) {
-                std::cout << "[Sort] iter " << iter << " head=" << head
-                          << " tail=" << tail << " chunk=" << N
-                          << " remain=" << (active - N) << std::endl;
+            std::cout << "[Sort] iter " << iter << " head=" << head
+                      << " tail=" << tail << " groups=" << groups << std::endl;
+
+            {
+                vk::raii::CommandPool pool(m_device,
+                    {vk::CommandPoolCreateFlagBits::eTransient |
+                        vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                     m_computeQueueFamily});
+                auto cbs = vk::raii::CommandBuffers(m_device,
+                    {*pool, vk::CommandBufferLevel::ePrimary, 1});
+                cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+                cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
+                cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                    pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+                cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
+                    vk::ShaderStageFlagBits::eCompute, 0, pc);
+                cbs[0].dispatch(groups, 1, 1);
+                cbs[0].end();
+                queue.submit({vk::SubmitInfo().setCommandBuffers(*cbs[0])}, nullptr);
+                queue.waitIdle();
             }
-
-            // Stage A: Classify (trace, cache hit info, set RayAction)
-            dispatchPipe(pipeline.getClassifyPipeline(), groups);
-
-            // Stage B: Sort by RayAction (CPU-side, <1ms for 128K rays)
-            m_raySorter->sortBatchByAction(head, N);
-
-            // Stage C: Process (read cached hit info, no re-trace)
-            dispatchPipe(pipeline.getProcessPipeline(), groups);
-
             iters++;
 
-            uint32_t overflowed = m_raySorter->drainOverflow();
-            if (overflowed > 0) { m_raySorter->clampTail(); }
-
             uint32_t newTail = m_raySorter->getTailCount();
-            head = processEnd;
-            if (head >= newTail && m_raySorter->stashedCount() == 0) break;
+            if (newTail <= tail) break;
+            head = tail;
         }
-        std::cout << "[Sort] " << iters << " iterations, head=" << head
-                  << " tail=" << m_raySorter->getTailCount()
-                  << " stashed=" << m_raySorter->stashedCount() << std::endl;
+        std::cout << "[Sort] " << iters << " iterations, tail="
+                  << m_raySorter->getTailCount() << std::endl;
 
         // 7. Normalize pass
         {
