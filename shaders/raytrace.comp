@@ -852,12 +852,13 @@ void main() {
                 float lum = dot(checkerAlbedo, vec3(0.299, 0.587, 0.114));
                 float sat = 0.0;  // desaturated — no spectral selectivity
                 float attAvg = 1.0;
+                float preAbsTP = throughput;  // save before surface absorption
                 float attMix = mix(1.0, attAvg, sat);
                 throughput *= attMix * (0.07 + 0.93 * lum);
 
-                // Direct lighting
+                // Direct lighting scaled by path throughput before this surface
                 vec3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
-                colorAccum += directLin;
+                colorAccum += directLin * preAbsTP;
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
@@ -915,12 +916,13 @@ void main() {
                 float dS = lamS - nl, dM = lamM - nl, dE = lamE - nl;
                 float attAvg = (exp(-0.5*dS*dS/7200.0) + exp(-0.5*dM*dM/7200.0) + exp(-0.5*dE*dE/7200.0)) / 3.0;   // σ≈60nm
 
+                float preAbsTP = throughput;  // save before surface absorption
                 float attMix = mix(1.0, attAvg, sat);
                 throughput *= attMix * (0.07 + 0.93 * lum);
 
                 // Direct lighting from point/spot/directional lights
                 vec3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.rgb, rng);
-                colorAccum += directLin;
+                colorAccum += directLin * preAbsTP;
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
