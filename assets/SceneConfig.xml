@@ -49,9 +49,9 @@
 
     <Prism>
         <Args filename="prism.obj" display="1" normalinterpolation="0" rendermethod="1"/>
-        <Scale x="4" y="4" z="2"/>
+        <Scale x="2" y="2" z="2"/>
         <Rotation x="0.0" y="200.0" z="0.0"/>
-        <Translation x="0.0" y="0.3" z="-3.0"/>
+        <Translation x="0.0" y="-3.0" z="-3.0"/>
         <RefractiveIndex x="1.5"/>
         <DispersionB value="0.008"/>
         <AbsorptionA x="0.02" y="0.02" z="0.02"/>
@@ -65,7 +65,7 @@
         <Args filename="checkerboard.obj" display="1" normalinterpolation="0" rendermethod="1"/>
         <Scale x="1.0" y="1.0" z="1.0"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
-        <Translation x="0.0" y="0.0" z="0.0"/>
+        <Translation x="0.0" y="1.8" z="-10.0"/>
         <RefractiveIndex x="1.0"/>
         <Albedo x="0.8" y="0.8" z="0.8" w="0.0"/>
         <Diffuse r="0.8" g="0.8" b="0.8"/>
@@ -123,16 +123,16 @@
     </PointLight2>
 
     <SpotLight>
-        <Position x="3.0" y="2.0" z="2.0"/>
-        <Direction x="-1.0" y="-1.0" z="-1.0"/>
-        <Args innerAngle="15.5" outerAngle="32.5" intensity="20.0" maxDistance="15.0"/>
-        <Color r="0.0" g="1.0" b="0.0"/>
+        <Position x="2.0" y="0.0" z="-3.0"/>
+        <Direction x="-1.0" y="-0.5" z="0.0"/>
+        <Args innerAngle="2.5" outerAngle="5.5" intensity="0.0" maxDistance="50.0"/>
+        <Color r="1.0" g="1.0" b="1.0"/>
     </SpotLight>
 
     <DirectionalLight>
         <Direction x="-0.5" y="-1.0" z="-0.5"/>
         <Color r="1.0" g="0.95" b="0.9"/>
-        <Intensity value="0.5"/>
+        <Intensity value="3.0"/>
     </DirectionalLight>
 
     <AmbientAgrs>
