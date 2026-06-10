@@ -143,6 +143,12 @@ public:
     uint32_t getSPP() const { return m_spp; }
 
 private:
+    void createRayBuf();
+    void createCounterBufs();
+    void createAccumBufs();
+    void createBatchBufs();
+    void createOverflowBuf();
+
     const vk::raii::Device&         m_device;
     const vk::raii::PhysicalDevice& m_physDevice;
     uint32_t m_width, m_height, m_spp;

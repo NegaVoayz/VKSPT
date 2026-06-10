@@ -7,97 +7,78 @@
 RaySorter::RaySorter(const vk::raii::Device&         device,
                      const vk::raii::PhysicalDevice& physDevice,
                      uint32_t width, uint32_t height, uint32_t spp)
-    : m_device(device)
-    , m_physDevice(physDevice)
-    , m_width(width)
-    , m_height(height)
-    , m_spp(spp)
+    : m_device(device), m_physDevice(physDevice)
+    , m_width(width), m_height(height), m_spp(spp)
 {
-    // --- Ray buffer (global, device-local) ---
-    vk::DeviceSize rayBufSize = MAX_RAYS * sizeof(PackedRay);
-    m_rayBuffer = GPUBuffer::create(
-        m_device, rayBufSize,
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eTransferDst |
-            vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_physDevice
-    );
+    createRayBuf();
+    createCounterBufs();
+    createAccumBufs();
+    createBatchBufs();
+    createOverflowBuf();
+    m_hostStash.reserve(OVERFLOW_SIZE * 4);
+}
 
-    // --- Counter buffer (head/tail, 16 bytes) ---
-    vk::DeviceSize counterSize = sizeof(CounterData);
-    m_counterBuffer = GPUBuffer::create(
-        m_device, counterSize,
+void RaySorter::createRayBuf() {
+    vk::DeviceSize sz = MAX_RAYS * sizeof(PackedRay);
+    m_rayBuffer = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst |
             vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_physDevice
-    );
-    m_counterStaging = GPUBuffer::create(
-        m_device, counterSize,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+}
+
+void RaySorter::createCounterBufs() {
+    vk::DeviceSize sz = sizeof(CounterData);
+    m_counterBuffer = GPUBuffer::create(m_device, sz,
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eTransferDst |
+            vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+    m_counterStaging = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eTransferDst |
             vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent,
-        m_physDevice
-    );
+            vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
+}
 
-    // --- Pixel accumulator (per-pixel PixelEntry, 24 bytes per pixel) ---
-    uint32_t pixelCount = m_width * m_height;
-    vk::DeviceSize accumSize = pixelCount * sizeof(PixelEntry);
-    m_accumBuffer = GPUBuffer::create(
-        m_device, accumSize,
+void RaySorter::createAccumBufs() {
+    uint32_t pc = m_width * m_height;
+    vk::DeviceSize sz = pc * sizeof(PixelEntry);
+    m_accumBuffer = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferSrc |
             vk::BufferUsageFlagBits::eTransferDst,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_physDevice
-    );
-    m_accumStaging = GPUBuffer::create(
-        m_device, accumSize,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+    m_accumStaging = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent,
-        m_physDevice
-    );
+            vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
+}
 
-    // --- Batch staging for CPU-side rayAction sorting ---
-    constexpr uint32_t BATCH_CAP = 128 * 1024;
-    vk::DeviceSize batchSize = BATCH_CAP * sizeof(PackedRay);
-    m_batchStaging = GPUBuffer::create(
-        m_device, batchSize,
+void RaySorter::createBatchBufs() {
+    constexpr uint32_t BC = 128 * 1024;
+    vk::DeviceSize sz = BC * sizeof(PackedRay);
+    m_batchStaging = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eTransferSrc |
             vk::BufferUsageFlagBits::eTransferDst,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        m_physDevice
-    );
-    m_batchReadback = GPUBuffer::create(
-        m_device, batchSize,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+    m_batchReadback = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eTransferDst |
             vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent,
-        m_physDevice
-    );
+            vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
+}
 
-    // --- Overflow buffer: host-visible, shader spills excess children here ---
-    // Layout: [uint32_t overflowTail + 12B pad][PackedRay array]
-    vk::DeviceSize overflowBytes = 16 + OVERFLOW_SIZE * sizeof(PackedRay);
-    m_overflowBuf = GPUBuffer::create(
-        m_device, overflowBytes,
+void RaySorter::createOverflowBuf() {
+    vk::DeviceSize sz = 16 + OVERFLOW_SIZE * sizeof(PackedRay);
+    m_overflowBuf = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eStorageBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent,
-        m_physDevice
-    );
-    // Zero-initialize the overflow counter
-    void* ovMap = m_overflowBuf.memory.mapMemory(0, 16);
-    uint32_t zero = 0;
-    std::memcpy(ovMap, &zero, 4);
+            vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
+    void* m = m_overflowBuf.memory.mapMemory(0, 16);
+    uint32_t z = 0;
+    std::memcpy(m, &z, 4);
     m_overflowBuf.memory.unmapMemory();
-
-    m_hostStash.reserve(OVERFLOW_SIZE * 4);  // pre-allocate for up to 4× overflow
 }
 
 RaySorter::~RaySorter() {
