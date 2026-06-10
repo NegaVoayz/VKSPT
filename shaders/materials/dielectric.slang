@@ -10,10 +10,13 @@ public void handleDielectric(
     inout BounceState bs,
     inout int stackTop,
     inout RayState rayStack[SPECTRAL_STACK_MAX],
-    float3 pos, float3 nrm, GpuMaterial mat,
-    float tHit, bool entering, int bounce, int2 sz,
+    float3 pos, float3 rawNrm, GpuMaterial mat,
+    float tHit, int bounce, int2 sz,
     float fovTan, float splitMult, float forceSplitWidth)
 {
+    bool entering = dot(rawNrm, bs.rayD) < 0.0;
+    float3 nrm = entering ? rawNrm : -rawNrm;
+
     int lamMid = (bs.lamStart + bs.lamEnd) / 2;
     float ior_start = cauchyIOR(mat, float(bs.lamStart));
     float ior_end   = cauchyIOR(mat, float(bs.lamEnd));

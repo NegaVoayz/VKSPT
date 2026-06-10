@@ -118,11 +118,12 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 );
                 nrm = normalize(mul(nrm, Nmat));
             }
-            bool entering = dot(nrm, rayD) < -1e-5;
-            if (!entering) nrm = -nrm;
+            bool entering = dot(nrm, rayD) < 0.0;
+            float3 rawNrm = nrm;
+            float3 facingNrm = entering ? nrm : -nrm;
 
             if (sp == 0 && bounce == 0) {
-                normalImage[int2(px.x, px.y)] = float4(nrm * 0.5 + 0.5, 1.0);
+                normalImage[int2(px.x, px.y)] = float4(facingNrm * 0.5 + 0.5, 1.0);
                 depthImage[int2(px.x, px.y)] = tHit;
             }
 
@@ -134,24 +135,24 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 float cx = floor(pos.x * 0.5); float cz = floor(pos.z * 0.5);
                 bool white = ((int(cx + cz) % 2) == 0);
                 float3 cb = white ? float3(0.75) : float3(0.15);
-                float3 dl = sampleDirectLighting(pos, nrm, cb, rng);
+                float3 dl = sampleDirectLighting(pos, facingNrm, cb, rng);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
                 handleCheckerboard(bs, rng, stackTop, rayStack,
-                                   pos, nrm, cb, dl, bounce, int(params.scatterSamples));
+                                   pos, facingNrm, cb, dl, bounce, int(params.scatterSamples));
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
                          lamStart, lamEnd, generation, colorAccum, bs);
                 if (throughput < 0.005) break;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
-                float3 dl = sampleDirectLighting(pos, nrm, mat.albedo.xyz, rng);
+                float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
                 handleLambertian(bs, rng, stackTop, rayStack,
-                                 pos, nrm, mat, dl, bounce, int(params.scatterSamples));
+                                 pos, facingNrm, mat, dl, bounce, int(params.scatterSamples));
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
                          lamStart, lamEnd, generation, colorAccum, bs);
@@ -162,7 +163,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
                 handleDielectric(bs, stackTop, rayStack,
-                                 pos, nrm, mat, tHit, entering, bounce, sz,
+                                 pos, rawNrm, mat, tHit, bounce, sz,
                                  params.fovTan, params.splitMult, params.forceSplitWidth);
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
@@ -172,7 +173,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
-                handleMetal(bs, pos, nrm, mat);
+                handleMetal(bs, pos, facingNrm, mat);
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
                          lamStart, lamEnd, generation, colorAccum, bs);
