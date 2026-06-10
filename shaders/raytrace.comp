@@ -494,7 +494,7 @@ void accumulateSpectrum(inout float spectral[NUM_SPECTRAL_BUCKETS],
         float lamEval = (oS + oE) * 0.5;
         float xEv   = clamp((lamEval - lamMid) / max(halfWidth, 0.001), -1.0, 1.0);
         float D_ev  = evalDecay(c0, c1, c2, xEv);
-        float S_ev  = dot(envLinear, vec3(0.2126, 0.7152, 0.0722));
+        float S_ev  = estimateSpectrum(lamEval, envLinear);  // preserves colour
         float bw    = oE - oS;
 
         spectral[b] += S_ev * D_ev * bw;
