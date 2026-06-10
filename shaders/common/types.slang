@@ -1,45 +1,45 @@
 // Spectral constants & shared types
 
-const int LAMBDA_MIN           = 380;
-const int LAMBDA_MAX           = 780;
-const int SPECTRAL_STACK_MAX    = 256;
-const int NUM_SPECTRAL_BUCKETS = 10;
+public static const int LAMBDA_MIN           = 380;
+public static const int LAMBDA_MAX           = 780;
+public static const int SPECTRAL_STACK_MAX    = 256;
+public static const int NUM_SPECTRAL_BUCKETS = 10;
 
-const int MATERIAL_DIELECTRIC   = 0;
-const int MATERIAL_METAL        = 1;
-const int MATERIAL_LAMBERTIAN   = 2;
-const int MATERIAL_CHECKERBOARD = 3;
+public static const int MATERIAL_DIELECTRIC   = 0;
+public static const int MATERIAL_METAL        = 1;
+public static const int MATERIAL_LAMBERTIAN   = 2;
+public static const int MATERIAL_CHECKERBOARD = 3;
 
-struct GpuMaterial {
-    vec4 cauchyA, cauchyB;
-    vec4 absorpA, absorpB;
-    vec4 albedo, params;
+public struct GpuMaterial {
+    public float4 cauchyA, cauchyB;
+    public float4 absorpA, absorpB;
+    public float4 albedo, params;
 };
 
-struct RayState {
-    vec3 origin;
-    vec3 direction;
-    vec3 last_split;
-    vec3 dispersion;
-    vec3 last_geom;
-    vec3 geomDisp;
-    int  lam_start;
-    int  lam_end;
-    float throughput;
-    float decay_c1;
-    float decay_c2;
-    int  bounce;
-    int  generation;
+public struct RayState {
+    public float3 origin;
+    public float3 direction;
+    public float3 last_split;
+    public float3 dispersion;
+    public float3 last_geom;
+    public float3 geomDisp;
+    public int  lam_start;
+    public int  lam_end;
+    public float throughput;
+    public float decay_c1;
+    public float decay_c2;
+    public int  bounce;
+    public int  generation;
 };
 
-struct GpuLight {
-    vec4 pos_type;
-    vec4 color_intensity;
-    vec4 dir_inner;
-    vec4 outer_range;
+public struct GpuLight {
+    public float4 pos_type;
+    public float4 color_intensity;
+    public float4 dir_inner;
+    public float4 outer_range;
 };
 
-const int LIGHT_POINT       = 0;
-const int LIGHT_DIRECTIONAL = 1;
-const int LIGHT_SPOT        = 2;
-const int LIGHT_AMBIENT     = 3;
+public static const int LIGHT_POINT       = 0;
+public static const int LIGHT_DIRECTIONAL = 1;
+public static const int LIGHT_SPOT        = 2;
+public static const int LIGHT_AMBIENT     = 3;

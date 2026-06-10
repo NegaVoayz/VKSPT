@@ -1,50 +1,52 @@
-#version 460
-#extension GL_EXT_ray_query : require
-
-#include "common/types.slang"
-#include "common/cmf_data.slang"
-#include "math/spectral_math.slang"
-#include "math/color.slang"
-#include "math/absorption.slang"
-#include "math/legendre_decay.slang"
-#include "math/sampling.slang"
+import common.types;
+import common.cmf_data;
+import math.spectral_math;
+import math.color;
+import math.absorption;
+import math.legendre_decay;
+import math.sampling;
+import geometry.dispersion;
+import geometry.normals;
 
 // =============================================================================
 // Descriptors
 // =============================================================================
-layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
-layout(set = 0, binding = 1, rgba8) uniform image2D outputImage;
-layout(set = 0, binding = 2) uniform MaterialBlock { GpuMaterial items[16]; } materials;
-layout(set = 0, binding = 3) uniform LightBlock   { GpuLight    items[4]; } lights;
+[[vk::binding(0, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::binding(1, 0)]] RWTexture2D<float4> outputImage;
 
-layout(set = 0, binding = 4, std430) buffer VertexBlock { float v[]; } vertexData;
-layout(set = 0, binding = 5, std430) buffer IndexBlock  { uint  i[]; } indexData;
-layout(set = 0, binding = 12, std430) buffer NormalBlock { float n[]; } normalData;
-layout(set = 0, binding = 13, std430) buffer AccumBlock { float data[]; } accumData;
+struct MaterialBlock { GpuMaterial items[16]; };
+[[vk::binding(2, 0)]] ConstantBuffer<MaterialBlock> materials;
+struct LightBlock { GpuLight items[4]; };
+[[vk::binding(3, 0)]] ConstantBuffer<LightBlock> lights;
 
-layout(rgba16f, binding = 14) uniform image2D normalImage;
-layout(r32f,   binding = 15) uniform image2D depthImage;
+[[vk::binding(4, 0)]]  StructuredBuffer<float> vertexData;
+[[vk::binding(5, 0)]]  StructuredBuffer<uint>  indexData;
+[[vk::binding(12, 0)]] StructuredBuffer<float> normalData;
+[[vk::binding(13, 0)]] RWStructuredBuffer<float> accumData;
 
-const int MAX_INSTANCES = 16;
-layout(set = 0, binding = 6, std430) buffer InstanceRangeBlock {
+[[vk::binding(14, 0)]] RWTexture2D<float4> normalImage;
+[[vk::binding(15, 0)]] RWTexture2D<float>  depthImage;
+
+static const int MAX_INSTANCES = 16;
+struct InstanceRangeBlock {
     uint vtxOffset[MAX_INSTANCES];
     uint vtxCount[MAX_INSTANCES];
     uint idxOffset[MAX_INSTANCES];
     uint idxCount[MAX_INSTANCES];
     uint materialID[MAX_INSTANCES];
     uint useSmoothNormals[MAX_INSTANCES];
-} instanceRanges;
+};
+[[vk::binding(6, 0)]] StructuredBuffer<InstanceRangeBlock> instanceRanges;
 
-layout(set = 0, binding = 16, std430) buffer InstanceNormalBlock {
-    vec4 normalCol0[MAX_INSTANCES];
-    vec4 normalCol1[MAX_INSTANCES];
-    vec4 normalCol2[MAX_INSTANCES];
-} instanceNormals;
+struct InstanceNormalBlock {
+    float4 normalCol0[MAX_INSTANCES];
+    float4 normalCol1[MAX_INSTANCES];
+    float4 normalCol2[MAX_INSTANCES];
+};
+[[vk::binding(16, 0)]] StructuredBuffer<InstanceNormalBlock> instanceNormals;
 
-layout(set = 0, binding = 11) uniform sampler2D envMap;
-
-#include "geometry/dispersion.slang"
-#include "geometry/normals.slang"
+[[vk::binding(11, 0)]] Texture2D<float4> envMap;
+[[vk::binding(11, 0)]] SamplerState envSampler;
 
 // =============================================================================
 // Sky + Direct lighting + Spectral accumulation
@@ -54,20 +56,20 @@ float sampleLightSPD(int refIdx) {
     return lights.items[0].color_intensity.x;
 }
 
-vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
-    vec3 contrib = vec3(0.0);
+float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint rng) {
+    float3 contrib = float3(0.0);
     for (int li = 0; li < 4; li++) {
-        vec4 ptype = lights.items[li].pos_type;
+        float4 ptype = lights.items[li].pos_type;
         int ltype = int(ptype.w);
         if (ltype == LIGHT_AMBIENT) continue;
-        vec4 cinfo = lights.items[li].color_intensity;
-        vec3 lcolor = cinfo.rgb;
-        float lintensity = cinfo.a;
+        float4 cinfo = lights.items[li].color_intensity;
+        float3 lcolor = cinfo.xyz;
+        float lintensity = cinfo.w;
         if (lintensity <= 0.0) continue;
-        vec3 toLight;
+        float3 toLight;
         float distToLight;
         float tMax;
-        vec3 lpos = ptype.xyz;
+        float3 lpos = ptype.xyz;
         if (ltype == LIGHT_DIRECTIONAL) {
             toLight = normalize(-lpos);
             distToLight = 1e6;
@@ -84,8 +86,8 @@ vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
         if (nDotL <= 0.0) continue;
         float spotAtt = 1.0;
         if (ltype == LIGHT_SPOT) {
-            vec4 dinfo = lights.items[li].dir_inner;
-            vec3 ldir = dinfo.xyz;
+            float4 dinfo = lights.items[li].dir_inner;
+            float3 ldir = dinfo.xyz;
             float inAng  = dinfo.w * 3.14159265 / 180.0;
             float outAng = lights.items[li].outer_range.x * 3.14159265 / 180.0;
             float cosPhi = dot(-toLight, normalize(ldir));
@@ -94,11 +96,12 @@ vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
             spotAtt = clamp((cosPhi - cosOut) / max(cosIn - cosOut, 0.001), 0.0, 1.0);
             if (spotAtt <= 0.0) continue;
         }
-        rayQueryEXT rq;
-        vec3 shadowOrg = pos + nrm * 0.001 +toLight * 0.01;
-        rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF, shadowOrg, 0.001, toLight, tMax);
-        while (rayQueryProceedEXT(rq)) {}
-        if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+        RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
+        float3 shadowOrg = pos + nrm * 0.001 + toLight * 0.01;
+        RayDesc shadowRay = { shadowOrg, 0.001, toLight, tMax };
+        rq.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, shadowRay);
+        while (rq.Proceed()) {}
+        if (rq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
             float r2 = distToLight * distToLight + 1.0;
             float att = lintensity / max(r2, 1.0);
             if (ltype == LIGHT_DIRECTIONAL) att = lintensity;
@@ -111,7 +114,7 @@ vec3 sampleDirectLighting(vec3 pos, vec3 nrm, vec3 albedo, uint rng) {
 void accumulateSpectrum(inout float spectral[NUM_SPECTRAL_BUCKETS],
                          float lamMid, float halfWidth,
                          float c0, float c1, float c2,
-                         vec3 envLinear) {
+                         float3 envLinear) {
     float lamS = lamMid - halfWidth;
     float lamE = lamMid + halfWidth;
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
@@ -130,52 +133,55 @@ void accumulateSpectrum(inout float spectral[NUM_SPECTRAL_BUCKETS],
 }
 
 // =============================================================================
-// Push constants + workgroup
+// Push constants
 // =============================================================================
 
-layout(push_constant) uniform PushConstants {
-    vec3  camOrigin;   float _pad0;
-    vec3  camU;        float _pad1;
-    vec3  camV;        float _pad2;
-    vec3  camW;        float _pad3;
+struct PushConstants {
+    float3 camOrigin;   float _pad0;
+    float3 camU;        float _pad1;
+    float3 camV;        float _pad2;
+    float3 camW;        float _pad3;
     int   samplesPerPixel, maxBounces, materialCount;
     float fovTan, splitMult, forceSplitWidth;
     int   scatterSamples; float mergeThreshold;
     int   frameIndex; int _padEnd0; int _padEnd1;
-} params;
-
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+};
+[[vk::push_constant]] PushConstants params;
 
 // =============================================================================
 // Main — adaptive spectral path tracing with per-pixel ray stack
 // =============================================================================
 
-void main() {
-    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 sz = imageSize(outputImage);
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void main(uint3 dispatchID : SV_DispatchThreadID) {
+    int2 px = int2(dispatchID.xy);
+    int w, h;
+    outputImage.GetDimensions(w, h);
+    int2 sz = int2(w, h);
     if (px.x >= sz.x || px.y >= sz.y) return;
 
-    vec3 origin  = params.camOrigin;
+    float3 origin  = params.camOrigin;
     RayState rayStack[SPECTRAL_STACK_MAX];
-    vec3 pixelColor = vec3(0.0);
+    float3 pixelColor = float3(0.0);
     int spp = max(1, params.samplesPerPixel);
 
     for (int sp = 0; sp < spp; sp++) {
         uint rngBase = wangHash(uint(px.x) * 1973u + uint(px.y) * 9277u + uint(sp) * 2654435761u + uint(params.frameIndex) * 134775813u);
         float jx = (float(rngBase & 0xFFFFu) / 65536.0) - 0.5;
         float jy = (float((rngBase >> 16u) & 0xFFFFu) / 65536.0) - 0.5;
-        vec2 uv = (vec2(px) + 0.5 + vec2(jx, jy)) / vec2(sz) * 2.0 - 1.0;
+        float2 uv = (float2(px) + 0.5 + float2(jx, jy)) / float2(sz) * 2.0 - 1.0;
         uv.y = -uv.y;
-        vec3 camDir = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
+        float3 camDir = normalize(params.camW + uv.x * params.camU + uv.y * params.camV);
 
         int stackTop = 0;
         RayState init;
         init.origin      = origin;
         init.direction   = camDir;
-        init.last_split  = vec3(0.0);
-        init.dispersion  = vec3(0.0);
-        init.geomDisp   = vec3(0.0);
-        init.last_geom  = vec3(0.0);
+        init.last_split  = float3(0.0);
+        init.dispersion  = float3(0.0);
+        init.geomDisp   = float3(0.0);
+        init.last_geom  = float3(0.0);
         init.lam_start   = LAMBDA_MIN;
         init.lam_end     = LAMBDA_MAX;
         init.throughput  = 1.0;
@@ -187,41 +193,42 @@ void main() {
 
         float spectral[NUM_SPECTRAL_BUCKETS];
         for (int sb = 0; sb < NUM_SPECTRAL_BUCKETS; sb++) spectral[sb] = 0.0;
-        vec3  colorAccum = vec3(0.0);
+        float3  colorAccum = float3(0.0);
 
     while (stackTop > 0) {
         RayState r = rayStack[--stackTop];
         uint rng = wangHash(rngBase ^ uint(stackTop + 1) * 127u);
 
-        vec3  rayO       = r.origin;
-        vec3  rayD       = r.direction;
-        vec3  lastSplit  = r.last_split;
-        vec3  disp       = r.dispersion;
-        vec3  lastGeom   = r.last_geom;
-        vec3  geomD      = r.geomDisp;
+        float3  rayO       = r.origin;
+        float3  rayD       = r.direction;
+        float3  lastSplit  = r.last_split;
+        float3  disp       = r.dispersion;
+        float3  lastGeom   = r.last_geom;
+        float3  geomD      = r.geomDisp;
         float throughput = r.throughput;
         float decayC1   = r.decay_c1;
         float decayC2   = r.decay_c2;
         int   lamStart   = r.lam_start;
         int   lamEnd     = r.lam_end;
-        int   generation    = r.generation;
+        int   generation = r.generation;
 
         for (int bounce = r.bounce; bounce < params.maxBounces; ++bounce) {
             if (throughput < 0.005) break;
 
-            rayQueryEXT rq;
-            rayQueryInitializeEXT(rq, tlas, gl_RayFlagsOpaqueEXT, 0xFF, rayO, 0.001, rayD, 10000.0);
-            while (rayQueryProceedEXT(rq)) {}
+            RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
+            RayDesc ray = { rayO, 0.001, rayD, 10000.0 };
+            rq.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, ray);
+            while (rq.Proceed()) {}
 
-            if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+            if (rq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
                 // ---- Miss → sky ----
                 if (sp == 0 && bounce == 0) {
-                    imageStore(normalImage, px, vec4(0.0, 0.0, 0.0, 1.0));
-                    imageStore(depthImage, px, vec4(1e6, 0.0, 0.0, 0.0));
+                    normalImage[int2(px.x, px.y)] = float4(0.0, 0.0, 0.0, 1.0);
+                    depthImage[int2(px.x, px.y)] = 1e6;
                 }
 
                 float estSkyDist = 10000.0;
-                vec3  skyDisp    = lastSplit + disp * estSkyDist;
+                float3  skyDisp    = lastSplit + disp * estSkyDist;
                 float skySepMag  = length(skyDisp);
                 float skyPixHW   = params.fovTan / float(sz.x);
                 float skyThresh  = estSkyDist * skyPixHW * 0.5 * params.splitMult;
@@ -229,8 +236,8 @@ void main() {
                 int lamRange = lamEnd - lamStart;
                 if (skySepMag > skyThresh && lamRange >= 20 && throughput >= 0.05 && generation < 7) {
                     int midWl = (lamStart + lamEnd) / 2;
-                    vec3 skyPerp = normalize(skyDisp);
-                    if (length(skyPerp) < 0.0001) skyPerp = vec3(1,0,0);
+                    float3 skyPerp = normalize(skyDisp);
+                    if (length(skyPerp) < 0.0001) skyPerp = float3(1,0,0);
 
                     float splitParentMid  = float(lamStart + lamEnd) * 0.5;
                     float splitParentHalf = float(lamEnd - lamStart) * 0.5;
@@ -275,53 +282,53 @@ void main() {
 
                 float lamMid  = float(lamStart + lamEnd) * 0.5;
                 float halfW   = float(lamEnd - lamStart) * 0.5;
-                vec3 envLinear = srgbToLinear(vec3(0.5));
+                float3 envLinear = srgbToLinear(float3(0.5));
                 accumulateSpectrum(spectral, lamMid, halfW, throughput, decayC1, decayC2, envLinear);
                 break;
             }
 
             // ---- Hit ----
-            float  tHit = rayQueryGetIntersectionTEXT(rq, true);
+            float  tHit = rq.CommittedRayT();
             lastSplit  += disp * tHit;
             lastGeom   += geomD * tHit;
-            vec3   pos  = rayO + rayD * tHit;
-            int    mi   = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
-            int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
-            vec3 nrm;
-            if (instanceRanges.useSmoothNormals[mi] != 0u) {
-                vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rq, true);
+            float3   pos  = rayO + rayD * tHit;
+            int    mi   = rq.CommittedInstanceID();
+            int primitiveID = rq.CommittedPrimitiveIndex();
+            float3 nrm;
+            if (instanceRanges[0].useSmoothNormals[mi] != 0u) {
+                float2 bary = rq.CommittedTriangleBarycentrics();
                 nrm = computeSmoothNormal(mi, primitiveID, bary);
             } else {
                 nrm = computeGeometricNormal(mi, primitiveID);
             }
             {
-                mat3 Nmat = mat3(
-                    instanceNormals.normalCol0[mi].xyz,
-                    instanceNormals.normalCol1[mi].xyz,
-                    instanceNormals.normalCol2[mi].xyz
+                float3x3 Nmat = float3x3(
+                    instanceNormals[0].normalCol0[mi].xyz,
+                    instanceNormals[0].normalCol1[mi].xyz,
+                    instanceNormals[0].normalCol2[mi].xyz
                 );
-                nrm = normalize(Nmat * nrm);
+                nrm = normalize(mul(Nmat, nrm));
             }
             bool entering = dot(nrm, rayD) < -1e-5;
             if (!entering) nrm = -nrm;
 
             if (sp == 0 && bounce == 0) {
-                imageStore(normalImage, px, vec4(nrm * 0.5 + 0.5, 1.0));
-                imageStore(depthImage, px, vec4(tHit, 0.0, 0.0, 0.0));
+                normalImage[int2(px.x, px.y)] = float4(nrm * 0.5 + 0.5, 1.0);
+                depthImage[int2(px.x, px.y)] = tHit;
             }
 
-            uint matIdx = instanceRanges.materialID[mi];
+            uint matIdx = instanceRanges[0].materialID[mi];
             GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
             int matType = int(mat.params.z);
 
             if (matType == MATERIAL_CHECKERBOARD) {
                 float cx = floor(pos.x * 0.5);
                 float cz = floor(pos.z * 0.5);
-                bool white = (mod(int(cx + cz), 2) == 0);
-                vec3 checkerAlbedo = white ? vec3(0.75, 0.75, 0.75) : vec3(0.15, 0.15, 0.15);
+                bool white = ((int(cx + cz) % 2) == 0);
+                float3 checkerAlbedo = white ? float3(0.75, 0.75, 0.75) : float3(0.15, 0.15, 0.15);
                 float preAbsTP = throughput;
-                throughput *= (0.07 + 0.93 * dot(checkerAlbedo, vec3(0.299, 0.587, 0.114)));
-                vec3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
+                throughput *= (0.07 + 0.93 * dot(checkerAlbedo, float3(0.299, 0.587, 0.114)));
+                float3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
                 colorAccum += directLin * preAbsTP;
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
@@ -336,12 +343,12 @@ void main() {
                 float scatC2 = decayC2 / float(scatCount);
                 for (int s = 0; s < scatCount - 1; s++) {
                     if (stackTop < SPECTRAL_STACK_MAX) {
-                        vec3 sDir = cosineSampleHemisphere(nrm, rng);
+                        float3 sDir = cosineSampleHemisphere(nrm, rng);
                         RayState scat;
-                        scat.origin      = pos + nrm * 0.001 +sDir * 0.01;
+                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
                         scat.direction   = sDir;
-                        scat.last_split  = vec3(0.0); scat.dispersion  = vec3(0.0);
-                        scat.last_geom   = vec3(0.0); scat.geomDisp    = vec3(0.0);
+                        scat.last_split  = float3(0.0); scat.dispersion  = float3(0.0);
+                        scat.last_geom   = float3(0.0); scat.geomDisp    = float3(0.0);
                         scat.lam_start   = lamStart;  scat.lam_end     = lamEnd;
                         scat.throughput      = scatThroughput;
                         scat.decay_c1    = scatC1;     scat.decay_c2    = scatC2;
@@ -350,16 +357,16 @@ void main() {
                     }
                 }
                 rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + nrm * 0.001 +rayD * 0.01;
+                rayO       = pos + nrm * 0.001 + rayD * 0.01;
                 throughput     = scatThroughput; decayC1 = scatC1; decayC2 = scatC2;
-                lastSplit  = vec3(0.0); disp = vec3(0.0);
-                lastGeom   = vec3(0.0); geomD = vec3(0.0);
+                lastSplit  = float3(0.0); disp = float3(0.0);
+                lastGeom   = float3(0.0); geomD = float3(0.0);
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
-                float nl = rgbToDomLambda(mat.albedo.rgb);
-                float lum = dot(mat.albedo.rgb, vec3(0.299, 0.587, 0.114));
-                float maxC = max(max(mat.albedo.rgb.r, mat.albedo.rgb.g), mat.albedo.rgb.b);
-                float minC = min(min(mat.albedo.rgb.r, mat.albedo.rgb.g), mat.albedo.rgb.b);
+                float nl = rgbToDomLambda(mat.albedo.xyz);
+                float lum = dot(mat.albedo.xyz, float3(0.299, 0.587, 0.114));
+                float maxC = max(max(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
+                float minC = min(min(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
                 float sat = (maxC - minC) / max(maxC, 0.001);
 
                 float lamS = float(lamStart), lamE = float(lamEnd);
@@ -368,10 +375,10 @@ void main() {
                 float attAvg = (exp(-0.5*dS*dS/7200.0) + exp(-0.5*dM*dM/7200.0) + exp(-0.5*dE*dE/7200.0)) / 3.0;
 
                 float preAbsTP = throughput;
-                float attMix = mix(1.0, attAvg, sat);
+                float attMix = lerp(1.0, attAvg, sat);
                 throughput *= attMix * (0.07 + 0.93 * lum);
 
-                vec3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.rgb, rng);
+                float3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.xyz, rng);
                 colorAccum += directLin * preAbsTP;
 
                 if (bounce >= 3) {
@@ -388,14 +395,14 @@ void main() {
                 float scatC2 = decayC2 / float(scatCount);
                 for (int s = 0; s < scatCount - 1; s++) {
                     if (stackTop < SPECTRAL_STACK_MAX) {
-                        vec3 sDir = cosineSampleHemisphere(nrm, rng);
+                        float3 sDir = cosineSampleHemisphere(nrm, rng);
                         RayState scat;
-                        scat.origin      = pos + nrm * 0.001 +sDir * 0.01;
+                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
                         scat.direction   = sDir;
-                        scat.last_split  = vec3(0.0);
-                        scat.dispersion  = vec3(0.0);
-                        scat.last_geom   = vec3(0.0);
-                        scat.geomDisp    = vec3(0.0);
+                        scat.last_split  = float3(0.0);
+                        scat.dispersion  = float3(0.0);
+                        scat.last_geom   = float3(0.0);
+                        scat.geomDisp    = float3(0.0);
                         scat.lam_start   = lamStart;
                         scat.lam_end     = lamEnd;
                         scat.throughput      = scatThroughput;
@@ -407,12 +414,12 @@ void main() {
                     }
                 }
                 rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + nrm * 0.001 +rayD * 0.01;
+                rayO       = pos + nrm * 0.001 + rayD * 0.01;
                 throughput     = scatThroughput;
                 decayC1    = scatC1;
                 decayC2    = scatC2;
-                lastSplit  = vec3(0.0); disp = vec3(0.0);
-                lastGeom   = vec3(0.0); geomD = vec3(0.0);
+                lastSplit  = float3(0.0); disp = float3(0.0);
+                lastGeom   = float3(0.0); geomD = float3(0.0);
             }
             else if (matType == MATERIAL_DIELECTRIC) {
                 int lamMid = (lamStart + lamEnd) / 2;
@@ -428,10 +435,10 @@ void main() {
                                                       lamMidF, halfW,
                                                       mat.absorpA.y, mat.absorpB.y, tHit);
 
-                vec3 newDir;
+                float3 newDir;
                 if (refractDir(rayD, nrm, eta_mid, newDir)) {
-                    vec3 newDisp = computeDispersion(rayD, nrm, eta_mid, deta);
-                    vec3 newGeom = computeGeomDispersion(rayD, nrm, eta_mid);
+                    float3 newDisp = computeDispersion(rayD, nrm, eta_mid, deta);
+                    float3 newGeom = computeGeomDispersion(rayD, nrm, eta_mid);
 
                     lastSplit = rotateToNewFrame(lastSplit, rayD, newDir);
                     disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
@@ -445,7 +452,7 @@ void main() {
 
                     float reflThroughput = throughput * fresnelR;
                     if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
-                        vec3 reflDir = reflectDir(rayD, nrm);
+                        float3 reflDir = reflectDir(rayD, nrm);
                         RayState refl;
                         refl.origin      = pos + nrm * 0.001 + reflDir * 0.01;
                         refl.direction   = reflDir;
@@ -467,8 +474,8 @@ void main() {
                     decayC2    *= (1.0 - fresnelR);
 
                     float estDist = max(tHit, 50.0);
-                    vec3  predictedGeom = lastGeom + geomD * estDist;
-                    vec3  predictedSep  = lastSplit + disp * estDist;
+                    float3  predictedGeom = lastGeom + geomD * estDist;
+                    float3  predictedSep  = lastSplit + disp * estDist;
                     float sepMag       = max(length(predictedGeom), length(predictedSep));
                     float pixHalfWidth = params.fovTan / float(sz.x);
                     float pixThresh    = estDist * pixHalfWidth * 0.5 * params.splitMult;
@@ -559,10 +566,10 @@ void main() {
                 }
             }
             else if (matType == MATERIAL_METAL) {
-                vec3 ma = mat.albedo.rgb;
-                float r0 = ma.g + (ma.r + ma.b - 2.0*ma.g) / 6.0;
-                float r1 = (ma.r - ma.b) * 0.5;
-                float r2 = (ma.r + ma.b - 2.0*ma.g) / 3.0;
+                float3 ma = mat.albedo.xyz;
+                float r0 = ma.y + (ma.x + ma.z - 2.0*ma.y) / 6.0;
+                float r1 = (ma.x - ma.z) * 0.5;
+                float r2 = (ma.x + ma.z - 2.0*ma.y) / 3.0;
                 float lamMidF = float(lamStart + lamEnd) * 0.5;
                 float halfWF  = float(lamEnd - lamStart) * 0.5;
                 const float SQRT_3_5 = 0.77459667;
@@ -578,9 +585,9 @@ void main() {
                 decayC1    = 1.5 * (W0*newD[0]*(-SQRT_3_5) + W2*newD[2]*SQRT_3_5);
                 float p2_0 = 0.4, p2_1 = -0.5, p2_2 = 0.4;
                 decayC2    = 2.5 * (W0*newD[0]*p2_0 + W1*newD[1]*p2_1 + W2*newD[2]*p2_2);
-                vec3 reflDir = reflectDir(rayD, nrm);
+                float3 reflDir = reflectDir(rayD, nrm);
                 rayD       = reflDir;
-                rayO       = pos + nrm * 0.001 +reflDir * 0.01;
+                rayO       = pos + nrm * 0.001 + reflDir * 0.01;
                 lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                 disp       = disp - 2.0 * dot(disp, nrm) * nrm;
                 lastGeom   = lastGeom - 2.0 * dot(lastGeom, nrm) * nrm;
@@ -600,14 +607,14 @@ void main() {
 
     uint outIdx = uint(px.y * sz.x + px.x);
     uint base = outIdx * 4u;
-    vec3 oldAccum = vec3(accumData.data[base], accumData.data[base+1], accumData.data[base+2]);
-    float oldCount = accumData.data[base+3];
-    vec3 newAccum = oldAccum + pixelColor;
+    float3 oldAccum = float3(accumData[base], accumData[base+1], accumData[base+2]);
+    float oldCount = accumData[base+3];
+    float3 newAccum = oldAccum + pixelColor;
     float newCount = oldCount + float(spp);
-    accumData.data[base]   = newAccum.r;
-    accumData.data[base+1] = newAccum.g;
-    accumData.data[base+2] = newAccum.b;
-    accumData.data[base+3] = newCount;
-    vec3 outputColor = linearToSRGB(newAccum / max(newCount, 1.0) * 2.5);
-    imageStore(outputImage, px, vec4(outputColor, 1.0));
+    accumData[base]   = newAccum.x;
+    accumData[base+1] = newAccum.y;
+    accumData[base+2] = newAccum.z;
+    accumData[base+3] = newCount;
+    float3 outputColor = linearToSRGB(newAccum / max(newCount, 1.0) * 2.5);
+    outputImage[int2(px.x, px.y)] = float4(outputColor, 1.0);
 }

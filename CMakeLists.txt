@@ -89,7 +89,6 @@ function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
                 "${SHADER_SRC_DIR}/${SRC_FILE}"
                 -target spirv
                 -emit-spirv-directly
-                -profile glsl_460
                 -entry main
                 -stage compute
                 -I "${SHADER_SRC_DIR}"
@@ -104,7 +103,7 @@ function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
 endfunction()
 
 compile_shader_slang(raytrace_shader raytrace.slang raytrace.comp.spv
-    SLANGC_FLAGS -capability;GL_EXT_ray_query)
+    SLANGC_FLAGS -capability;spvRayQueryKHR)
 compile_shader_slang(denoise_shader denoise.slang denoise.comp.spv)
 
 # -----------------------------------------------------------------------------

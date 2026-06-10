@@ -1,6 +1,8 @@
-// Legendre decay expansion: 2nd-order Legendre series D(λ)=exp(-τ(λ))
+// Legendre decay expansion
+import math.spectral_math;
+// 2nd-order Legendre series D(λ)=exp(-τ(λ))
 
-bool applyVolumeDecay(inout float c0, inout float c1, inout float c2,
+public bool applyVolumeDecay(inout float c0, inout float c1, inout float c2,
                        float lamMid, float halfWidth,
                        float absorpA, float absorpB, float tHit) {
     float oldC0 = c0, oldC1 = c1, oldC2 = c2;
@@ -30,7 +32,7 @@ bool applyVolumeDecay(inout float c0, inout float c1, inout float c2,
     return err > 0.02;
 }
 
-void reprojectDecay(float parentC0, float parentC1, float parentC2,
+public void reprojectDecay(float parentC0, float parentC1, float parentC2,
                     float parentMid, float parentHalf,
                     float childMid,  float childHalf,
                     out float childC0, out float childC1, out float childC2) {
@@ -49,6 +51,6 @@ void reprojectDecay(float parentC0, float parentC1, float parentC2,
     childC2 = 2.5 * (W0 * Dvals[0] * 0.4 + W1 * Dvals[1] * (-0.5) + W2 * Dvals[2] * 0.4);
 }
 
-void scaleDecay(inout float c0, inout float c1, inout float c2, float s) {
+public void scaleDecay(inout float c0, inout float c1, inout float c2, float s) {
     c0 *= s; c1 *= s; c2 *= s;
 }

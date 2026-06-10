@@ -1,5 +1,3 @@
-#version 460
-
 // =============================================================================
 // Phase 6.5: Light edge-avoiding spatial denoiser
 //
@@ -8,20 +6,18 @@
 // most of the denoising — this is just a subtle cleanup pass.
 // Sky pixels (normal ≈ 0) pass through unfiltered.
 //
-// Input:  accumBuffer  (binding 13) — per-pixel float4 (r,g,b,sampleCount)
-//         normalImage  (binding 14) — world-space normals packed [0,1]
-//         depthImage   (binding 15) — primary hit distance
-// Output: outputImage  (binding 1)  — denoised RGBA8
+// Input:  accumData   (binding 13) — per-pixel float4 (r,g,b,sampleCount)
+//         normalImage (binding 14) — world-space normals packed [0,1]
+//         depthImage  (binding 15) — primary hit distance
+// Output: outputImage (binding 1)  — denoised RGBA8
 // =============================================================================
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+[[vk::binding(1, 0)]]  RWTexture2D<float4> outputImage;
+[[vk::binding(13, 0)]] RWStructuredBuffer<float> accumData;
+[[vk::binding(14, 0)]] RWTexture2D<float4> normalImage;
+[[vk::binding(15, 0)]] RWTexture2D<float>  depthImage;
 
-layout(rgba8, binding = 1) uniform image2D outputImage;
-layout(set = 0, binding = 13, std430) buffer AccumBlock { float data[]; } accumData;
-layout(rgba16f, binding = 14) uniform image2D normalImage;
-layout(r32f, binding = 15) uniform image2D depthImage;
-
-float normalWeight(vec3 na, vec3 nb) {
+float normalWeight(float3 na, float3 nb) {
     if (length(na) < 0.001 || length(nb) < 0.001) return 1.0;
     float d2 = dot(na - nb, na - nb);
     return exp(-d2 / 0.02);   // σ² = 0.02 → σ ≈ 0.14
@@ -32,58 +28,62 @@ float depthWeight(float da, float db) {
     return exp(-diff * diff / 0.1);  // σ² = 0.1 → σ ≈ 0.32
 }
 
-float colorWeight(vec3 ca, vec3 cb) {
-    float la = dot(ca, vec3(0.299, 0.587, 0.114));
-    float lb = dot(cb, vec3(0.299, 0.587, 0.114));
+float colorWeight(float3 ca, float3 cb) {
+    float la = dot(ca, float3(0.299, 0.587, 0.114));
+    float lb = dot(cb, float3(0.299, 0.587, 0.114));
     float d2 = (la - lb) * (la - lb);
     return exp(-d2 / 0.02);   // σ² = 0.02 → σ ≈ 0.14
 }
 
-void main() {
-    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 sz = imageSize(outputImage);
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void main(uint3 dispatchID : SV_DispatchThreadID) {
+    int2 px = int2(dispatchID.xy);
+    int w, h;
+    outputImage.GetDimensions(w, h);
+    int2 sz = int2(w, h);
     if (px.x >= sz.x || px.y >= sz.y) return;
 
     uint idx = uint(px.y * sz.x + px.x);
     uint base = idx * 4u;
-    vec3 centerColor = vec3(accumData.data[base], accumData.data[base+1], accumData.data[base+2]);
-    float centerCount = accumData.data[base+3];
+    float3 centerColor = float3(accumData[base], accumData[base+1], accumData[base+2]);
+    float centerCount = accumData[base+3];
     if (centerCount > 0.0) centerColor /= centerCount;
 
-    vec3 centerNormal = imageLoad(normalImage, px).xyz * 2.0 - 1.0;
-    float centerDepth = imageLoad(depthImage, px).x;
+    float3 centerNormal = normalImage.Load(int2(px.x, px.y)).xyz * 2.0 - 1.0;
+    float centerDepth = depthImage.Load(int2(px.x, px.y)).x;
 
     // Sky pixel → pass through unfiltered
     if (length(centerNormal) < 0.001) {
-        imageStore(outputImage, px, vec4(centerColor, 1.0));
+        outputImage[int2(px.x, px.y)] = float4(centerColor, 1.0);
         return;
     }
 
     // ---- 2 scales: step=1 (fine), step=2 (coarse) ----
     // Heavily weighted toward fine scale (0.8) to preserve detail
-    vec3 result = vec3(0.0);
+    float3 result = float3(0.0);
     float totalW = 0.0;
 
     for (int iter = 0; iter < 2; iter++) {
         int step = 1 + iter;  // 1, 2
         float scaleW = (iter == 0) ? 0.8 : 0.2;
 
-        vec3 sum = vec3(0.0);
+        float3 sum = float3(0.0);
         float wsum = 0.0;
 
         for (int dy = -1; dy <= 1; dy++) {
             for (int dx = -1; dx <= 1; dx++) {
-                ivec2 qp = px + ivec2(dx * step, dy * step);
+                int2 qp = px + int2(dx * step, dy * step);
                 if (qp.x < 0 || qp.x >= sz.x || qp.y < 0 || qp.y >= sz.y) continue;
 
                 uint qi = uint(qp.y * sz.x + qp.x);
                 uint qb = qi * 4u;
-                vec3 qColor = vec3(accumData.data[qb], accumData.data[qb+1], accumData.data[qb+2]);
-                float qCount = accumData.data[qb+3];
+                float3 qColor = float3(accumData[qb], accumData[qb+1], accumData[qb+2]);
+                float qCount = accumData[qb+3];
                 if (qCount > 0.0) qColor /= qCount;
 
-                vec3 qNormal = imageLoad(normalImage, qp).xyz * 2.0 - 1.0;
-                float qDepth = imageLoad(depthImage, qp).x;
+                float3 qNormal = normalImage.Load(int2(qp.x, qp.y)).xyz * 2.0 - 1.0;
+                float qDepth = depthImage.Load(int2(qp.x, qp.y)).x;
 
                 if (length(qNormal) < 0.001) continue;  // skip sky neighbors
 
@@ -107,6 +107,6 @@ void main() {
         result = centerColor;
     }
 
-    result = max(result, vec3(0.0));
-    imageStore(outputImage, px, vec4(result, 1.0));
+    result = max(result, float3(0.0));
+    outputImage[int2(px.x, px.y)] = float4(result, 1.0);
 }
