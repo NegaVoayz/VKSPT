@@ -1,7 +1,7 @@
 #include "core/VulkanContext.h"
+#include "core/Log.h"
 
 #include <cstring>
-#include <iostream>
 #include <set>
 #include <stdexcept>
 
@@ -13,7 +13,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     void*                                       /*pUserData*/)
 {
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-        std::cerr << "[Vulkan] " << pCallbackData->pMessage << std::endl;
+        Log::error("[Vulkan] {}", pCallbackData->pMessage);
     }
     return VK_FALSE;
 }
@@ -61,7 +61,7 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
     }
     for (const auto* ext : extensions) {
         if (!availableSet.count(ext)) {
-            std::cerr << "Warning: instance extension not available: " << ext << std::endl;
+            Log::warn("Instance extension not available: {}", ext);
         }
     }
 

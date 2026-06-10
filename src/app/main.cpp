@@ -1,6 +1,6 @@
 #include "app/Application.h"
+#include "core/Log.h"
 
-#include <iostream>
 #include <stdexcept>
 
 int main() {
@@ -10,7 +10,7 @@ int main() {
         return 0;
     }
     catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
+        Log::error("Fatal error: {}", e.what());
         return 1;
     }
 }

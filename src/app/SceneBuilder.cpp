@@ -1,7 +1,7 @@
 #include "app/SceneBuilder.h"
+#include "core/Log.h"
 #include "scene/ObjLoader.h"
 #include <algorithm>
-#include <iostream>
 
 void SceneBuilder::build(const SceneDescription& desc,
                           AccelerationStructure& as)
@@ -11,10 +11,10 @@ void SceneBuilder::build(const SceneDescription& desc,
 
     for (size_t i = 0; i < desc.objects.size(); ++i) {
         const auto& obj = desc.objects[i];
-        std::cout << "  Loading: " << obj.objFilename << std::endl;
+        Log::info("  Loading: {}", obj.objFilename);
         auto mesh = loadObjMesh(obj.objFilename);
-        std::cout << "    vertices: " << mesh.vertices.size()/3
-                  << ", triangles: " << mesh.indices.size()/3 << std::endl;
+        Log::info("    vertices: {}, triangles: {}",
+                  mesh.vertices.size()/3, mesh.indices.size()/3);
 
         float xf[3][4];
         buildTransformMatrix(obj.scale, obj.rotation, obj.translation, xf);

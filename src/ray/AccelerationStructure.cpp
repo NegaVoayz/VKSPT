@@ -3,7 +3,6 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
-#include <iostream>
 #include <stdexcept>
 
 AccelerationStructure::AccelerationStructure(

@@ -1,11 +1,11 @@
 #include "app/Application.h"
+#include "core/Log.h"
 #include "scene/SceneConfig.h"
 #include "scene/SceneXmlParser.h"
 #include "app/SceneBuilder.h"
 
 #include <chrono>
 #include <glm/gtc/constants.hpp>
-#include <iostream>
 #include <stdexcept>
 
 using Clock = std::chrono::high_resolution_clock;
@@ -38,7 +38,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     , m_height(windowHeight)
 {
     // 1. Create window (SDL3)
-    std::cout << "Creating window..." << std::endl;
+    Log::info("Creating window...");
     m_window = std::make_unique<Window>(m_width, m_height, title);
 
     // Update dimensions from actual framebuffer size
@@ -47,12 +47,12 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     m_height = static_cast<uint32_t>(fbH);
 
     // 2. Create Vulkan context
-    std::cout << "Creating Vulkan context..." << std::endl;
+    Log::info("Creating Vulkan context...");
     auto instanceExts = Window::getRequiredInstanceExtensions();
     m_ctx = std::make_unique<VulkanContext>(instanceExts);
 
     // 3. Create surface
-    std::cout << "Creating surface..." << std::endl;
+    Log::info("Creating surface...");
     m_surface = m_window->createSurface(m_ctx->getInstance());
 
     // 4. Check present support for the compute queue
@@ -77,7 +77,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     }
 
     // 5. Create acceleration structure (hardcoded triangle)
-    std::cout << "Building acceleration structures..." << std::endl;
+    Log::info("Building acceleration structures...");
     m_as = std::make_unique<AccelerationStructure>(
         m_ctx->getDevice(),
         m_ctx->getPhysicalDevice(),
@@ -86,7 +86,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     initScene();
 
     // 6. Create ray tracing pipeline
-    std::cout << "Creating ray tracing pipeline..." << std::endl;
+    Log::info("Creating ray tracing pipeline...");
     m_pipeline = std::make_unique<RayTracingPipeline>(
         m_ctx->getDevice(), m_width, m_height
     );
@@ -94,7 +94,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     m_pipeline->createDenoisePipeline("shaders/denoise.comp.spv");
 
     // 7. Create renderer
-    std::cout << "Creating renderer..." << std::endl;
+    Log::info("Creating renderer...");
     Renderer::Config cfg{m_width, m_height};
     m_renderer = std::make_unique<Renderer>(
         m_ctx->getInstance(),
@@ -106,7 +106,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
         cfg
     );
 
-    std::cout << "Initialization complete!" << std::endl;
+    Log::info("Initialization complete!");
 }
 
 Application::~Application() {
@@ -115,24 +115,21 @@ Application::~Application() {
 
 void Application::initScene() {
     const std::string configPath = "../../assets/SceneConfig.xml";
-    std::cout << "Parsing scene config: " << configPath << std::endl;
+    Log::info("Parsing scene config: {}", configPath);
     auto desc = parseSceneXML(configPath);
-    std::cout << "  Camera: " << desc.cameraWidth << "x" << desc.cameraHeight
-              << ", max depth: " << desc.maxDepth
-              << ", objects: " << desc.objects.size()
-              << ", point lights: " << desc.pointLights.size()
-              << ", env map: " << (desc.envMapDisplay ? "yes" : "no")
-              << std::endl;
+    Log::info("  Camera: {}x{}, max depth: {}, objects: {}, point lights: {}, env map: {}",
+              desc.cameraWidth, desc.cameraHeight, desc.maxDepth,
+              desc.objects.size(), desc.pointLights.size(),
+              desc.envMapDisplay ? "yes" : "no");
     SceneBuilder().build(desc, *m_as);
-    std::cout << "  Build complete: " << m_as->getInstanceCount()
-              << " instances, " << m_as->getMaterialCount()
-              << " materials" << std::endl;
+    Log::info("  Build complete: {} instances, {} materials",
+              m_as->getInstanceCount(), m_as->getMaterialCount());
     m_as->loadEnvMap("../../assets/envmap.jpg");
 }
 
 void Application::run() {
-    std::cout << "Entering render loop..." << std::endl;
-    std::cout << "  WASD = move (horizontal), SPACE/SHIFT = up/down, Left Mouse = look" << std::endl;
+    Log::info("Entering render loop...");
+    Log::info("  WASD = move, SPACE/SHIFT = up/down, Left Mouse = look");
 
     auto lastTime = Clock::now();
 
@@ -171,7 +168,7 @@ void Application::run() {
         // Compute camera vectors for rendering
         float aspect = float(m_width) / float(m_height);
         float fovTan = 0.57735f;  // 60° horizontal FOV (tan 30°)
-        Renderer::CameraParams cam;
+        CameraParams cam;
         cam.origin[0] = m_camera.position.x;
         cam.origin[1] = m_camera.position.y;
         cam.origin[2] = m_camera.position.z;
@@ -191,7 +188,7 @@ void Application::run() {
             float capAspect = 2560.0f / 1440.0f;
             glm::vec3 cu, cv, cw;
             m_camera.computeVectors(capFovTan, capAspect, cu, cv, cw);
-            Renderer::CameraParams capCam;
+            CameraParams capCam;
             capCam.origin[0] = m_camera.position.x;
             capCam.origin[1] = m_camera.position.y;
             capCam.origin[2] = m_camera.position.z;

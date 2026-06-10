@@ -5,7 +5,7 @@ project(VKRT
     LANGUAGES CXX
 )
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -102,7 +102,14 @@ add_executable(vkrt
     src/ray/EnvMap.cpp
     src/ray/GeometryBuffer.cpp
     src/ray/AccelBuilder.cpp
+    src/render/CrossFrameAccum.cpp
+    src/render/Denoiser.cpp
+    src/render/FrameCapture.cpp
+    src/render/FrameRecorder.cpp
+    src/render/OutputImage.cpp
     src/render/Renderer.cpp
+    src/render/ScreenshotCapture.cpp
+    src/render/SwapchainManager.cpp
     src/scene/SceneConfig.cpp
     src/scene/SceneXmlParser.cpp
     src/scene/ObjLoader.cpp
