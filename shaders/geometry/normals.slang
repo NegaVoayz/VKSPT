@@ -1,18 +1,5 @@
 // Geometric normal computation from vertex SSBO data
-
-static const int MAX_INSTANCES = 16;
-struct InstanceRangeBlock {
-    uint vtxOffset[MAX_INSTANCES];
-    uint vtxCount[MAX_INSTANCES];
-    uint idxOffset[MAX_INSTANCES];
-    uint idxCount[MAX_INSTANCES];
-    uint materialID[MAX_INSTANCES];
-    uint useSmoothNormals[MAX_INSTANCES];
-};
-[[vk::binding(6, 0)]] StructuredBuffer<InstanceRangeBlock> instanceRanges;
-[[vk::binding(5, 0)]]  StructuredBuffer<uint>  indexData;
-[[vk::binding(4, 0)]]  StructuredBuffer<float> vertexData;
-[[vk::binding(12, 0)]] StructuredBuffer<float> normalData;
+import common.bindings;
 
 public float3 computeGeometricNormal(int instanceID, int primitiveID) {
     uint vOff = instanceRanges[0].vtxOffset[instanceID];
