@@ -1016,8 +1016,8 @@ void main() {
                     float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
 
                     if (!inGlass) {
-                        // Entry: push Fresnel reflection (visible glass reflection)
-                        float reflThroughput = throughput * fresnelR;
+                        // Entry: push Fresnel reflection (dampened to reduce bright halo)
+                        float reflThroughput = throughput * fresnelR * 0.3;
                         if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
                             vec3 reflDir = reflectDir(rayD, nrm);
                             RayState refl;
@@ -1035,9 +1035,9 @@ void main() {
                             refl.insideGlass = inGlass;
                             rayStack[stackTop++] = refl;
                         }
-                        throughput *= (1.0 - fresnelR);
-                        decayC1    *= (1.0 - fresnelR);
-                        decayC2    *= (1.0 - fresnelR);
+                        throughput *= (1.0 - fresnelR * 0.3);
+                        decayC1    *= (1.0 - fresnelR * 0.3);
+                        decayC2    *= (1.0 - fresnelR * 0.3);
                     } else {
                         // Exit: no internal reflection, but transmission still loses energy
                         throughput *= (1.0 - fresnelR);
