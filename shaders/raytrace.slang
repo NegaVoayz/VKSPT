@@ -116,7 +116,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                     instanceNormals[0].normalCol1[mi].xyz,
                     instanceNormals[0].normalCol2[mi].xyz
                 );
-                nrm = normalize(mul(Nmat, nrm));
+                nrm = normalize(mul(nrm, Nmat));
             }
             bool entering = dot(nrm, rayD) < -1e-5;
             if (!entering) nrm = -nrm;

@@ -44,7 +44,7 @@ public struct BounceState {
     public float3 colorAccum;
 };
 
-// [ForceInline] pack/unpack helpers for BounceState
+[ForceInline]
 public BounceState packBs(
     float3 rayO, float3 rayD,
     float throughput, float decayC1, float decayC2,
@@ -62,6 +62,7 @@ public BounceState packBs(
     return bs;
 }
 
+[ForceInline]
 public void unpackBs(
     inout float3 rayO, inout float3 rayD,
     inout float throughput, inout float decayC1, inout float decayC2,
