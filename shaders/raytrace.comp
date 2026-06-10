@@ -117,6 +117,20 @@ const float CMF_B[81] = {
     -0.00000002, -0.00000001, -0.00000001
 };
 
+// Pre-integrated bucket CMFs: int_{40nm} displayCMF dλ. Sum = (1,1,1).
+const vec3 BUCKET_CMF[10] = {
+    vec3( 0.005554, -0.006176,  0.045626),  // [380,420)
+    vec3( 0.053120, -0.070015,  0.643714),  // [420,460)
+    vec3(-0.081055,  0.067278,  0.414576),  // [460,500)
+    vec3(-0.247621,  0.446900,  0.000295),  // [500,540)
+    vec3( 0.097933,  0.505466, -0.065608),  // [540,580)
+    vec3( 0.694806,  0.104904, -0.032081),  // [580,620)
+    vec3( 0.415471, -0.040087, -0.005938),  // [620,660)
+    vec3( 0.057729, -0.007709, -0.000548),  // [660,700)
+    vec3( 0.003833, -0.000529, -0.000034),  // [700,740)
+    vec3( 0.000225, -0.000031, -0.000002),  // [740,780)
+};
+
 // Pseudo-inverse basis spectra for RGB → spectrum estimation
 // S(λ) = lin_R × BASIS_R[λ] + lin_G × BASIS_G[λ] + lin_B × BASIS_B[λ]
 const float BASIS_R[81] = {
@@ -1202,11 +1216,10 @@ void main() {
         } // bounce loop
     } // stack loop
 
-        // Convert local spectral buckets to linear sRGB, add to pixelColor
+        // Convert local spectral buckets to linear sRGB
+        // spectral[b] stores S×D×nm, BUCKET_CMF[b] integrates displayCMF over 40nm
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
-            float lamB = float(LAMBDA_MIN + 40 * b + 20);
-            vec3 cmfB = displayCMF(lamB);
-            pixelColor += spectral[b] * cmfB;
+            pixelColor += (spectral[b] / 40.0) * BUCKET_CMF[b];
         }
         pixelColor += colorAccum;
     } // SPP loop
