@@ -73,9 +73,19 @@ function(compile_shader TARGET_NAME SRC_FILE OUTPUT_NAME)
     add_custom_command(
         OUTPUT "${OUTPUT_FILE}"
         COMMAND "${GLSLC}" --target-env=vulkan1.4 -O
+                -I "${SHADER_SRC_DIR}"
                 -o "${OUTPUT_FILE}"
                 "${SHADER_SRC_DIR}/${SRC_FILE}"
         DEPENDS "${SHADER_SRC_DIR}/${SRC_FILE}"
+            "${SHADER_SRC_DIR}/common/types.glslh"
+            "${SHADER_SRC_DIR}/common/cmf_data.glslh"
+            "${SHADER_SRC_DIR}/math/spectral_math.glslh"
+            "${SHADER_SRC_DIR}/math/color.glslh"
+            "${SHADER_SRC_DIR}/math/absorption.glslh"
+            "${SHADER_SRC_DIR}/math/legendre_decay.glslh"
+            "${SHADER_SRC_DIR}/math/sampling.glslh"
+            "${SHADER_SRC_DIR}/geometry/dispersion.glslh"
+            "${SHADER_SRC_DIR}/geometry/normals.glslh"
         COMMENT "Compiling shader: ${SRC_FILE} -> ${OUTPUT_NAME}"
     )
     add_custom_target(${TARGET_NAME} DEPENDS "${OUTPUT_FILE}")
