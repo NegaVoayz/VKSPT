@@ -31,7 +31,7 @@ Renderer::Renderer(
 
     // Phase 6: Cross-frame accumulation buffer (device-local SSBO)
     {
-        vk::DeviceSize accumSize = m_config.width * m_config.height * 4 * sizeof(float);
+        vk::DeviceSize accumSize = m_config.width * m_config.height * 14 * sizeof(float);  // 10 spectrum + 3 RGB + count
         m_accumBuffer = GPUBuffer::create(
             m_device, accumSize,
             vk::BufferUsageFlagBits::eStorageBuffer |
@@ -848,7 +848,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
 // Phase 6: Cross-Frame Accumulation Buffer Reset
 // -----------------------------------------------------------------------------
 void Renderer::resetAccumBuffer() {
-    vk::DeviceSize accumSize = m_config.width * m_config.height * 4 * sizeof(float);
+    vk::DeviceSize accumSize = m_config.width * m_config.height * 14 * sizeof(float);  // 10 spectrum + 3 RGB + count
 
     void* mapped = m_accumStaging.memory.mapMemory(0, accumSize);
     std::memset(mapped, 0, static_cast<size_t>(accumSize));
