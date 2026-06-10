@@ -1,13 +1,13 @@
 #version 460
 #extension GL_EXT_ray_query : require
 
-#include "common/types.glslh"
-#include "common/cmf_data.glslh"
-#include "math/spectral_math.glslh"
-#include "math/color.glslh"
-#include "math/absorption.glslh"
-#include "math/legendre_decay.glslh"
-#include "math/sampling.glslh"
+#include "common/types.slang"
+#include "common/cmf_data.slang"
+#include "math/spectral_math.slang"
+#include "math/color.slang"
+#include "math/absorption.slang"
+#include "math/legendre_decay.slang"
+#include "math/sampling.slang"
 
 // =============================================================================
 // Descriptors
@@ -43,8 +43,8 @@ layout(set = 0, binding = 16, std430) buffer InstanceNormalBlock {
 
 layout(set = 0, binding = 11) uniform sampler2D envMap;
 
-#include "geometry/dispersion.glslh"
-#include "geometry/normals.glslh"
+#include "geometry/dispersion.slang"
+#include "geometry/normals.slang"
 
 // =============================================================================
 // Sky + Direct lighting + Spectral accumulation
@@ -141,7 +141,7 @@ layout(push_constant) uniform PushConstants {
     int   samplesPerPixel, maxBounces, materialCount;
     float fovTan, splitMult, forceSplitWidth;
     int   scatterSamples; float mergeThreshold;
-    int   frameIndex; int _padEnd[2];
+    int   frameIndex; int _padEnd0; int _padEnd1;
 } params;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;

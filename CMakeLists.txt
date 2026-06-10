@@ -60,40 +60,52 @@ target_include_directories(stb_image INTERFACE
 )
 
 # -----------------------------------------------------------------------------
-# Shader compilation (glslc)
+# Shader compilation (Slang)
 # -----------------------------------------------------------------------------
-set(GLSLC "${VULKAN_SDK}/Bin/glslc.exe")
+set(SLANGC "${VULKAN_SDK}/Bin/slangc.exe")
 set(SHADER_SRC_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 
 file(MAKE_DIRECTORY "${SHADER_OUT_DIR}")
 
-function(compile_shader TARGET_NAME SRC_FILE OUTPUT_NAME)
+set(SHADER_HEADERS
+    "${SHADER_SRC_DIR}/common/types.slang"
+    "${SHADER_SRC_DIR}/common/cmf_data.slang"
+    "${SHADER_SRC_DIR}/math/spectral_math.slang"
+    "${SHADER_SRC_DIR}/math/color.slang"
+    "${SHADER_SRC_DIR}/math/absorption.slang"
+    "${SHADER_SRC_DIR}/math/legendre_decay.slang"
+    "${SHADER_SRC_DIR}/math/sampling.slang"
+    "${SHADER_SRC_DIR}/geometry/dispersion.slang"
+    "${SHADER_SRC_DIR}/geometry/normals.slang"
+)
+
+function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
+    cmake_parse_arguments(ARG "" "" "SLANGC_FLAGS" ${ARGN})
     set(OUTPUT_FILE "${SHADER_OUT_DIR}/${OUTPUT_NAME}")
     add_custom_command(
         OUTPUT "${OUTPUT_FILE}"
-        COMMAND "${GLSLC}" --target-env=vulkan1.4 -O
-                -I "${SHADER_SRC_DIR}"
-                -o "${OUTPUT_FILE}"
+        COMMAND "${SLANGC}"
                 "${SHADER_SRC_DIR}/${SRC_FILE}"
+                -target spirv
+                -emit-spirv-directly
+                -profile glsl_460
+                -entry main
+                -stage compute
+                -I "${SHADER_SRC_DIR}"
+                ${ARG_SLANGC_FLAGS}
+                -o "${OUTPUT_FILE}"
         DEPENDS "${SHADER_SRC_DIR}/${SRC_FILE}"
-            "${SHADER_SRC_DIR}/common/types.glslh"
-            "${SHADER_SRC_DIR}/common/cmf_data.glslh"
-            "${SHADER_SRC_DIR}/math/spectral_math.glslh"
-            "${SHADER_SRC_DIR}/math/color.glslh"
-            "${SHADER_SRC_DIR}/math/absorption.glslh"
-            "${SHADER_SRC_DIR}/math/legendre_decay.glslh"
-            "${SHADER_SRC_DIR}/math/sampling.glslh"
-            "${SHADER_SRC_DIR}/geometry/dispersion.glslh"
-            "${SHADER_SRC_DIR}/geometry/normals.glslh"
-        COMMENT "Compiling shader: ${SRC_FILE} -> ${OUTPUT_NAME}"
+                ${SHADER_HEADERS}
+        COMMENT "Compiling Slang shader: ${SRC_FILE} -> ${OUTPUT_NAME}"
     )
     add_custom_target(${TARGET_NAME} DEPENDS "${OUTPUT_FILE}")
     set(SHADER_OUTPUT_${TARGET_NAME} "${OUTPUT_FILE}" PARENT_SCOPE)
 endfunction()
 
-compile_shader(raytrace_shader raytrace.comp raytrace.comp.spv)
-compile_shader(denoise_shader denoise.comp denoise.comp.spv)
+compile_shader_slang(raytrace_shader raytrace.slang raytrace.comp.spv
+    SLANGC_FLAGS -capability;GL_EXT_ray_query)
+compile_shader_slang(denoise_shader denoise.slang denoise.comp.spv)
 
 # -----------------------------------------------------------------------------
 # Main executable
