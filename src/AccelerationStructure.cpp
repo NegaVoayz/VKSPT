@@ -1,5 +1,8 @@
 #include "AccelerationStructure.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
@@ -431,6 +434,27 @@ void AccelerationStructure::buildScene(
     }
 
     buildTLAS(m_instanceCount);
+
+    // Per-instance normal matrices (inverse-transpose of 3x3 affine)
+    {
+        std::vector<float> nd(MAX_INSTANCES * 3 * 4, 0.0f);
+        for (uint32_t i = 0; i < m_instanceCount; ++i) {
+            const auto& xf = m_instanceTransforms[i];
+            glm::mat3 m33;
+            for (int c = 0; c < 3; ++c)
+                for (int r = 0; r < 3; ++r)
+                    m33[c][r] = xf[r][c];
+            glm::mat3 nm = glm::transpose(glm::inverse(m33));
+            for (int col = 0; col < 3; ++col) {
+                size_t b = (col * MAX_INSTANCES + i) * 4;
+                nd[b+0]=nm[col].x; nd[b+1]=nm[col].y;
+                nd[b+2]=nm[col].z; nd[b+3]=0;
+            }
+        }
+        m_instanceNormalBuffer = GPUBuffer::createStaging(
+            m_device, nd.data(), nd.size()*sizeof(float),
+            vk::BufferUsageFlagBits::eStorageBuffer, m_physDevice);
+    }
 
     // Build range data with correct material IDs (6 arrays now: +useSmoothNormals)
     std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);

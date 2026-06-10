@@ -97,6 +97,10 @@ public:
     /// Phase 6.5: bind G-buffer depth storage image (binding=15, r32f).
     void bindDepthImage(uint32_t frameIndex, vk::ImageView view);
 
+    /// Bind per-instance normal matrix SSBO (binding=16).
+    void bindInstanceNormalBuffer(uint32_t fi, vk::Buffer b,
+                                   vk::DeviceSize sz);
+
     /// Phase 6.5: Load denoise SPIR-V and create denoise compute pipeline.
     void createDenoisePipeline(const std::string& spirvPath);
 

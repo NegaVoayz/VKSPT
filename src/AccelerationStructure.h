@@ -118,6 +118,10 @@ public:
     /// Get the instance range SSBO for shader vertex lookup.
     const GPUBuffer& getRangeBuffer() const { return m_rangeBuffer; }
 
+    /// Get the per-instance normal matrix SSBO (inv-transpose of 3x3 affine).
+    const GPUBuffer& getInstanceNormalBuffer() const
+        { return m_instanceNormalBuffer; }
+
     /// Number of TLAS instances.
     uint32_t getInstanceCount() const { return m_instanceCount; }
 
@@ -181,8 +185,9 @@ private:
     GPUBuffer                m_vertexDataBuffer;   // concatenated vertex positions (float3)
     GPUBuffer                m_indexDataBuffer;    // concatenated triangle indices (uint)
     GPUBuffer                m_normalDataBuffer;   // concatenated vertex normals (float3)
-    GPUBuffer                m_rangeBuffer;        // per-instance vertex/index ranges
-    uint32_t                 m_instanceCount = 0;
+    GPUBuffer m_rangeBuffer;
+    GPUBuffer m_instanceNormalBuffer;
+    uint32_t  m_instanceCount = 0;
     std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
     std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
     std::vector<std::vector<float>>    m_stagedNormals;    // per-instance vertex normal data

@@ -621,6 +621,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                               m_accumBuffer.size);
     pipeline.bindNormalImage(frameIdx, *m_normalView);
     pipeline.bindDepthImage(frameIdx, *m_depthView);
+    pipeline.bindInstanceNormalBuffer(frameIdx,
+        *as.getInstanceNormalBuffer().buffer,
+        as.getInstanceNormalBuffer().size);
 
     // Record command buffer
     auto& cmdBuf = m_commandBuffers[frameIdx];

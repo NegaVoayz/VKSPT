@@ -414,6 +414,14 @@ layout(set = 0, binding = 6, std430) buffer InstanceRangeBlock {
     uint useSmoothNormals[MAX_INSTANCES];
 } instanceRanges;
 
+// Per-instance normal matrices (inverse-transpose of 3×3 affine).
+// Stored as 3 parallel arrays of vec4 (columns 0,1,2), MAX_INSTANCES each, std430.
+layout(set = 0, binding = 16, std430) buffer InstanceNormalBlock {
+    vec4 normalCol0[MAX_INSTANCES];
+    vec4 normalCol1[MAX_INSTANCES];
+    vec4 normalCol2[MAX_INSTANCES];
+} instanceNormals;
+
 // Phase 5: Environment map (loaded from assets/envmap.jpg)
 layout(set = 0, binding = 11) uniform sampler2D envMap;
 
@@ -841,8 +849,18 @@ void main() {
             } else {
                 nrm = computeGeometricNormal(mi, primitiveID);
             }
+            // Transform object-space normal to world-space via instance normal matrix
+            {
+                mat3 Nmat = mat3(
+                    instanceNormals.normalCol0[mi].xyz,
+                    instanceNormals.normalCol1[mi].xyz,
+                    instanceNormals.normalCol2[mi].xyz
+                );
+                nrm = normalize(Nmat * nrm);
+            }
             // Determine entering/exiting from raw normal before flipping
-            bool entering = dot(nrm, rayD) < 0.0;
+            // Use epsilon to avoid false backface detection at grazing angles
+            bool entering = dot(nrm, rayD) < -1e-5;
             if (!entering) nrm = -nrm;   // flip back-face normal to face incoming ray
 
             // Phase 6.5: Capture G-buffer (normals + depth) at first primary hit for denoising
