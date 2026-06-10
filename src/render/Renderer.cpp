@@ -445,9 +445,9 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pipeline.bindLightBuffer(0, *as.getLightBuffer().buffer,
                                   as.getLightBuffer().size);
         pipeline.bindGeometrySSBOs(0,
-            *as.getVertexDataBuffer().buffer, as.getVertexDataBuffer().size,
-            *as.getIndexDataBuffer().buffer,  as.getIndexDataBuffer().size,
-            *as.getRangeBuffer().buffer,      as.getRangeBuffer().size);
+            *as.getGeometry().vertexBuf().buffer, as.getGeometry().vertexBuf().size,
+            *as.getGeometry().indexBuf().buffer,  as.getGeometry().indexBuf().size,
+            *as.getGeometry().rangeBuf().buffer,      as.getGeometry().rangeBuf().size);
         pipeline.bindRayBuffer(0, *m_raySorter->getRayBuffer().buffer,
                                 m_raySorter->getRayBuffer().size);
         pipeline.bindCounterBuffer(0, *m_raySorter->getCounterBuffer().buffer,
@@ -457,8 +457,8 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         pipeline.bindOverflowBuffer(0, *m_raySorter->getOverflowBuffer().buffer,
                                      m_raySorter->getOverflowBuffer().size);
         pipeline.bindEnvMap(0, as.getEnvMap().view(), as.getEnvMap().sampler());
-        pipeline.bindNormalSSBO(0, *as.getNormalDataBuffer().buffer,
-                                 as.getNormalDataBuffer().size);
+        pipeline.bindNormalSSBO(0, *as.getGeometry().normalBuf().buffer,
+                                 as.getGeometry().normalBuf().size);
 
         // Zero overflow counter before starting
         m_raySorter->drainOverflow();
@@ -611,12 +611,12 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pipeline.bindLightBuffer(frameIdx, *as.getLightBuffer().buffer,
                               as.getLightBuffer().size);
     pipeline.bindGeometrySSBOs(frameIdx,
-        *as.getVertexDataBuffer().buffer, as.getVertexDataBuffer().size,
-        *as.getIndexDataBuffer().buffer,  as.getIndexDataBuffer().size,
-        *as.getRangeBuffer().buffer,      as.getRangeBuffer().size);
+        *as.getGeometry().vertexBuf().buffer, as.getGeometry().vertexBuf().size,
+        *as.getGeometry().indexBuf().buffer,  as.getGeometry().indexBuf().size,
+        *as.getGeometry().rangeBuf().buffer,      as.getGeometry().rangeBuf().size);
     pipeline.bindEnvMap(frameIdx, as.getEnvMap().view(), as.getEnvMap().sampler());
-    pipeline.bindNormalSSBO(frameIdx, *as.getNormalDataBuffer().buffer,
-                             as.getNormalDataBuffer().size);
+    pipeline.bindNormalSSBO(frameIdx, *as.getGeometry().normalBuf().buffer,
+                             as.getGeometry().normalBuf().size);
     pipeline.bindAccumBuffer(frameIdx, *m_accumBuffer.buffer,
                               m_accumBuffer.size);
     pipeline.bindNormalImage(frameIdx, *m_normalView);

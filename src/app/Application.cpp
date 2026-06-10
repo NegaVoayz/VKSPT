@@ -1,7 +1,7 @@
 #include "app/Application.h"
 #include "scene/SceneConfig.h"
 #include "scene/SceneXmlParser.h"
-#include "scene/ObjLoader.h"
+#include "app/SceneBuilder.h"
 
 #include <chrono>
 #include <glm/gtc/constants.hpp>
@@ -119,168 +119,20 @@ Application::~Application() {
 }
 
 void Application::initScene() {
-    // Phase 5: Load scene from XML config, OBJ meshes, and environment map.
     const std::string configPath = "../../assets/SceneConfig.xml";
-
     std::cout << "Parsing scene config: " << configPath << std::endl;
     auto desc = parseSceneXML(configPath);
-
     std::cout << "  Camera: " << desc.cameraWidth << "x" << desc.cameraHeight
               << ", max depth: " << desc.maxDepth
               << ", objects: " << desc.objects.size()
               << ", point lights: " << desc.pointLights.size()
               << ", env map: " << (desc.envMapDisplay ? "yes" : "no")
               << std::endl;
-
-    // ---- Build instance list ----
-    std::vector<AccelerationStructure::InstanceInfo> instances;
-    std::vector<AccelerationStructure::MaterialGPU>  materials;
-
-    for (size_t i = 0; i < desc.objects.size(); ++i) {
-        const auto& obj = desc.objects[i];
-
-        std::cout << "  Loading: " << obj.objFilename << std::endl;
-        auto mesh = loadObjMesh(obj.objFilename);
-
-        std::cout << "    vertices: " << mesh.vertices.size() / 3
-                  << ", triangles: " << mesh.indices.size() / 3 << std::endl;
-
-        // Compute transform matrix
-        float xf[3][4];
-        buildTransformMatrix(obj.scale, obj.rotation, obj.translation, xf);
-
-        AccelerationStructure::InstanceInfo inst;
-        inst.mesh        = std::move(mesh);
-        inst.customIndex = static_cast<uint32_t>(i);
-        inst.materialID  = static_cast<uint32_t>(i);  // one material per object for now
-        inst.hasNormals  = obj.normalInterpolation && !inst.mesh.normals.empty();
-        for (int r = 0; r < 3; ++r)
-            for (int c = 0; c < 4; ++c)
-                inst.transform[r][c] = xf[r][c];
-
-        instances.push_back(std::move(inst));
-
-        // ---- Build material from XML params ----
-        AccelerationStructure::MaterialGPU mat{};
-        if (obj.ior <= 0.0f) {
-            // Metal (IOR=0 sentinel)
-            mat.albedo[0] = obj.diffuse.r;
-            mat.albedo[1] = obj.diffuse.g;
-            mat.albedo[2] = obj.diffuse.b;
-            mat.params[0] = 1.0f;
-            mat.params[1] = 1.0f / std::max(obj.shininess, 1.0f);
-            mat.params[2] = 1.0f;       // MATERIAL_METAL
-        } else if (obj.ior > 1.01f) {
-            // Dielectric (glass)
-            // Cauchy dispersion: n(λ) = A + B/λ²  (λ in μm)
-            // BK7: A≈1.5046, B≈0.00420 → dispersion across 380-780nm ≈ 0.008
-            for (int c = 0; c < 3; ++c) {
-                mat.cauchyA[c] = obj.ior;
-                mat.cauchyB[c] = obj.dispersionB;   // per-material Cauchy B
-                mat.absorpA[c] = obj.absorbA[c];
-                mat.absorpB[c] = obj.absorbB[c];
-            }
-            mat.params[0] = obj.ior;    // base IOR
-            mat.params[1] = 0.0f;       // roughness (smooth glass)
-            mat.params[2] = 0.0f;       // MATERIAL_DIELECTRIC
-        } else if (obj.objFilename.find("checkerboard") != std::string::npos) {
-            // Checkerboard — procedural pattern in shader
-            mat.albedo[0] = obj.diffuse.r;
-            mat.albedo[1] = obj.diffuse.g;
-            mat.albedo[2] = obj.diffuse.b;
-            mat.params[0] = 1.0f;
-            mat.params[1] = 1.0f / std::max(obj.shininess, 1.0f);
-            mat.params[2] = 3.0f;       // MATERIAL_CHECKERBOARD
-        } else {
-            // Lambertian (diffuse)
-            mat.albedo[0] = obj.diffuse.r;
-            mat.albedo[1] = obj.diffuse.g;
-            mat.albedo[2] = obj.diffuse.b;
-            mat.params[0] = 1.0f;
-            mat.params[1] = 1.0f / std::max(obj.shininess, 1.0f);  // roughness
-            mat.params[2] = 2.0f;       // MATERIAL_LAMBERTIAN
-        }
-        materials.push_back(mat);
-    }
-
-    // ---- Light buffer ----
-    // Fill up to MAX_LIGHTS (4) lights: slot 0 = ambient/sky, then point/spot/dir lights
-    std::vector<AccelerationStructure::GpuLight> gpuLights;
-    constexpr uint32_t MAX_LIGHTS = 4;
-
-    // Slot 0: ambient/sky (type 3)
-    {
-        AccelerationStructure::GpuLight amb;
-        float as = desc.ambient.strength;
-        amb.pos_type[0] = 0.0f; amb.pos_type[1] = 0.0f; amb.pos_type[2] = 0.0f;
-        amb.pos_type[3] = 3.0f;  // LIGHT_AMBIENT
-        amb.color_intensity[0] = desc.ambient.color.r;
-        amb.color_intensity[1] = desc.ambient.color.g;
-        amb.color_intensity[2] = desc.ambient.color.b;
-        amb.color_intensity[3] = as;
-        gpuLights.push_back(amb);
-    }
-
-    // Point lights
-    for (const auto& pl : desc.pointLights) {
-        if (gpuLights.size() >= MAX_LIGHTS) break;
-        AccelerationStructure::GpuLight l{};
-        l.pos_type[0] = pl.pos.x; l.pos_type[1] = pl.pos.y; l.pos_type[2] = pl.pos.z;
-        l.pos_type[3] = 0.0f;  // LIGHT_POINT
-        l.color_intensity[0] = pl.color.r;
-        l.color_intensity[1] = pl.color.g;
-        l.color_intensity[2] = pl.color.b;
-        l.color_intensity[3] = pl.intensity;
-        l.dir_inner[0] = 0.0f; l.dir_inner[1] = 0.0f; l.dir_inner[2] = 0.0f;
-        l.dir_inner[3] = 0.0f;
-        l.outer_range[0] = 0.0f;
-        l.outer_range[1] = pl.maxDist;
-        gpuLights.push_back(l);
-    }
-
-    // Spot lights
-    for (const auto& sl : desc.spotLights) {
-        if (gpuLights.size() >= MAX_LIGHTS) break;
-        AccelerationStructure::GpuLight l{};
-        l.pos_type[0] = sl.pos.x; l.pos_type[1] = sl.pos.y; l.pos_type[2] = sl.pos.z;
-        l.pos_type[3] = 2.0f;  // LIGHT_SPOT
-        l.color_intensity[0] = sl.color.r;
-        l.color_intensity[1] = sl.color.g;
-        l.color_intensity[2] = sl.color.b;
-        l.color_intensity[3] = sl.intensity;
-        l.dir_inner[0] = sl.dir.x; l.dir_inner[1] = sl.dir.y; l.dir_inner[2] = sl.dir.z;
-        l.dir_inner[3] = sl.inner;
-        l.outer_range[0] = sl.outer;
-        l.outer_range[1] = sl.maxDist;
-        gpuLights.push_back(l);
-    }
-
-    // Directional lights
-    for (const auto& dl : desc.dirLights) {
-        if (gpuLights.size() >= MAX_LIGHTS) break;
-        AccelerationStructure::GpuLight l{};
-        l.pos_type[0] = dl.dir.x; l.pos_type[1] = dl.dir.y; l.pos_type[2] = dl.dir.z;
-        l.pos_type[3] = 1.0f;  // LIGHT_DIRECTIONAL
-        l.color_intensity[0] = dl.color.r;
-        l.color_intensity[1] = dl.color.g;
-        l.color_intensity[2] = dl.color.b;
-        l.color_intensity[3] = dl.intensity;
-        gpuLights.push_back(l);
-    }
-
-    // Pad to MAX_LIGHTS
-    while (gpuLights.size() < MAX_LIGHTS) {
-        gpuLights.push_back(AccelerationStructure::GpuLight{});
-    }
-
-    // Build the acceleration structures + upload materials/lights
-    m_as->buildScene(instances, materials, gpuLights);
-
-    // Load environment map
+    SceneBuilder().build(desc, *m_as);
+    std::cout << "  Build complete: " << m_as->getInstanceCount()
+              << " instances, " << m_as->getMaterialCount()
+              << " materials" << std::endl;
     m_as->loadEnvMap("../../assets/envmap.jpg");
-
-    std::cout << "  Scene built: " << instances.size() << " objects, "
-              << materials.size() << " materials." << std::endl;
 }
 
 void Application::run() {

@@ -203,90 +203,6 @@ void AccelerationStructure::uploadLightBuffer(const std::vector<GpuLight>& light
 }
 
 // -----------------------------------------------------------------------------
-// Upload vertex/index data as SSBOs for shader geometric normal computation
-// -----------------------------------------------------------------------------
-void AccelerationStructure::uploadVertexSSBO() {
-    // Build SoA (struct-of-arrays) layout matching shader's InstanceRangeBlock:
-    //   6 arrays × MAX_INSTANCES uints (now includes useSmoothNormals).
-    std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);
-    auto* vtxOff    = &rangeData[0 * MAX_INSTANCES];
-    auto* vtxCnt    = &rangeData[1 * MAX_INSTANCES];
-    auto* idxOff    = &rangeData[2 * MAX_INSTANCES];
-    auto* idxCnt    = &rangeData[3 * MAX_INSTANCES];
-    auto* matIDs    = &rangeData[4 * MAX_INSTANCES];
-    auto* smoothN   = &rangeData[5 * MAX_INSTANCES];
-
-    // Concatenate all vertex and index data across instances
-    std::vector<float>    allVertices;
-    std::vector<uint32_t> allIndices;
-    std::vector<float>    allNormals;
-
-    for (size_t inst = 0; inst < m_stagedVertices.size() && inst < MAX_INSTANCES; ++inst) {
-        vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
-        vtxCnt[inst] = static_cast<uint32_t>(m_stagedVertices[inst].size());
-        idxOff[inst] = static_cast<uint32_t>(allIndices.size());
-        idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
-        matIDs[inst] = 0;  // default material; caller can update for specific instances
-        smoothN[inst] = 0;  // Phase 1 path: no smooth normals
-
-        allVertices.insert(allVertices.end(),
-            m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
-        allIndices.insert(allIndices.end(),
-            m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
-        if (inst < m_stagedNormals.size() && !m_stagedNormals[inst].empty()) {
-            allNormals.insert(allNormals.end(),
-                m_stagedNormals[inst].begin(), m_stagedNormals[inst].end());
-        }
-    }
-
-    // Upload vertex data SSBO
-    if (!allVertices.empty()) {
-        vk::DeviceSize vSize = allVertices.size() * sizeof(float);
-        m_vertexDataBuffer = GPUBuffer::createStaging(
-            m_device, allVertices.data(), vSize,
-            vk::BufferUsageFlagBits::eStorageBuffer |
-                vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice
-        );
-    }
-
-    // Upload index data SSBO
-    if (!allIndices.empty()) {
-        vk::DeviceSize iSize = allIndices.size() * sizeof(uint32_t);
-        m_indexDataBuffer = GPUBuffer::createStaging(
-            m_device, allIndices.data(), iSize,
-            vk::BufferUsageFlagBits::eStorageBuffer |
-                vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice
-        );
-    }
-
-    // Upload normal data SSBO
-    if (!allNormals.empty()) {
-        m_normalDataBuffer = GPUBuffer::createStaging(m_device, allNormals.data(),
-            allNormals.size() * sizeof(float),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    } else {
-        float dummy[4] = {0, 1, 0, 0};
-        m_normalDataBuffer = GPUBuffer::createStaging(m_device, dummy, sizeof(dummy),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    }
-
-    // Upload instance range SSBO
-    vk::DeviceSize rangeSize = rangeData.size() * sizeof(uint32_t);
-    m_rangeBuffer = GPUBuffer::createStaging(
-        m_device, rangeData.data(), rangeSize,
-        vk::BufferUsageFlagBits::eStorageBuffer |
-            vk::BufferUsageFlagBits::eShaderDeviceAddress,
-        m_physDevice
-    );
-}
-
-// -----------------------------------------------------------------------------
-// Build TLAS from N instances (BLAS must already be in m_blasList)
-// -----------------------------------------------------------------------------
 void AccelerationStructure::buildTLAS(uint32_t instanceCount) {
     auto cmdBuf = beginSingleTimeCommands();
 
@@ -393,7 +309,9 @@ void AccelerationStructure::build(const MeshData& mesh) {
     m_blasList.clear();
     m_blasList.push_back(buildSingleBLAS(mesh));
     buildTLAS(1);
-    uploadVertexSSBO();
+    std::vector<uint32_t> mid = {0}, sfl = {0};
+    m_geometry.upload(m_device, m_physDevice,
+        m_stagedVertices, m_stagedIndices, m_stagedNormals, mid, sfl);
 }
 
 // -----------------------------------------------------------------------------
@@ -463,72 +381,19 @@ void AccelerationStructure::buildScene(
             vk::BufferUsageFlagBits::eStorageBuffer, m_physDevice);
     }
 
-    // Build range data with correct material IDs (6 arrays now: +useSmoothNormals)
-    std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);
-    auto* vtxOff  = &rangeData[0 * MAX_INSTANCES];
-    auto* vtxCnt  = &rangeData[1 * MAX_INSTANCES];
-    auto* idxOff  = &rangeData[2 * MAX_INSTANCES];
-    auto* idxCnt  = &rangeData[3 * MAX_INSTANCES];
-    auto* matIDs  = &rangeData[4 * MAX_INSTANCES];
-    auto* smoothN = &rangeData[5 * MAX_INSTANCES];
-
-    std::vector<float>    allVertices;
-    std::vector<uint32_t> allIndices;
-    std::vector<float>    allNormals;
-
-    for (size_t inst = 0; inst < m_stagedVertices.size(); ++inst) {
-        vtxOff[inst] = static_cast<uint32_t>(allVertices.size());
-        vtxCnt[inst] = static_cast<uint32_t>(m_stagedVertices[inst].size());
-        idxOff[inst] = static_cast<uint32_t>(allIndices.size());
-        idxCnt[inst] = static_cast<uint32_t>(m_stagedIndices[inst].size());
-        matIDs[inst] = instances[inst].materialID;
-        smoothN[inst] = (instances[inst].hasNormals &&
-                         !m_stagedNormals.empty() &&
-                         !m_stagedNormals[inst].empty()) ? 1u : 0u;
-
-        allVertices.insert(allVertices.end(),
-            m_stagedVertices[inst].begin(), m_stagedVertices[inst].end());
-        allIndices.insert(allIndices.end(),
-            m_stagedIndices[inst].begin(), m_stagedIndices[inst].end());
-        if (inst < m_stagedNormals.size()) {
-            allNormals.insert(allNormals.end(),
-                m_stagedNormals[inst].begin(), m_stagedNormals[inst].end());
-        }
+    // Collect per-instance metadata
+    std::vector<uint32_t> matIDs, smoothFlags;
+    for (size_t i = 0; i < instances.size(); ++i) {
+        matIDs.push_back(instances[i].materialID);
+        bool hasN = instances[i].hasNormals &&
+                    i < m_stagedNormals.size() &&
+                    !m_stagedNormals[i].empty();
+        smoothFlags.push_back(hasN ? 1u : 0u);
     }
 
-    // Upload vertex SSBO
-    if (!allVertices.empty()) {
-        m_vertexDataBuffer = GPUBuffer::createStaging(m_device, allVertices.data(),
-            allVertices.size() * sizeof(float),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    }
-    // Upload index SSBO
-    if (!allIndices.empty()) {
-        m_indexDataBuffer = GPUBuffer::createStaging(m_device, allIndices.data(),
-            allIndices.size() * sizeof(uint32_t),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    }
-    // Upload normal SSBO (same indexing as vertex SSBO)
-    // Always create a valid buffer to satisfy binding 12 (Vulkan requires non-null)
-    if (!allNormals.empty()) {
-        m_normalDataBuffer = GPUBuffer::createStaging(m_device, allNormals.data(),
-            allNormals.size() * sizeof(float),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    } else {
-        // Dummy 4-float buffer so the binding is never null
-        float dummy[4] = {0, 1, 0, 0};
-        m_normalDataBuffer = GPUBuffer::createStaging(m_device, dummy, sizeof(dummy),
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-            m_physDevice);
-    }
-    // Upload range SSBO
-    m_rangeBuffer = GPUBuffer::createStaging(m_device, rangeData.data(),
-        rangeData.size() * sizeof(uint32_t),
-        vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-        m_physDevice);
+    m_geometry.upload(m_device, m_physDevice,
+        m_stagedVertices, m_stagedIndices, m_stagedNormals,
+        matIDs, smoothFlags);
 
     uploadMaterialBuffer(materialData);
     uploadLightBuffer(lights);

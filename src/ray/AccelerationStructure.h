@@ -2,6 +2,7 @@
 
 #include "core/GPUBuffer.h"
 #include "ray/EnvMap.h"
+#include "ray/GeometryBuffer.h"
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>
@@ -107,17 +108,7 @@ public:
     /// Get the light uniform buffer for descriptor binding.
     const GPUBuffer& getLightBuffer() const { return m_lightBuffer; }
 
-    /// Get the persistent vertex data SSBO for shader normal computation.
-    const GPUBuffer& getVertexDataBuffer() const { return m_vertexDataBuffer; }
-
-    /// Get the persistent index data SSBO for shader normal computation.
-    const GPUBuffer& getIndexDataBuffer() const { return m_indexDataBuffer; }
-
-    /// Get the persistent normal data SSBO for smooth normal interpolation.
-    const GPUBuffer& getNormalDataBuffer() const { return m_normalDataBuffer; }
-
-    /// Get the instance range SSBO for shader vertex lookup.
-    const GPUBuffer& getRangeBuffer() const { return m_rangeBuffer; }
+    const GeometryBuffer& getGeometry() const { return m_geometry; }
 
     /// Get the per-instance normal matrix SSBO (inverse-transpose of 3×3 affine).
     const GPUBuffer& getInstanceNormalBuffer() const { return m_instanceNormalBuffer; }
@@ -152,8 +143,6 @@ private:
     void buildTLAS(uint32_t instanceCount);
     void uploadMaterialBuffer(const std::vector<MaterialGPU>& data);
     void uploadLightBuffer(const std::vector<GpuLight>& lights);
-    void uploadVertexSSBO();
-
     const vk::raii::Device&          m_device;
     const vk::raii::PhysicalDevice&  m_physDevice;
     uint32_t                         m_queueFamily = 0;
@@ -179,12 +168,8 @@ private:
     // Light uniform buffer (sky/environment SPD)
     GPUBuffer m_lightBuffer;
 
-    // Persistent geometry SSBOs (kept alive for shader normal computation)
-    GPUBuffer                m_vertexDataBuffer;   // concatenated vertex positions (float3)
-    GPUBuffer                m_indexDataBuffer;    // concatenated triangle indices (uint)
-    GPUBuffer                m_normalDataBuffer;   // concatenated vertex normals (float3)
-    GPUBuffer                m_rangeBuffer;        // per-instance vertex/index ranges
-    GPUBuffer                m_instanceNormalBuffer; // per-instance normal matrices (3×3, row-major, stored as 3×vec4)
+    GeometryBuffer m_geometry;
+    GPUBuffer      m_instanceNormalBuffer;
     uint32_t                 m_instanceCount = 0;
     std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
     std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
