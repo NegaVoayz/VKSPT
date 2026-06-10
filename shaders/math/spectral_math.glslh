@@ -1,0 +1,22 @@
+// Core spectral math functions
+// Included by raytrace.comp; depends on common/types.glslh (GpuMaterial)
+
+float cauchyIOR(GpuMaterial m, float lamNm) {
+    if (int(m.params.z) != MATERIAL_DIELECTRIC) return m.params.x;
+    float lu = lamNm * 1e-3, l2 = lu * lu;
+    return m.cauchyA.y + m.cauchyB.y / l2;
+}
+
+bool refractDir(vec3 I, vec3 N, float eta, out vec3 T) {
+    float ci = -dot(I, N), st2 = eta * eta * (1.0 - ci * ci);
+    if (st2 > 1.0) { T = vec3(0); return false; }
+    T = eta * I + (eta * ci - sqrt(1.0 - st2)) * N;
+    return true;
+}
+
+vec3 reflectDir(vec3 I, vec3 N) { return I - 2.0 * dot(I, N) * N; }
+
+/// Evaluate Legendre expansion D(x) = c0 + c1·x + c2·(3x²−1)/2.
+float evalDecay(float c0, float c1, float c2, float x) {
+    return c0 + c1 * x + c2 * (3.0 * x * x - 1.0) * 0.5;
+}

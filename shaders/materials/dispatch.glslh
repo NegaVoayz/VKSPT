@@ -1,0 +1,88 @@
+// Hit processing: normal computation, G-buffer, material lookup + dispatch
+// Included by raytrace.comp; must come after all material handler includes
+
+/// Process a surface hit: compute normal, write G-buffer, look up material,
+/// dispatch to the appropriate material handler. Returns false if the ray
+/// should be terminated (break from bounce loop).
+bool processHit(
+    inout vec3 rayO, inout vec3 rayD,
+    inout vec3 lastSplit, inout vec3 disp,
+    inout vec3 lastGeom, inout vec3 geomD,
+    inout float throughput, inout float decayC1, inout float decayC2,
+    inout int lamStart, inout int lamEnd, inout int generation,
+    inout uint rng, inout int stackTop,
+    inout RayState rayStack[SPECTRAL_STACK_MAX],
+    inout vec3 colorAccum,
+    float tHit, int mi, int primitiveID, vec2 bary,
+    int bounce, int sp, ivec2 px, ivec2 sz)
+{
+    // Advance spatial state to hit point
+    lastSplit += disp * tHit;
+    lastGeom  += geomD * tHit;
+    vec3 pos  = rayO + rayD * tHit;
+
+    // Compute face normal (smooth or geometric)
+    vec3 nrm;
+    if (instanceRanges.useSmoothNormals[mi] != 0u) {
+        nrm = computeSmoothNormal(mi, primitiveID, bary);
+    } else {
+        nrm = computeGeometricNormal(mi, primitiveID);
+    }
+    {
+        mat3 Nmat = mat3(
+            instanceNormals.normalCol0[mi].xyz,
+            instanceNormals.normalCol1[mi].xyz,
+            instanceNormals.normalCol2[mi].xyz
+        );
+        nrm = normalize(Nmat * nrm);
+    }
+    bool entering = dot(nrm, rayD) < -1e-5;
+    if (!entering) nrm = -nrm;
+
+    // G-buffer at first primary hit
+    if (sp == 0 && bounce == 0) {
+        imageStore(normalImage, px, vec4(nrm * 0.5 + 0.5, 1.0));
+        imageStore(depthImage, px, vec4(tHit, 0.0, 0.0, 0.0));
+    }
+
+    // Look up material and dispatch
+    uint matIdx = instanceRanges.materialID[mi];
+    GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
+    int matType = int(mat.params.z);
+
+    if (matType == MATERIAL_CHECKERBOARD) {
+        return handleCheckerboard(rayO, rayD,
+            throughput, decayC1, decayC2,
+            lastSplit, disp, lastGeom, geomD,
+            lamStart, lamEnd, generation,
+            rng, stackTop, rayStack, colorAccum,
+            pos, nrm, tHit, bounce, sz);
+    }
+    else if (matType == MATERIAL_LAMBERTIAN) {
+        return handleLambertian(rayO, rayD,
+            throughput, decayC1, decayC2,
+            lastSplit, disp, lastGeom, geomD,
+            lamStart, lamEnd, generation,
+            rng, stackTop, rayStack, colorAccum,
+            pos, nrm, mat, tHit, bounce, sz);
+    }
+    else if (matType == MATERIAL_DIELECTRIC) {
+        handleDielectric(rayO, rayD,
+            throughput, decayC1, decayC2,
+            lastSplit, disp, lastGeom, geomD,
+            lamStart, lamEnd, generation,
+            rng, stackTop, rayStack, colorAccum,
+            pos, nrm, mat, tHit, bounce, sz, entering);
+        return true;
+    }
+    else if (matType == MATERIAL_METAL) {
+        handleMetal(rayO, rayD,
+            throughput, decayC1, decayC2,
+            lastSplit, disp, lastGeom, geomD,
+            lamStart, lamEnd, generation,
+            rng, stackTop, rayStack, colorAccum,
+            pos, nrm, mat, tHit, bounce, sz);
+        return true;
+    }
+    return false;  // unknown → absorb
+}

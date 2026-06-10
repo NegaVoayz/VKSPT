@@ -1,0 +1,79 @@
+// Material handler: Lambertian diffuse surface with spectral absorption
+// Included by raytrace.comp
+
+bool handleLambertian(
+    inout vec3 rayO, inout vec3 rayD,
+    inout float throughput, inout float decayC1, inout float decayC2,
+    inout vec3 lastSplit, inout vec3 disp,
+    inout vec3 lastGeom, inout vec3 geomD,
+    inout int lamStart, inout int lamEnd, inout int generation,
+    inout uint rng, inout int stackTop,
+    inout RayState rayStack[SPECTRAL_STACK_MAX],
+    inout vec3 colorAccum,
+    in vec3 pos, in vec3 nrm, in GpuMaterial mat,
+    float tHit, int bounce, ivec2 sz)
+{
+    // Two-factor absorption: luminance × spectral selectivity
+    float nl = rgbToDomLambda(mat.albedo.rgb);
+    float lum = dot(mat.albedo.rgb, vec3(0.299, 0.587, 0.114));
+    float maxC = max(max(mat.albedo.rgb.r, mat.albedo.rgb.g), mat.albedo.rgb.b);
+    float minC = min(min(mat.albedo.rgb.r, mat.albedo.rgb.g), mat.albedo.rgb.b);
+    float sat = (maxC - minC) / max(maxC, 0.001);
+
+    float lamS = float(lamStart), lamE = float(lamEnd);
+    float lamM = (lamS + lamE) * 0.5;
+    float dS = lamS - nl, dM = lamM - nl, dE = lamE - nl;
+    float attAvg = (exp(-0.5*dS*dS/7200.0) + exp(-0.5*dM*dM/7200.0) + exp(-0.5*dE*dE/7200.0)) / 3.0;
+
+    float preAbsTP = throughput;
+    float attMix = mix(1.0, attAvg, sat);
+    throughput *= attMix * (0.07 + 0.93 * lum);
+
+    vec3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.rgb, rng);
+    colorAccum += directLin * preAbsTP;
+
+    if (bounce >= 3) {
+        float survive = max(throughput, 0.1);
+        if (rand1(rng) > survive) return false;
+        throughput /= survive;
+    }
+
+    int scatCount = int(params.scatterSamples);
+    if (scatCount < 1) scatCount = 1;
+    if (scatCount > 4) scatCount = 4;
+    float scatThroughput = throughput / float(scatCount);
+    float scatC1 = decayC1 / float(scatCount);
+    float scatC2 = decayC2 / float(scatCount);
+
+    for (int s = 0; s < scatCount - 1; s++) {
+        if (stackTop < SPECTRAL_STACK_MAX) {
+            vec3 sDir = cosineSampleHemisphere(nrm, rng);
+            RayState scat;
+            scat.origin      = pos + nrm * 0.001 +sDir * 0.01;
+            scat.direction   = sDir;
+            scat.last_split  = vec3(0.0);
+            scat.dispersion  = vec3(0.0);
+            scat.last_geom   = vec3(0.0);
+            scat.geomDisp    = vec3(0.0);
+            scat.lam_start   = lamStart;
+            scat.lam_end     = lamEnd;
+            scat.throughput      = scatThroughput;
+            scat.decay_c1    = scatC1;
+            scat.decay_c2    = scatC2;
+            scat.bounce      = bounce + 1;
+            scat.generation  = generation;
+            rayStack[stackTop++] = scat;
+        }
+    }
+
+    rayD       = cosineSampleHemisphere(nrm, rng);
+    rayO       = pos + nrm * 0.001 +rayD * 0.01;
+    throughput     = scatThroughput;
+    decayC1    = scatC1;
+    decayC2    = scatC2;
+    lastSplit  = vec3(0.0);
+    disp       = vec3(0.0);
+    lastGeom   = vec3(0.0);
+    geomD      = vec3(0.0);
+    return true;
+}
