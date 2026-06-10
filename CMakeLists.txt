@@ -93,17 +93,20 @@ compile_shader(denoise_shader denoise.comp denoise.comp.spv)
 # Main executable
 # -----------------------------------------------------------------------------
 add_executable(vkrt
-    src/main.cpp
-    src/Application.cpp
-    src/Window.cpp
-    src/VulkanContext.cpp
-    src/GPUBuffer.cpp
-    src/AccelerationStructure.cpp
-    src/RayTracingPipeline.cpp
-    src/Renderer.cpp
-    src/RaySorter.cpp
-    src/SceneConfig.cpp
-    src/Spectral.h
+    src/app/main.cpp
+    src/app/Application.cpp
+    src/core/Window.cpp
+    src/core/VulkanContext.cpp
+    src/core/GPUBuffer.cpp
+    src/core/Spectral.h
+    src/ray/AccelerationStructure.cpp
+    src/ray/RayTracingPipeline.cpp
+    src/ray/RaySorter.cpp
+    src/ray/EnvMap.cpp
+    src/render/Renderer.cpp
+    src/scene/SceneConfig.cpp
+    src/scene/SceneXmlParser.cpp
+    src/scene/ObjLoader.cpp
 )
 
 target_include_directories(vkrt PRIVATE

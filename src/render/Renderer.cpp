@@ -1,4 +1,4 @@
-#include "Renderer.h"
+#include "render/Renderer.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -456,7 +456,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                                  m_raySorter->getAccumBuffer().size);
         pipeline.bindOverflowBuffer(0, *m_raySorter->getOverflowBuffer().buffer,
                                      m_raySorter->getOverflowBuffer().size);
-        pipeline.bindEnvMap(0, as.getEnvMapView(), as.getEnvMapSampler());
+        pipeline.bindEnvMap(0, as.getEnvMap().view(), as.getEnvMap().sampler());
         pipeline.bindNormalSSBO(0, *as.getNormalDataBuffer().buffer,
                                  as.getNormalDataBuffer().size);
 
@@ -614,7 +614,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         *as.getVertexDataBuffer().buffer, as.getVertexDataBuffer().size,
         *as.getIndexDataBuffer().buffer,  as.getIndexDataBuffer().size,
         *as.getRangeBuffer().buffer,      as.getRangeBuffer().size);
-    pipeline.bindEnvMap(frameIdx, as.getEnvMapView(), as.getEnvMapSampler());
+    pipeline.bindEnvMap(frameIdx, as.getEnvMap().view(), as.getEnvMap().sampler());
     pipeline.bindNormalSSBO(frameIdx, *as.getNormalDataBuffer().buffer,
                              as.getNormalDataBuffer().size);
     pipeline.bindAccumBuffer(frameIdx, *m_accumBuffer.buffer,

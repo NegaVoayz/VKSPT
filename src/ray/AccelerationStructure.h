@@ -1,6 +1,7 @@
 #pragma once
 
-#include "GPUBuffer.h"
+#include "core/GPUBuffer.h"
+#include "ray/EnvMap.h"
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>
@@ -118,9 +119,8 @@ public:
     /// Get the instance range SSBO for shader vertex lookup.
     const GPUBuffer& getRangeBuffer() const { return m_rangeBuffer; }
 
-    /// Get the per-instance normal matrix SSBO (inv-transpose of 3x3 affine).
-    const GPUBuffer& getInstanceNormalBuffer() const
-        { return m_instanceNormalBuffer; }
+    /// Get the per-instance normal matrix SSBO (inverse-transpose of 3×3 affine).
+    const GPUBuffer& getInstanceNormalBuffer() const { return m_instanceNormalBuffer; }
 
     /// Number of TLAS instances.
     uint32_t getInstanceCount() const { return m_instanceCount; }
@@ -129,14 +129,12 @@ public:
     uint32_t getMaterialCount() const { return m_materialCount; }
 
     /// Load environment map from a JPEG/PNG file, upload to GPU.
-    /// Creates VkImage + VkImageView + VkSampler used as binding 11.
-    void loadEnvMap(const std::string& path);
+    void loadEnvMap(const std::string& path) {
+        m_envMap.load(m_device, m_physDevice, m_queueFamily, path);
+    }
 
-    /// Get the environment map image view.
-    vk::ImageView getEnvMapView() const { return *m_envMapView; }
-
-    /// Get the environment map sampler.
-    vk::Sampler getEnvMapSampler() const { return *m_envMapSampler; }
+    EnvMap& getEnvMap() { return m_envMap; }
+    const EnvMap& getEnvMap() const { return m_envMap; }
 
 private:
     void createCommandPool(uint32_t computeQueueFamily);
@@ -185,17 +183,14 @@ private:
     GPUBuffer                m_vertexDataBuffer;   // concatenated vertex positions (float3)
     GPUBuffer                m_indexDataBuffer;    // concatenated triangle indices (uint)
     GPUBuffer                m_normalDataBuffer;   // concatenated vertex normals (float3)
-    GPUBuffer m_rangeBuffer;
-    GPUBuffer m_instanceNormalBuffer;
-    uint32_t  m_instanceCount = 0;
+    GPUBuffer                m_rangeBuffer;        // per-instance vertex/index ranges
+    GPUBuffer                m_instanceNormalBuffer; // per-instance normal matrices (3×3, row-major, stored as 3×vec4)
+    uint32_t                 m_instanceCount = 0;
     std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
     std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
     std::vector<std::vector<float>>    m_stagedNormals;    // per-instance vertex normal data
     std::vector<std::array<std::array<float,4>,3>> m_instanceTransforms;  // per-instance 3×4
 
     // Environment map texture
-    vk::raii::Image        m_envMapImage    = nullptr;
-    vk::raii::DeviceMemory m_envMapMemory   = nullptr;
-    vk::raii::ImageView    m_envMapView     = nullptr;
-    vk::raii::Sampler      m_envMapSampler  = nullptr;
+    EnvMap m_envMap;
 };

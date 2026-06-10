@@ -1,4 +1,4 @@
-#include "GPUBuffer.h"
+#include "core/GPUBuffer.h"
 
 #include <cstring>
 #include <stdexcept>

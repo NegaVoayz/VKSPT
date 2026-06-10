@@ -1,4 +1,4 @@
-#include "RayTracingPipeline.h"
+#include "ray/RayTracingPipeline.h"
 
 #include <fstream>
 #include <stdexcept>

@@ -1,5 +1,7 @@
-#include "Application.h"
-#include "SceneConfig.h"
+#include "app/Application.h"
+#include "scene/SceneConfig.h"
+#include "scene/SceneXmlParser.h"
+#include "scene/ObjLoader.h"
 
 #include <chrono>
 #include <glm/gtc/constants.hpp>

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "AccelerationStructure.h"
-#include "GPUBuffer.h"
-#include "RaySorter.h"
-#include "RayTracingPipeline.h"
+#include "ray/AccelerationStructure.h"
+#include "core/GPUBuffer.h"
+#include "ray/RaySorter.h"
+#include "ray/RayTracingPipeline.h"
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>

@@ -1,13 +1,11 @@
-#include "VulkanContext.h"
+#include "core/VulkanContext.h"
 
 #include <cstring>
 #include <iostream>
 #include <set>
 #include <stdexcept>
 
-// -----------------------------------------------------------------------------
-// Utility: debug messenger callback
-// -----------------------------------------------------------------------------
+// Debug messenger callback
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT      severity,
     VkDebugUtilsMessageTypeFlagsEXT             /*type*/,
@@ -20,9 +18,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
-// -----------------------------------------------------------------------------
-// Device extensions required for ray query pipeline
-// -----------------------------------------------------------------------------
+// Device extensions for ray query
 static const std::vector<const char*> s_deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
@@ -31,9 +27,7 @@ static const std::vector<const char*> s_deviceExtensions = {
     VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 };
 
-// -----------------------------------------------------------------------------
 // Constructor
-// -----------------------------------------------------------------------------
 VulkanContext::VulkanContext(const std::vector<const char*>& instanceExtensions) {
     createInstance(instanceExtensions);
     pickPhysicalDevice();
@@ -45,9 +39,7 @@ VulkanContext::~VulkanContext() {
     // Device before instance is handled automatically.
 }
 
-// -----------------------------------------------------------------------------
 // Create Vulkan Instance
-// -----------------------------------------------------------------------------
 void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtensions) {
     // Application info
     vk::ApplicationInfo appInfo(
@@ -56,14 +48,12 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
         VK_API_VERSION_1_4
     );
 
-    // Collect all required extensions
     std::vector<const char*> extensions = surfaceExtensions;
 
     if constexpr (s_enableValidation) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
-    // Check extension support
     auto availableExtensions = m_context.enumerateInstanceExtensionProperties();
     std::set<std::string> availableSet;
     for (const auto& ext : availableExtensions) {
@@ -88,7 +78,6 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
 
     m_instance = vk::raii::Instance(m_context, createInfo);
 
-    // Debug messenger (only if validation is on)
     if constexpr (s_enableValidation) {
         vk::DebugUtilsMessengerCreateInfoEXT debugInfo(
             {},
@@ -103,9 +92,6 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
     }
 }
 
-// -----------------------------------------------------------------------------
-// Pick Physical Device
-// -----------------------------------------------------------------------------
 void VulkanContext::pickPhysicalDevice() {
     auto devices = m_instance.enumeratePhysicalDevices();
     if (devices.empty()) {
@@ -139,7 +125,6 @@ void VulkanContext::pickPhysicalDevice() {
         if (isDiscrete && hasRayQuery && hasAccelStruct) {
             m_physicalDevice = std::move(device);
 
-            // Store ray tracing properties
             auto rtProps = m_physicalDevice.getProperties2<
                 vk::PhysicalDeviceProperties2,
                 vk::PhysicalDeviceRayTracingPipelinePropertiesKHR
@@ -154,9 +139,6 @@ void VulkanContext::pickPhysicalDevice() {
     throw std::runtime_error("No GPU with ray query + acceleration structure support found.");
 }
 
-// -----------------------------------------------------------------------------
-// Create Logical Device & Queues
-// -----------------------------------------------------------------------------
 void VulkanContext::createDevice() {
     // Find queue families
     auto queueProps = m_physicalDevice.getQueueFamilyProperties();
@@ -172,8 +154,6 @@ void VulkanContext::createDevice() {
         }
     }
 
-    // Present support requires checking against the surface.
-    // For Phase 1, we set present = compute family as fallback.
     if (!m_queueFamilies.present.has_value()) {
         m_queueFamilies.present = m_queueFamilies.compute;
     }
@@ -182,7 +162,6 @@ void VulkanContext::createDevice() {
         throw std::runtime_error("Failed to find suitable queue families.");
     }
 
-    // Create queues (use unique families set)
     std::set<uint32_t> uniqueFamilies = {
         *m_queueFamilies.compute,
         *m_queueFamilies.present
@@ -194,7 +173,6 @@ void VulkanContext::createDevice() {
         queueInfos.push_back({{}, family, 1, &queuePriority});
     }
 
-    // Enable features
     vk::PhysicalDeviceRayQueryFeaturesKHR rayQueryFeature(true);
     vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
     accelFeature.setAccelerationStructure(true);
@@ -207,7 +185,6 @@ void VulkanContext::createDevice() {
     vk::PhysicalDeviceFeatures2 features2;
     features2.setPNext(&bufferAddrFeature);
 
-    // Create device
     vk::DeviceCreateInfo deviceInfo(
         {},
         static_cast<uint32_t>(queueInfos.size()),
@@ -219,7 +196,6 @@ void VulkanContext::createDevice() {
 
     m_device = vk::raii::Device(m_physicalDevice, deviceInfo);
 
-    // Retrieve queues
     m_computeQueue = m_device.getQueue(*m_queueFamilies.compute, 0);
     m_presentQueue = m_device.getQueue(*m_queueFamilies.present, 0);
 }

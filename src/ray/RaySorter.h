@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GPUBuffer.h"
+#include "core/GPUBuffer.h"
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>

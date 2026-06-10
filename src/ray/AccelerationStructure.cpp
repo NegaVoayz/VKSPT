@@ -1,10 +1,8 @@
-#include "AccelerationStructure.h"
+#include "ray/AccelerationStructure.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cstring>
 #include <iostream>
@@ -435,24 +433,33 @@ void AccelerationStructure::buildScene(
 
     buildTLAS(m_instanceCount);
 
-    // Per-instance normal matrices (inverse-transpose of 3x3 affine)
+    // ---- Build per-instance normal matrices (inverse-transpose of 3×3 affine) ----
+    // The normal matrix transforms object-space normals to world-space.
+    // Stored as 3 arrays of vec4 (columns 0,1,2), MAX_INSTANCES each, std430.
     {
-        std::vector<float> nd(MAX_INSTANCES * 3 * 4, 0.0f);
-        for (uint32_t i = 0; i < m_instanceCount; ++i) {
-            const auto& xf = m_instanceTransforms[i];
+        std::vector<float> normalData(MAX_INSTANCES * 3 * 4, 0.0f);
+        for (uint32_t inst = 0; inst < m_instanceCount; ++inst) {
+            // Convert row-major 3×4 to column-major glm::mat3
+            const auto& xf = m_instanceTransforms[inst];
             glm::mat3 m33;
             for (int c = 0; c < 3; ++c)
                 for (int r = 0; r < 3; ++r)
-                    m33[c][r] = xf[r][c];
-            glm::mat3 nm = glm::transpose(glm::inverse(m33));
+                    m33[c][r] = xf[r][c];  // row-major xf → column-major glm
+
+            glm::mat3 normalMat = glm::transpose(glm::inverse(m33));
+
+            // Store columns: col0 = normalMat[0], col1 = normalMat[1], col2 = normalMat[2]
             for (int col = 0; col < 3; ++col) {
-                size_t b = (col * MAX_INSTANCES + i) * 4;
-                nd[b+0]=nm[col].x; nd[b+1]=nm[col].y;
-                nd[b+2]=nm[col].z; nd[b+3]=0;
+                size_t base = (col * MAX_INSTANCES + inst) * 4;
+                normalData[base + 0] = normalMat[col].x;
+                normalData[base + 1] = normalMat[col].y;
+                normalData[base + 2] = normalMat[col].z;
+                normalData[base + 3] = 0.0f;  // padding
             }
         }
+
         m_instanceNormalBuffer = GPUBuffer::createStaging(
-            m_device, nd.data(), nd.size()*sizeof(float),
+            m_device, normalData.data(), normalData.size() * sizeof(float),
             vk::BufferUsageFlagBits::eStorageBuffer, m_physDevice);
     }
 
@@ -527,119 +534,4 @@ void AccelerationStructure::buildScene(
     uploadLightBuffer(lights);
 }
 
-// -----------------------------------------------------------------------------
-// Environment map loading
-// -----------------------------------------------------------------------------
-void AccelerationStructure::loadEnvMap(const std::string& path) {
-    int width, height, channels;
-    stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
-    if (!pixels) {
-        throw std::runtime_error("Failed to load env map: " + path);
-    }
-
-    vk::DeviceSize imgSize = static_cast<vk::DeviceSize>(width) * height * 4;
-
-    // Staging buffer for pixel data
-    auto stagingBuf = GPUBuffer::createStaging(
-        m_device, pixels, imgSize,
-        vk::BufferUsageFlagBits::eTransferSrc, m_physDevice
-    );
-    stbi_image_free(pixels);
-
-    // Create image
-    vk::ImageCreateInfo imgInfo(
-        {}, vk::ImageType::e2D, vk::Format::eR8G8B8A8Srgb,
-        vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1},
-        1, 1, vk::SampleCountFlagBits::e1,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
-        vk::SharingMode::eExclusive
-    );
-    m_envMapImage = vk::raii::Image(m_device, imgInfo);
-
-    auto memReqs = m_envMapImage.getMemoryRequirements();
-    uint32_t memTypeIdx = 0;
-    auto memProps = m_physDevice.getMemoryProperties();
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-        if ((memReqs.memoryTypeBits & (1u << i)) &&
-            (memProps.memoryTypes[i].propertyFlags &
-             vk::MemoryPropertyFlagBits::eDeviceLocal)) {
-            memTypeIdx = i;
-            break;
-        }
-    }
-    vk::MemoryAllocateInfo memInfo(memReqs.size, memTypeIdx);
-    m_envMapMemory = vk::raii::DeviceMemory(m_device, memInfo);
-    m_envMapImage.bindMemory(*m_envMapMemory, 0);
-
-    // Copy staging → image with layout transitions
-    {
-        auto cmdBuf = beginSingleTimeCommands();
-
-        // Transition: undefined → transfer_dst
-        vk::ImageMemoryBarrier barrier1(
-            {}, vk::AccessFlagBits::eTransferWrite,
-            vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-            *m_envMapImage,
-            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
-        );
-        cmdBuf.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTopOfPipe,
-            vk::PipelineStageFlagBits::eTransfer,
-            {}, {}, {}, barrier1
-        );
-
-        vk::BufferImageCopy copyRgn(
-            0, 0, 0,
-            vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, 0, 0, 1),
-            {0, 0, 0},
-            {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1}
-        );
-        cmdBuf.copyBufferToImage(
-            *stagingBuf.buffer, *m_envMapImage,
-            vk::ImageLayout::eTransferDstOptimal, copyRgn
-        );
-
-        // Transition: transfer_dst → shader_read_only
-        vk::ImageMemoryBarrier barrier2(
-            vk::AccessFlagBits::eTransferWrite,
-            vk::AccessFlagBits::eShaderRead,
-            vk::ImageLayout::eTransferDstOptimal,
-            vk::ImageLayout::eShaderReadOnlyOptimal,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-            *m_envMapImage,
-            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
-        );
-        cmdBuf.pipelineBarrier(
-            vk::PipelineStageFlagBits::eTransfer,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, {}, barrier2
-        );
-
-        endSingleTimeCommands(cmdBuf);
-    }
-
-    // Image view
-    vk::ImageViewCreateInfo viewInfo(
-        {}, *m_envMapImage, vk::ImageViewType::e2D,
-        vk::Format::eR8G8B8A8Srgb,
-        vk::ComponentMapping{},
-        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
-    );
-    m_envMapView = vk::raii::ImageView(m_device, viewInfo);
-
-    // Sampler
-    vk::SamplerCreateInfo samplerInfo(
-        {}, vk::Filter::eLinear, vk::Filter::eLinear,
-        vk::SamplerMipmapMode::eLinear,
-        vk::SamplerAddressMode::eRepeat,
-        vk::SamplerAddressMode::eClampToEdge,
-        vk::SamplerAddressMode::eClampToEdge,
-        0.0f, false, 1.0f, false, vk::CompareOp::eNever,
-        0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack
-    );
-    m_envMapSampler = vk::raii::Sampler(m_device, samplerInfo);
-
-    std::cout << "  Env map loaded: " << path << " (" << width << "x" << height << ")" << std::endl;
-}
+// loadEnvMap is now a thin wrapper in the header, delegating to EnvMap.

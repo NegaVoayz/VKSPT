@@ -1,7 +1,5 @@
 #pragma once
 
-#include "AccelerationStructure.h"
-
 #include <glm/glm.hpp>
 
 #include <string>
@@ -53,14 +51,6 @@ struct SceneDescription {
     int refractionMethod = 1;
     int rayOffsetMethod  = 1;
 };
-
-/// Parse a scene XML file into a SceneDescription.
-/// Throws std::runtime_error on parse failures.
-SceneDescription parseSceneXML(const std::string& xmlPath);
-
-/// Load an OBJ file and convert to AccelerationStructure::MeshData.
-/// Throws std::runtime_error if the file cannot be loaded.
-AccelerationStructure::MeshData loadObjMesh(const std::string& objPath);
 
 /// Build a 3×4 affine row-major transform matrix from scale, Euler rotation (degrees),
 /// and translation.  Result is 3 rows of 4 floats suitable for

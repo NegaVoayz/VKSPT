@@ -1,10 +1,10 @@
 #pragma once
 
-#include "AccelerationStructure.h"
-#include "RayTracingPipeline.h"
-#include "Renderer.h"
-#include "VulkanContext.h"
-#include "Window.h"
+#include "ray/AccelerationStructure.h"
+#include "ray/RayTracingPipeline.h"
+#include "render/Renderer.h"
+#include "core/VulkanContext.h"
+#include "core/Window.h"
 
 #include <glm/glm.hpp>
 
