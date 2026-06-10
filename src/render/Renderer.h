@@ -2,12 +2,10 @@
 
 #include "ray/AccelerationStructure.h"
 #include "core/GPUBuffer.h"
-#include "ray/RaySorter.h"
 #include "ray/RayTracingPipeline.h"
 #include <vulkan/vulkan_raii.hpp>
 
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -62,9 +60,6 @@ public:
                            uint32_t capFrames);
 
     vk::Extent2D getExtent() const { return {m_config.width, m_config.height}; }
-
-    /// Phase 4.5: Initialize the sorted ray tracing pipeline.
-    void initSortedPipeline(RayTracingPipeline& pipeline);
 
 private:
     void createSwapchain(const vk::raii::SurfaceKHR& surface);
@@ -140,7 +135,4 @@ private:
     /// Create G-buffer storage images (rgba16f normals, r32f depth).
     void createGBufferImages();
 
-    // Phase 4: Sorted ray tracing pipeline
-    std::unique_ptr<RaySorter>   m_raySorter;
-    bool                         m_useSorting = false;  // true = global ray buffer pipeline
 };
