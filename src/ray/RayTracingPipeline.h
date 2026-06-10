@@ -1,148 +1,52 @@
 #pragma once
 
+#include "ray/DescriptorManager.h"
 #include <vulkan/vulkan_raii.hpp>
-
-#include <cstdint>
 #include <string>
-#include <vector>
 
-/// Manages descriptor sets, pipeline layout, and the ray tracing compute pipeline.
-/// Binds TLAS + output storage image for the compute shader.
 class RayTracingPipeline {
 public:
-    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-
-    RayTracingPipeline(
-        const vk::raii::Device& device,
-        uint32_t                width,
-        uint32_t                height
-    );
+    RayTracingPipeline(const vk::raii::Device& d, uint32_t w, uint32_t h);
     ~RayTracingPipeline();
-
-    // Non-copyable, non-movable
-    RayTracingPipeline(const RayTracingPipeline&)            = delete;
+    RayTracingPipeline(const RayTracingPipeline&) = delete;
     RayTracingPipeline& operator=(const RayTracingPipeline&) = delete;
-    RayTracingPipeline(RayTracingPipeline&&)                 = delete;
-    RayTracingPipeline& operator=(RayTracingPipeline&&)      = delete;
+    RayTracingPipeline(RayTracingPipeline&&) = delete;
+    RayTracingPipeline& operator=(RayTracingPipeline&&) = delete;
 
-    /// Load SPIR-V shader and create the compute pipeline.
-    void createPipeline(const std::string& spirvPath);
+    void createPipeline(const std::string& spv);
+    void createSortPipeline(const std::string& spv);
+    void createNormalizePipeline(const std::string& spv);
+    void createClassifyPipeline(const std::string& spv);
+    void createProcessPipeline(const std::string& spv);
+    void createDenoisePipeline(const std::string& spv);
 
-    /// Phase 4: Load sorted pipeline shader and create a second compute pipeline.
-    void createSortPipeline(const std::string& spirvPath);
-
-    /// Get sorted pipeline.
-    vk::Pipeline getSortPipeline() const { return *m_sortPipeline; }
-
-    /// Phase 4: Load normalize shader for the sorted pipeline's final pass.
-    void createNormalizePipeline(const std::string& spirvPath);
-
-    /// Get normalize pipeline.
-    vk::Pipeline getNormalizePipeline() const { return *m_normalizePipeline; }
-
-    /// Phase 5: Load classify shader (trace → set RayAction, no processing).
-    void createClassifyPipeline(const std::string& spirvPath);
-
-    /// Get classify pipeline.
-    vk::Pipeline getClassifyPipeline() const { return *m_classifyPipeline; }
-
-    /// Phase 5: Load process shader (single-interaction, spawns children).
-    void createProcessPipeline(const std::string& spirvPath);
-
-    /// Get process pipeline.
-    vk::Pipeline getProcessPipeline() const { return *m_processPipeline; }
-
-    /// Bind the TLAS acceleration structure for the given frame index.
-    void bindTLAS(uint32_t frameIndex, vk::AccelerationStructureKHR tlas);
-
-    /// Bind the output storage image for the given frame index.
-    void bindOutputImage(uint32_t frameIndex, vk::ImageView imageView, vk::Sampler sampler);
-
-    /// Bind the material uniform buffer for the given frame index.
-    void bindMaterialBuffer(uint32_t frameIndex, vk::Buffer buffer, vk::DeviceSize size);
-
-    /// Bind the light uniform buffer for the given frame index.
-    void bindLightBuffer(uint32_t frameIndex, vk::Buffer buffer, vk::DeviceSize size);
-
-    /// Bind geometry SSBOs (vertex data, index data, instance ranges) for shader normals.
-    void bindGeometrySSBOs(uint32_t frameIndex,
-                           vk::Buffer vertexBuf, vk::DeviceSize vertexSize,
-                           vk::Buffer indexBuf,  vk::DeviceSize indexSize,
-                           vk::Buffer rangeBuf,  vk::DeviceSize rangeSize);
-
-    /// Phase 4 sorted pipeline: bind global ray buffer (binding=7).
-    void bindRayBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 4 sorted pipeline: bind action counter buffer (binding=8).
-    void bindCounterBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 4 sorted pipeline: bind pixel accumulator buffer (binding=9).
-    void bindPixelAccum(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 5: bind overflow buffer (binding=10) for spill-to-host.
-    void bindOverflowBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 5: bind environment map (binding=11) combined image sampler.
-    void bindEnvMap(uint32_t frameIndex, vk::ImageView view, vk::Sampler sampler);
-
-    /// Phase 5.5: bind normal data SSBO (binding=12) for smooth interpolation.
-    void bindNormalSSBO(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 6: bind cross-frame accumulation buffer (binding=13).
-    void bindAccumBuffer(uint32_t frameIndex, vk::Buffer buf, vk::DeviceSize size);
-
-    /// Phase 6.5: bind G-buffer normal storage image (binding=14, rgba16f).
-    void bindNormalImage(uint32_t frameIndex, vk::ImageView view);
-
-    /// Phase 6.5: bind G-buffer depth storage image (binding=15, r32f).
-    void bindDepthImage(uint32_t frameIndex, vk::ImageView view);
-
-    /// Bind per-instance normal matrix SSBO (binding=16).
-    void bindInstanceNormalBuffer(uint32_t fi, vk::Buffer b,
-                                   vk::DeviceSize sz);
-
-    /// Phase 6.5: Load denoise SPIR-V and create denoise compute pipeline.
-    void createDenoisePipeline(const std::string& spirvPath);
-
-    /// Get denoise pipeline.
-    vk::Pipeline getDenoisePipeline() const { return *m_denoisePipeline; }
-
-    /// Get the descriptor set for the given frame index.
-    vk::DescriptorSet getDescriptorSet(uint32_t frameIndex) const {
-        return *m_descriptorSets[frameIndex];
-    }
-
-    /// Get pipeline layout.
-    vk::PipelineLayout getPipelineLayout() const { return *m_pipelineLayout; }
-
-    /// Get compute pipeline.
     vk::Pipeline getPipeline() const { return *m_pipeline; }
+    vk::Pipeline getSortPipeline() const { return *m_sortPipe; }
+    vk::Pipeline getNormalizePipeline() const { return *m_normPipe; }
+    vk::Pipeline getClassifyPipeline() const { return *m_classPipe; }
+    vk::Pipeline getProcessPipeline() const { return *m_procPipe; }
+    vk::Pipeline getDenoisePipeline() const { return *m_denPipe; }
+
+    DescriptorManager& desc() { return m_desc; }
+    const DescriptorManager& desc() const { return m_desc; }
 
 private:
-    void createDescriptorSetLayout();
-    void createPipelineLayout();
-    void createDescriptorPool();
-    void allocateDescriptorSets();
+    static std::vector<uint32_t> readFile(const std::string& p);
+    vk::raii::Pipeline mkPipe(vk::raii::ShaderModule& m, const std::string& s);
 
-    const vk::raii::Device& m_device;
-    uint32_t                m_width;
-    uint32_t                m_height;
+    const vk::raii::Device& m_dev;
+    DescriptorManager m_desc;
 
-    vk::raii::DescriptorSetLayout                    m_descriptorSetLayout = nullptr;
-    vk::raii::PipelineLayout                         m_pipelineLayout      = nullptr;
-    vk::raii::DescriptorPool                         m_descriptorPool      = nullptr;
-    std::vector<vk::raii::DescriptorSet> m_descriptorSets;  // one per frame-in-flight
-    vk::raii::ShaderModule                           m_shaderModule        = nullptr;
-    vk::raii::Pipeline                               m_pipeline            = nullptr;
-    vk::raii::ShaderModule                           m_sortShaderModule    = nullptr;
-    vk::raii::Pipeline                               m_sortPipeline        = nullptr;
-    vk::raii::ShaderModule                           m_normalizeShaderModule = nullptr;
-    vk::raii::Pipeline                               m_normalizePipeline     = nullptr;
-
-    vk::raii::ShaderModule                           m_classifyShaderModule = nullptr;
-    vk::raii::Pipeline                               m_classifyPipeline     = nullptr;
-    vk::raii::ShaderModule                           m_processShaderModule  = nullptr;
-    vk::raii::Pipeline                               m_processPipeline      = nullptr;
-    vk::raii::ShaderModule                           m_denoiseShaderModule  = nullptr;
-    vk::raii::Pipeline                               m_denoisePipeline      = nullptr;
+    vk::raii::ShaderModule m_sm = nullptr;
+    vk::raii::Pipeline     m_pipeline = nullptr;
+    vk::raii::ShaderModule m_sortSm = nullptr;
+    vk::raii::Pipeline     m_sortPipe = nullptr;
+    vk::raii::ShaderModule m_normSm = nullptr;
+    vk::raii::Pipeline     m_normPipe = nullptr;
+    vk::raii::ShaderModule m_classSm = nullptr;
+    vk::raii::Pipeline     m_classPipe = nullptr;
+    vk::raii::ShaderModule m_procSm = nullptr;
+    vk::raii::Pipeline     m_procPipe = nullptr;
+    vk::raii::ShaderModule m_denSm = nullptr;
+    vk::raii::Pipeline     m_denPipe = nullptr;
 };

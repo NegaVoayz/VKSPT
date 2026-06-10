@@ -438,26 +438,26 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
         }
 
         // 4. Bind ALL descriptors (using frame 0 descriptor set)
-        pipeline.bindTLAS(0, as.getTLAS());
-        pipeline.bindOutputImage(0, *m_outputView, nullptr);
-        pipeline.bindMaterialBuffer(0, *as.getMaterialBuffer().buffer,
+        pipeline.desc().bindTLAS(0, as.getTLAS());
+        pipeline.desc().bindOutputImage(0, *m_outputView, nullptr);
+        pipeline.desc().bindMaterialBuffer(0, *as.getMaterialBuffer().buffer,
                                      as.getMaterialBuffer().size);
-        pipeline.bindLightBuffer(0, *as.getLightBuffer().buffer,
+        pipeline.desc().bindLightBuffer(0, *as.getLightBuffer().buffer,
                                   as.getLightBuffer().size);
-        pipeline.bindGeometrySSBOs(0,
+        pipeline.desc().bindGeometrySSBOs(0,
             *as.getGeometry().vertexBuf().buffer, as.getGeometry().vertexBuf().size,
             *as.getGeometry().indexBuf().buffer,  as.getGeometry().indexBuf().size,
             *as.getGeometry().rangeBuf().buffer,      as.getGeometry().rangeBuf().size);
-        pipeline.bindRayBuffer(0, *m_raySorter->getRayBuffer().buffer,
+        pipeline.desc().bindRayBuffer(0, *m_raySorter->getRayBuffer().buffer,
                                 m_raySorter->getRayBuffer().size);
-        pipeline.bindCounterBuffer(0, *m_raySorter->getCounterBuffer().buffer,
+        pipeline.desc().bindCounterBuffer(0, *m_raySorter->getCounterBuffer().buffer,
                                     m_raySorter->getCounterBuffer().size);
-        pipeline.bindPixelAccum(0, *m_raySorter->getAccumBuffer().buffer,
+        pipeline.desc().bindPixelAccum(0, *m_raySorter->getAccumBuffer().buffer,
                                  m_raySorter->getAccumBuffer().size);
-        pipeline.bindOverflowBuffer(0, *m_raySorter->getOverflowBuffer().buffer,
+        pipeline.desc().bindOverflowBuffer(0, *m_raySorter->getOverflowBuffer().buffer,
                                      m_raySorter->getOverflowBuffer().size);
-        pipeline.bindEnvMap(0, as.getEnvMap().view(), as.getEnvMap().sampler());
-        pipeline.bindNormalSSBO(0, *as.getGeometry().normalBuf().buffer,
+        pipeline.desc().bindEnvMap(0, as.getEnvMap().view(), as.getEnvMap().sampler());
+        pipeline.desc().bindNormalSSBO(0, *as.getGeometry().normalBuf().buffer,
                                  as.getGeometry().normalBuf().size);
 
         // Zero overflow counter before starting
@@ -513,8 +513,8 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                 cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
                 cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getSortPipeline());
                 cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                    pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
-                cbs[0].pushConstants<SortPC>(pipeline.getPipelineLayout(),
+                    pipeline.desc().pipelineLayout(), 0, pipeline.desc().descriptorSet(0), nullptr);
+                cbs[0].pushConstants<SortPC>(pipeline.desc().pipelineLayout(),
                     vk::ShaderStageFlagBits::eCompute, 0, pc);
                 cbs[0].dispatch(groups, 1, 1);
                 cbs[0].end();
@@ -539,7 +539,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
             cbs[0].begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
             cbs[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getNormalizePipeline());
             cbs[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+                pipeline.desc().pipelineLayout(), 0, pipeline.desc().descriptorSet(0), nullptr);
             uint32_t gx = (m_config.width + 7) / 8;
             uint32_t gy = (m_config.height + 7) / 8;
             cbs[0].dispatch(gx, gy, 1);
@@ -604,24 +604,24 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     m_accumFrameCount++;
 
     // Bind descriptor (TLAS + output image + material buffer + light buffer) for this frame index
-    pipeline.bindTLAS(frameIdx, as.getTLAS());
-    pipeline.bindOutputImage(frameIdx, *m_outputView, nullptr);
-    pipeline.bindMaterialBuffer(frameIdx, *as.getMaterialBuffer().buffer,
+    pipeline.desc().bindTLAS(frameIdx, as.getTLAS());
+    pipeline.desc().bindOutputImage(frameIdx, *m_outputView, nullptr);
+    pipeline.desc().bindMaterialBuffer(frameIdx, *as.getMaterialBuffer().buffer,
                                  as.getMaterialBuffer().size);
-    pipeline.bindLightBuffer(frameIdx, *as.getLightBuffer().buffer,
+    pipeline.desc().bindLightBuffer(frameIdx, *as.getLightBuffer().buffer,
                               as.getLightBuffer().size);
-    pipeline.bindGeometrySSBOs(frameIdx,
+    pipeline.desc().bindGeometrySSBOs(frameIdx,
         *as.getGeometry().vertexBuf().buffer, as.getGeometry().vertexBuf().size,
         *as.getGeometry().indexBuf().buffer,  as.getGeometry().indexBuf().size,
         *as.getGeometry().rangeBuf().buffer,      as.getGeometry().rangeBuf().size);
-    pipeline.bindEnvMap(frameIdx, as.getEnvMap().view(), as.getEnvMap().sampler());
-    pipeline.bindNormalSSBO(frameIdx, *as.getGeometry().normalBuf().buffer,
+    pipeline.desc().bindEnvMap(frameIdx, as.getEnvMap().view(), as.getEnvMap().sampler());
+    pipeline.desc().bindNormalSSBO(frameIdx, *as.getGeometry().normalBuf().buffer,
                              as.getGeometry().normalBuf().size);
-    pipeline.bindAccumBuffer(frameIdx, *m_accumBuffer.buffer,
+    pipeline.desc().bindAccumBuffer(frameIdx, *m_accumBuffer.buffer,
                               m_accumBuffer.size);
-    pipeline.bindNormalImage(frameIdx, *m_normalView);
-    pipeline.bindDepthImage(frameIdx, *m_depthView);
-    pipeline.bindInstanceNormalBuffer(frameIdx,
+    pipeline.desc().bindNormalImage(frameIdx, *m_normalView);
+    pipeline.desc().bindDepthImage(frameIdx, *m_depthView);
+    pipeline.desc().bindInstanceNormalBuffer(frameIdx,
         *as.getInstanceNormalBuffer().buffer,
         as.getInstanceNormalBuffer().size);
 
@@ -655,8 +655,8 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     cmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getPipeline());
     cmdBuf.bindDescriptorSets(
         vk::PipelineBindPoint::eCompute,
-        pipeline.getPipelineLayout(), 0,
-        pipeline.getDescriptorSet(frameIdx), nullptr
+        pipeline.desc().pipelineLayout(), 0,
+        pipeline.desc().descriptorSet(frameIdx), nullptr
     );
 
     // Set push constants (camera + spectral params) — 96 bytes
@@ -693,7 +693,7 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
     pc.frameIndex      = m_accumFrameCount;
 
     cmdBuf.pushConstants<PushConstants>(
-        pipeline.getPipelineLayout(),
+        pipeline.desc().pipelineLayout(),
         vk::ShaderStageFlagBits::eCompute,
         0, pc
     );
@@ -747,8 +747,8 @@ void Renderer::renderFrame(const AccelerationStructure& as, RayTracingPipeline& 
                             pipeline.getDenoisePipeline());
         cmdBuf.bindDescriptorSets(
             vk::PipelineBindPoint::eCompute,
-            pipeline.getPipelineLayout(), 0,
-            pipeline.getDescriptorSet(frameIdx), nullptr
+            pipeline.desc().pipelineLayout(), 0,
+            pipeline.desc().descriptorSet(frameIdx), nullptr
         );
         cmdBuf.dispatch(groupsX, groupsY, 1);
     }
@@ -1027,10 +1027,10 @@ void Renderer::captureScreenshot(const std::string& path,
     }
 
     // ---- 2. Update descriptor set 0 to point to temp resources ----
-    pipeline.bindOutputImage(0, *capOutputView, nullptr);
-    pipeline.bindAccumBuffer(0, *capAccumBuf.buffer, capAccumSize);
-    pipeline.bindNormalImage(0, *capNormalView);
-    pipeline.bindDepthImage(0, *capDepthView);
+    pipeline.desc().bindOutputImage(0, *capOutputView, nullptr);
+    pipeline.desc().bindAccumBuffer(0, *capAccumBuf.buffer, capAccumSize);
+    pipeline.desc().bindNormalImage(0, *capNormalView);
+    pipeline.desc().bindDepthImage(0, *capDepthView);
 
     // ---- 3. Render capFrames frames ----
     uint32_t groupsX = (capWidth  + 7) / 8;
@@ -1086,8 +1086,8 @@ void Renderer::captureScreenshot(const std::string& path,
         // Main trace dispatch
         cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getPipeline());
         cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-            pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
-        cb.pushConstants<decltype(pc)>(pipeline.getPipelineLayout(),
+            pipeline.desc().pipelineLayout(), 0, pipeline.desc().descriptorSet(0), nullptr);
+        cb.pushConstants<decltype(pc)>(pipeline.desc().pipelineLayout(),
             vk::ShaderStageFlagBits::eCompute, 0, pc);
         cb.dispatch(groupsX, groupsY, 1);
 
@@ -1118,7 +1118,7 @@ void Renderer::captureScreenshot(const std::string& path,
         // Denoise dispatch
         cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getDenoisePipeline());
         cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-            pipeline.getPipelineLayout(), 0, pipeline.getDescriptorSet(0), nullptr);
+            pipeline.desc().pipelineLayout(), 0, pipeline.desc().descriptorSet(0), nullptr);
         cb.dispatch(groupsX, groupsY, 1);
 
         // Barrier: denoise write → transfer read
@@ -1177,10 +1177,10 @@ void Renderer::captureScreenshot(const std::string& path,
     }
 
     // ---- 5. Restore descriptor bindings to normal resolution ----
-    pipeline.bindOutputImage(0, *m_outputView, nullptr);
-    pipeline.bindAccumBuffer(0, *m_accumBuffer.buffer, m_accumBuffer.size);
-    pipeline.bindNormalImage(0, *m_normalView);
-    pipeline.bindDepthImage(0, *m_depthView);
+    pipeline.desc().bindOutputImage(0, *m_outputView, nullptr);
+    pipeline.desc().bindAccumBuffer(0, *m_accumBuffer.buffer, m_accumBuffer.size);
+    pipeline.desc().bindNormalImage(0, *m_normalView);
+    pipeline.desc().bindDepthImage(0, *m_depthView);
 
     // ---- 6. Force accum reset on next normal frame (avoids stale data) ----
     m_accumFrameCount = 0;

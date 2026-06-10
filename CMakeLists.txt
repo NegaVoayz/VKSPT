@@ -102,6 +102,7 @@ add_executable(vkrt
     src/core/Spectral.h
     src/ray/AccelerationStructure.cpp
     src/ray/RayTracingPipeline.cpp
+    src/ray/DescriptorManager.cpp
     src/ray/RaySorter.cpp
     src/ray/EnvMap.cpp
     src/ray/GeometryBuffer.cpp
