@@ -770,7 +770,7 @@ void main() {
                 vec3 linContrib = integrateSkySRGB(lamMid, halfW,
                                                     throughput, decayC1, decayC2,
                                                     envLinear);
-                vec3 rgbContrib = linearToSRGB(linContrib);
+                vec3 rgbContrib = linContrib;
                 colorAccum += rgbContrib;
                 break;
             }
@@ -819,7 +819,7 @@ void main() {
 
                 // Direct lighting
                 vec3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
-                colorAccum += linearToSRGB(directLin);
+                colorAccum += directLin;
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
@@ -882,7 +882,7 @@ void main() {
 
                 // Direct lighting from point/spot/directional lights
                 vec3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.rgb, rng);
-                colorAccum += linearToSRGB(directLin);
+                colorAccum += directLin;
 
                 if (bounce >= 3) {
                     float survive = max(throughput, 0.1);
@@ -1192,6 +1192,6 @@ void main() {
     accumData.data[base+1] = newAccum.g;
     accumData.data[base+2] = newAccum.b;
     accumData.data[base+3] = newCount;
-    vec3 outputColor = newAccum / max(newCount, 1.0);
+    vec3 outputColor = linearToSRGB(newAccum / max(newCount, 1.0) * 2.5);  // exposure
     imageStore(outputImage, px, vec4(outputColor, 1.0));
 }
