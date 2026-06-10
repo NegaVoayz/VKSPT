@@ -32,6 +32,18 @@ public struct RayState {
     public int  generation;
 };
 
+// Mutable per-bounce state passed to material handlers
+public struct BounceState {
+    public float3 rayO, rayD;
+    public float  throughput;
+    public float  decayC1, decayC2;
+    public float3 lastSplit, disp;
+    public float3 lastGeom, geomD;
+    public int    lamStart, lamEnd;
+    public int    generation;
+    public float3 colorAccum;
+};
+
 public struct GpuLight {
     public float4 pos_type;
     public float4 color_intensity;

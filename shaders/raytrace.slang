@@ -7,6 +7,11 @@ import math.legendre_decay;
 import math.sampling;
 import geometry.dispersion;
 import geometry.normals;
+import materials.metal;
+import materials.checkerboard;
+import materials.lambertian;
+import materials.sky_handler;
+import materials.dielectric;
 
 // =============================================================================
 // Descriptors
@@ -51,10 +56,6 @@ struct InstanceNormalBlock {
 // =============================================================================
 // Sky + Direct lighting + Spectral accumulation
 // =============================================================================
-
-float sampleLightSPD(int refIdx) {
-    return lights.items[0].color_intensity.x;
-}
 
 float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint rng) {
     float3 contrib = float3(0.0);
@@ -109,27 +110,6 @@ float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint rng) {
         }
     }
     return contrib;
-}
-
-void accumulateSpectrum(inout float spectral[NUM_SPECTRAL_BUCKETS],
-                         float lamMid, float halfWidth,
-                         float c0, float c1, float c2,
-                         float3 envLinear) {
-    float lamS = lamMid - halfWidth;
-    float lamE = lamMid + halfWidth;
-    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
-        float bS = float(LAMBDA_MIN + 40 * b);
-        float bE = bS + 40.0;
-        float oS = max(lamS, bS);
-        float oE = min(lamE, bE);
-        if (oS >= oE) continue;
-        float lamEval = (oS + oE) * 0.5;
-        float xEv   = clamp((lamEval - lamMid) / max(halfWidth, 0.001), -1.0, 1.0);
-        float D_ev  = evalDecay(c0, c1, c2, xEv);
-        float S_ev  = estimateSpectrum(lamEval, envLinear);
-        float bw    = oE - oS;
-        spectral[b] += S_ev * D_ev * bw;
-    }
 }
 
 // =============================================================================
@@ -227,63 +207,23 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                     depthImage[int2(px.x, px.y)] = 1e6;
                 }
 
-                float estSkyDist = 10000.0;
-                float3  skyDisp    = lastSplit + disp * estSkyDist;
-                float skySepMag  = length(skyDisp);
-                float skyPixHW   = params.fovTan / float(sz.x);
-                float skyThresh  = estSkyDist * skyPixHW * 0.5 * params.splitMult;
-
-                int lamRange = lamEnd - lamStart;
-                if (skySepMag > skyThresh && lamRange >= 20 && throughput >= 0.05 && generation < 7) {
-                    int midWl = (lamStart + lamEnd) / 2;
-                    float3 skyPerp = normalize(skyDisp);
-                    if (length(skyPerp) < 0.0001) skyPerp = float3(1,0,0);
-
-                    float splitParentMid  = float(lamStart + lamEnd) * 0.5;
-                    float splitParentHalf = float(lamEnd - lamStart) * 0.5;
-                    float violetMid  = float(lamStart + midWl) * 0.5;
-                    float violetHalf = float(midWl - lamStart) * 0.5;
-
-                    if (stackTop < SPECTRAL_STACK_MAX - 1) {
-                        RayState skyV;
-                        skyV.direction   = normalize(rayD + skyPerp * skySepMag * 0.5 / estSkyDist);
-                        skyV.origin      = rayO;
-                        skyV.last_split  = lastSplit;
-                        skyV.dispersion  = disp;
-                        skyV.lam_start   = lamStart;
-                        skyV.lam_end     = midWl;
-                        reprojectDecay(throughput, decayC1, decayC2,
-                                       splitParentMid, splitParentHalf,
-                                       violetMid, violetHalf,
-                                       skyV.throughput, skyV.decay_c1, skyV.decay_c2);
-                        skyV.bounce      = bounce;
-                        skyV.generation  = generation + 1;
-                        rayStack[stackTop++] = skyV;
-
-                        RayState skyR;
-                        skyR.direction   = normalize(rayD - skyPerp * skySepMag * 0.5 / estSkyDist);
-                        skyR.origin      = rayO;
-                        skyR.last_split  = lastSplit;
-                        skyR.dispersion  = disp;
-                        skyR.lam_start   = midWl;
-                        skyR.lam_end     = lamEnd;
-                        float redMid  = float(midWl + lamEnd) * 0.5;
-                        float redHalf = float(lamEnd - midWl) * 0.5;
-                        reprojectDecay(throughput, decayC1, decayC2,
-                                       splitParentMid, splitParentHalf,
-                                       redMid, redHalf,
-                                       skyR.throughput, skyR.decay_c1, skyR.decay_c2);
-                        skyR.bounce      = bounce;
-                        skyR.generation  = generation + 1;
-                        rayStack[stackTop++] = skyR;
-                        break;
-                    }
-                }
-
-                float lamMid  = float(lamStart + lamEnd) * 0.5;
-                float halfW   = float(lamEnd - lamStart) * 0.5;
-                float3 envLinear = srgbToLinear(float3(0.5));
-                accumulateSpectrum(spectral, lamMid, halfW, throughput, decayC1, decayC2, envLinear);
+                BounceState bs;
+                bs.rayO = rayO; bs.rayD = rayD;
+                bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
+                bs.lastSplit = lastSplit; bs.disp = disp;
+                bs.lastGeom = lastGeom; bs.geomD = geomD;
+                bs.lamStart = lamStart; bs.lamEnd = lamEnd;
+                bs.generation = generation; bs.colorAccum = colorAccum;
+                handleSkyMiss(bs, stackTop, rayStack, spectral,
+                              rayO, rayD, bounce, sp, px, sz,
+                              params.fovTan, params.splitMult);
+                // Sky handler pushes split rays OR accumulates spectrum
+                // Unpack modified state
+                throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
+                lamStart = bs.lamStart; lamEnd = bs.lamEnd;
+                generation = bs.generation; colorAccum = bs.colorAccum;
+                lastSplit = bs.lastSplit; disp = bs.disp;
+                lastGeom = bs.lastGeom; geomD = bs.geomD;
                 break;
             }
 
@@ -326,272 +266,80 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 float cz = floor(pos.z * 0.5);
                 bool white = ((int(cx + cz) % 2) == 0);
                 float3 checkerAlbedo = white ? float3(0.75, 0.75, 0.75) : float3(0.15, 0.15, 0.15);
-                float preAbsTP = throughput;
-                throughput *= (0.07 + 0.93 * dot(checkerAlbedo, float3(0.299, 0.587, 0.114)));
                 float3 directLin = sampleDirectLighting(pos, nrm, checkerAlbedo, rng);
-                colorAccum += directLin * preAbsTP;
-                if (bounce >= 3) {
-                    float survive = max(throughput, 0.1);
-                    if (rand1(rng) > survive) break;
-                    throughput /= survive;
-                }
-                int scatCount = int(params.scatterSamples);
-                if (scatCount < 1) scatCount = 1;
-                if (scatCount > 4) scatCount = 4;
-                float scatThroughput = throughput / float(scatCount);
-                float scatC1 = decayC1 / float(scatCount);
-                float scatC2 = decayC2 / float(scatCount);
-                for (int s = 0; s < scatCount - 1; s++) {
-                    if (stackTop < SPECTRAL_STACK_MAX) {
-                        float3 sDir = cosineSampleHemisphere(nrm, rng);
-                        RayState scat;
-                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
-                        scat.direction   = sDir;
-                        scat.last_split  = float3(0.0); scat.dispersion  = float3(0.0);
-                        scat.last_geom   = float3(0.0); scat.geomDisp    = float3(0.0);
-                        scat.lam_start   = lamStart;  scat.lam_end     = lamEnd;
-                        scat.throughput      = scatThroughput;
-                        scat.decay_c1    = scatC1;     scat.decay_c2    = scatC2;
-                        scat.bounce      = bounce + 1; scat.generation  = generation;
-                        rayStack[stackTop++] = scat;
-                    }
-                }
-                rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + nrm * 0.001 + rayD * 0.01;
-                throughput     = scatThroughput; decayC1 = scatC1; decayC2 = scatC2;
-                lastSplit  = float3(0.0); disp = float3(0.0);
-                lastGeom   = float3(0.0); geomD = float3(0.0);
+
+                BounceState bs;
+                bs.rayO = rayO; bs.rayD = rayD;
+                bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
+                bs.lastSplit = lastSplit; bs.disp = disp;
+                bs.lastGeom = lastGeom; bs.geomD = geomD;
+                bs.lamStart = lamStart; bs.lamEnd = lamEnd;
+                bs.generation = generation; bs.colorAccum = colorAccum;
+                handleCheckerboard(bs, rng, stackTop, rayStack,
+                                   pos, nrm, checkerAlbedo, directLin,
+                                   bounce, int(params.scatterSamples));
+                rayO = bs.rayO; rayD = bs.rayD;
+                throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
+                lastSplit = bs.lastSplit; disp = bs.disp;
+                lastGeom = bs.lastGeom; geomD = bs.geomD;
+                lamStart = bs.lamStart; lamEnd = bs.lamEnd;
+                generation = bs.generation; colorAccum = bs.colorAccum;
+                if (throughput < 0.005) break;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
-                float nl = rgbToDomLambda(mat.albedo.xyz);
-                float lum = dot(mat.albedo.xyz, float3(0.299, 0.587, 0.114));
-                float maxC = max(max(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
-                float minC = min(min(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
-                float sat = (maxC - minC) / max(maxC, 0.001);
-
-                float lamS = float(lamStart), lamE = float(lamEnd);
-                float lamM = (lamS + lamE) * 0.5;
-                float dS = lamS - nl, dM = lamM - nl, dE = lamE - nl;
-                float attAvg = (exp(-0.5*dS*dS/7200.0) + exp(-0.5*dM*dM/7200.0) + exp(-0.5*dE*dE/7200.0)) / 3.0;
-
-                float preAbsTP = throughput;
-                float attMix = lerp(1.0, attAvg, sat);
-                throughput *= attMix * (0.07 + 0.93 * lum);
-
                 float3 directLin = sampleDirectLighting(pos, nrm, mat.albedo.xyz, rng);
-                colorAccum += directLin * preAbsTP;
 
-                if (bounce >= 3) {
-                    float survive = max(throughput, 0.1);
-                    if (rand1(rng) > survive) break;
-                    throughput /= survive;
-                }
-
-                int scatCount = int(params.scatterSamples);
-                if (scatCount < 1) scatCount = 1;
-                if (scatCount > 4) scatCount = 4;
-                float scatThroughput = throughput / float(scatCount);
-                float scatC1 = decayC1 / float(scatCount);
-                float scatC2 = decayC2 / float(scatCount);
-                for (int s = 0; s < scatCount - 1; s++) {
-                    if (stackTop < SPECTRAL_STACK_MAX) {
-                        float3 sDir = cosineSampleHemisphere(nrm, rng);
-                        RayState scat;
-                        scat.origin      = pos + nrm * 0.001 + sDir * 0.01;
-                        scat.direction   = sDir;
-                        scat.last_split  = float3(0.0);
-                        scat.dispersion  = float3(0.0);
-                        scat.last_geom   = float3(0.0);
-                        scat.geomDisp    = float3(0.0);
-                        scat.lam_start   = lamStart;
-                        scat.lam_end     = lamEnd;
-                        scat.throughput      = scatThroughput;
-                        scat.decay_c1    = scatC1;
-                        scat.decay_c2    = scatC2;
-                        scat.bounce      = bounce + 1;
-                        scat.generation  = generation;
-                        rayStack[stackTop++] = scat;
-                    }
-                }
-                rayD       = cosineSampleHemisphere(nrm, rng);
-                rayO       = pos + nrm * 0.001 + rayD * 0.01;
-                throughput     = scatThroughput;
-                decayC1    = scatC1;
-                decayC2    = scatC2;
-                lastSplit  = float3(0.0); disp = float3(0.0);
-                lastGeom   = float3(0.0); geomD = float3(0.0);
+                BounceState bs;
+                bs.rayO = rayO; bs.rayD = rayD;
+                bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
+                bs.lastSplit = lastSplit; bs.disp = disp;
+                bs.lastGeom = lastGeom; bs.geomD = geomD;
+                bs.lamStart = lamStart; bs.lamEnd = lamEnd;
+                bs.generation = generation; bs.colorAccum = colorAccum;
+                handleLambertian(bs, rng, stackTop, rayStack,
+                                 pos, nrm, mat, directLin,
+                                 bounce, int(params.scatterSamples));
+                rayO = bs.rayO; rayD = bs.rayD;
+                throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
+                lastSplit = bs.lastSplit; disp = bs.disp;
+                lastGeom = bs.lastGeom; geomD = bs.geomD;
+                lamStart = bs.lamStart; lamEnd = bs.lamEnd;
+                generation = bs.generation; colorAccum = bs.colorAccum;
+                if (throughput < 0.005) break;
             }
             else if (matType == MATERIAL_DIELECTRIC) {
-                int lamMid = (lamStart + lamEnd) / 2;
-                float ior_start = cauchyIOR(mat, float(lamStart));
-                float ior_end   = cauchyIOR(mat, float(lamEnd));
-                float ior_mid   = cauchyIOR(mat, float(lamMid));
-                float eta_mid   = entering ? (1.0 / ior_mid) : ior_mid;
-                float deta      = (entering ? (1.0/ior_end - 1.0/ior_start) : (ior_end - ior_start));
-
-                float lamMidF  = float(lamStart + lamEnd) * 0.5;
-                float halfW    = float(lamEnd - lamStart) * 0.5;
-                bool decayPoorFit = applyVolumeDecay(throughput, decayC1, decayC2,
-                                                      lamMidF, halfW,
-                                                      mat.absorpA.y, mat.absorpB.y, tHit);
-
-                float3 newDir;
-                if (refractDir(rayD, nrm, eta_mid, newDir)) {
-                    float3 newDisp = computeDispersion(rayD, nrm, eta_mid, deta);
-                    float3 newGeom = computeGeomDispersion(rayD, nrm, eta_mid);
-
-                    lastSplit = rotateToNewFrame(lastSplit, rayD, newDir);
-                    disp      = rotateToNewFrame(disp, rayD, newDir) + newDisp;
-                    lastGeom  = rotateToNewFrame(lastGeom, rayD, newDir);
-                    geomD     = rotateToNewFrame(geomD, rayD, newDir) + newGeom;
-
-                    float cosTheta = abs(dot(rayD, nrm));
-                    float R0 = ((ior_mid - 1.0) / (ior_mid + 1.0));
-                    R0 = R0 * R0;
-                    float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
-
-                    float reflThroughput = throughput * fresnelR;
-                    if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
-                        float3 reflDir = reflectDir(rayD, nrm);
-                        RayState refl;
-                        refl.origin      = pos + nrm * 0.001 + reflDir * 0.01;
-                        refl.direction   = reflDir;
-                        refl.last_split  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
-                        refl.dispersion  = disp - 2.0 * dot(disp, nrm) * nrm;
-                        refl.last_geom   = lastGeom - 2.0 * dot(lastGeom, nrm) * nrm;
-                        refl.geomDisp    = geomD - 2.0 * dot(geomD, nrm) * nrm;
-                        refl.lam_start   = lamStart;
-                        refl.lam_end     = lamEnd;
-                        refl.throughput      = reflThroughput;
-                        refl.decay_c1    = decayC1 * fresnelR;
-                        refl.decay_c2    = decayC2 * fresnelR;
-                        refl.bounce      = bounce + 1;
-                        refl.generation  = generation;
-                        rayStack[stackTop++] = refl;
-                    }
-                    throughput *= (1.0 - fresnelR);
-                    decayC1    *= (1.0 - fresnelR);
-                    decayC2    *= (1.0 - fresnelR);
-
-                    float estDist = max(tHit, 50.0);
-                    float3  predictedGeom = lastGeom + geomD * estDist;
-                    float3  predictedSep  = lastSplit + disp * estDist;
-                    float sepMag       = max(length(predictedGeom), length(predictedSep));
-                    float pixHalfWidth = params.fovTan / float(sz.x);
-                    float pixThresh    = estDist * pixHalfWidth * 0.5 * params.splitMult;
-
-                    int lamRange = lamEnd - lamStart;
-                    float alphaStart = computeAbsorption(mat, float(lamStart));
-                    float alphaEnd   = computeAbsorption(mat, float(lamEnd));
-                    float alphaVar   = abs(exp(-alphaStart * tHit) - exp(-alphaEnd * tHit));
-
-                    bool forceWide = (int(params.forceSplitWidth) > 0) && (lamRange > int(params.forceSplitWidth));
-                    bool needSplit = (sepMag > pixThresh) || (alphaVar > 0.05 && decayPoorFit) || forceWide;
-
-                    bool spectralDriven = (length(predictedSep) > pixThresh);
-                    bool geomDriven     = (length(predictedGeom) > pixThresh);
-
-                    if (needSplit && lamRange >= 10 && throughput >= 0.05 && generation < 8) {
-                        int midWl = (lamStart + lamEnd) / 2;
-                        int nextGen = generation + 1;
-
-                        if (geomDriven && !spectralDriven) {
-                            nextGen = generation + 4;
-                            RayState gchild;
-                            gchild.origin      = pos + nrm * 0.001 + newDir * 0.01;
-                            gchild.direction   = newDir;
-                            gchild.last_split  = predictedSep;
-                            gchild.dispersion  = disp;
-                            gchild.last_geom   = predictedGeom;
-                            gchild.geomDisp    = geomD;
-                            gchild.lam_start   = lamStart;
-                            gchild.lam_end     = lamEnd;
-                            gchild.throughput      = throughput * 0.5;
-                            gchild.decay_c1    = decayC1 * 0.5;
-                            gchild.decay_c2    = decayC2 * 0.5;
-                            gchild.bounce      = bounce + 1;
-                            gchild.generation  = nextGen;
-                            if (stackTop < SPECTRAL_STACK_MAX) {
-                                rayStack[stackTop++] = gchild;
-                                throughput *= 0.5; decayC1 *= 0.5; decayC2 *= 0.5;
-                                generation = nextGen;
-                            }
-                        } else {
-                            float splitParentMid  = float(lamStart + lamEnd) * 0.5;
-                            float splitParentHalf = float(lamEnd - lamStart) * 0.5;
-                            float violetMid       = float(lamStart + midWl) * 0.5;
-                            float violetHalf      = float(midWl - lamStart) * 0.5;
-
-                            RayState violet;
-                            violet.origin      = pos + nrm * 0.001 + newDir * 0.01;
-                            violet.direction   = newDir;
-                            violet.last_split  = predictedSep;
-                            violet.dispersion  = disp;
-                            violet.last_geom   = predictedGeom;
-                            violet.geomDisp    = geomD;
-                            violet.lam_start   = lamStart;
-                            violet.lam_end     = midWl;
-                            reprojectDecay(throughput, decayC1, decayC2,
-                                           splitParentMid, splitParentHalf,
-                                           violetMid, violetHalf,
-                                           violet.throughput, violet.decay_c1, violet.decay_c2);
-                            violet.bounce      = bounce + 1;
-                            violet.generation  = nextGen;
-
-                            if (stackTop < SPECTRAL_STACK_MAX) {
-                                rayStack[stackTop++] = violet;
-                                float redMid  = float(midWl + lamEnd) * 0.5;
-                                float redHalf = float(lamEnd - midWl) * 0.5;
-                                reprojectDecay(throughput, decayC1, decayC2,
-                                               splitParentMid, splitParentHalf,
-                                               redMid, redHalf,
-                                               throughput, decayC1, decayC2);
-                                lamStart   = midWl;
-                                generation = nextGen;
-                            }
-                        }
-                    }
-
-                    rayD    = newDir;
-                    rayO    = pos + nrm * 0.001 + newDir * 0.01;
-                }
-                else {
-                    newDir     = reflectDir(rayD, nrm);
-                    lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
-                    disp       = disp - 2.0 * dot(disp, nrm) * nrm;
-                    lastGeom   = lastGeom - 2.0 * dot(lastGeom, nrm) * nrm;
-                    geomD      = geomD - 2.0 * dot(geomD, nrm) * nrm;
-                    rayD       = newDir;
-                    rayO       = pos + nrm * 0.001 + newDir * 0.01;
-                }
+                BounceState bs;
+                bs.rayO = rayO; bs.rayD = rayD;
+                bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
+                bs.lastSplit = lastSplit; bs.disp = disp;
+                bs.lastGeom = lastGeom; bs.geomD = geomD;
+                bs.lamStart = lamStart; bs.lamEnd = lamEnd;
+                bs.generation = generation; bs.colorAccum = colorAccum;
+                handleDielectric(bs, stackTop, rayStack,
+                                 pos, nrm, mat, tHit, entering, bounce, sz,
+                                 params.fovTan, params.splitMult, params.forceSplitWidth);
+                rayO = bs.rayO; rayD = bs.rayD;
+                throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
+                lastSplit = bs.lastSplit; disp = bs.disp;
+                lastGeom = bs.lastGeom; geomD = bs.geomD;
+                lamStart = bs.lamStart; lamEnd = bs.lamEnd;
+                generation = bs.generation; colorAccum = bs.colorAccum;
             }
             else if (matType == MATERIAL_METAL) {
-                float3 ma = mat.albedo.xyz;
-                float r0 = ma.y + (ma.x + ma.z - 2.0*ma.y) / 6.0;
-                float r1 = (ma.x - ma.z) * 0.5;
-                float r2 = (ma.x + ma.z - 2.0*ma.y) / 3.0;
-                float lamMidF = float(lamStart + lamEnd) * 0.5;
-                float halfWF  = float(lamEnd - lamStart) * 0.5;
-                const float SQRT_3_5 = 0.77459667;
-                const float W0 = 5.0/9.0, W1 = 8.0/9.0, W2 = 5.0/9.0;
-                float newD[3];
-                for (int k = 0; k < 3; k++) {
-                    float xk = (k == 0) ? -SQRT_3_5 : ((k == 1) ? 0.0 : SQRT_3_5);
-                    float Dk = evalDecay(throughput, decayC1, decayC2, xk);
-                    float Rk = evalDecay(r0, r1, r2, xk);
-                    newD[k] = Dk * Rk;
-                }
-                throughput = 0.5 * (W0*newD[0] + W1*newD[1] + W2*newD[2]);
-                decayC1    = 1.5 * (W0*newD[0]*(-SQRT_3_5) + W2*newD[2]*SQRT_3_5);
-                float p2_0 = 0.4, p2_1 = -0.5, p2_2 = 0.4;
-                decayC2    = 2.5 * (W0*newD[0]*p2_0 + W1*newD[1]*p2_1 + W2*newD[2]*p2_2);
-                float3 reflDir = reflectDir(rayD, nrm);
-                rayD       = reflDir;
-                rayO       = pos + nrm * 0.001 + reflDir * 0.01;
-                lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
-                disp       = disp - 2.0 * dot(disp, nrm) * nrm;
-                lastGeom   = lastGeom - 2.0 * dot(lastGeom, nrm) * nrm;
-                geomD      = geomD - 2.0 * dot(geomD, nrm) * nrm;
+                BounceState bs;
+                bs.rayO = rayO; bs.rayD = rayD;
+                bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
+                bs.lastSplit = lastSplit; bs.disp = disp;
+                bs.lastGeom = lastGeom; bs.geomD = geomD;
+                bs.lamStart = lamStart; bs.lamEnd = lamEnd;
+                bs.generation = generation; bs.colorAccum = colorAccum;
+                handleMetal(bs, pos, nrm, mat);
+                rayO = bs.rayO; rayD = bs.rayD;
+                throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
+                lastSplit = bs.lastSplit; disp = bs.disp;
+                lastGeom = bs.lastGeom; geomD = bs.geomD;
+                lamStart = bs.lamStart; generation = bs.generation;
+                colorAccum = bs.colorAccum;
             }
             else {
                 break;
