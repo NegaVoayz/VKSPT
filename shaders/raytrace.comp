@@ -35,7 +35,6 @@ struct RayState {
     float decay_c2;      // 2nd Legendre coefficient of decay D(x)
     int  bounce;         // bounces already taken
     int  generation;     // split generation counter (0 = never split)
-    bool insideGlass;    // currently inside a dielectric?
 };
 
 // =============================================================================
@@ -696,7 +695,6 @@ void main() {
         init.decay_c2   = 0.0;
         init.bounce      = 0;
         init.generation  = 0;
-        init.insideGlass = false;
         rayStack[stackTop++] = init;
 
         // Local spectral accumulation for this SPP sample
@@ -718,7 +716,6 @@ void main() {
         float decayC2   = r.decay_c2;
         int   lamStart   = r.lam_start;
         int   lamEnd     = r.lam_end;
-        bool  inGlass       = r.insideGlass;
         int   generation    = r.generation;
 
         for (int bounce = r.bounce; bounce < params.maxBounces; ++bounce) {
@@ -773,7 +770,6 @@ void main() {
                                        skyV.throughput, skyV.decay_c1, skyV.decay_c2);
                         skyV.bounce      = bounce;
                         skyV.generation  = generation + 1;
-                        skyV.insideGlass = inGlass;
                         rayStack[stackTop++] = skyV;
 
                         RayState skyR;
@@ -791,7 +787,6 @@ void main() {
                                        skyR.throughput, skyR.decay_c1, skyR.decay_c2);
                         skyR.bounce      = bounce;
                         skyR.generation  = generation + 1;
-                        skyR.insideGlass = inGlass;
                         rayStack[stackTop++] = skyR;
                         break;  // children on stack, terminate this ray
                     }
@@ -800,7 +795,7 @@ void main() {
                 // Sample the environment map at spherical UV coordinates
                 float envU = atan(rayD.z, rayD.x) * 0.159154943 + 0.5;  // atan2/2π + 0.5
                 float envV = acos(clamp(rayD.y, -1.0, 1.0)) * 0.318309886;  // acos/π
-                vec3 skyColor = texture(envMap, vec2(envU, envV)).rgb;
+                vec3 skyColor = vec3(0.5);  // fixed gray sky
 
                 // Accumulate beam spectrum into per-pixel spectral buckets.
                 // RGB is computed from total spectrum at final output.
@@ -828,7 +823,9 @@ void main() {
             } else {
                 nrm = computeGeometricNormal(mi, primitiveID);
             }
-            if (dot(nrm, -rayD) < 0.0) nrm = -nrm;   // face the incoming ray
+            // Determine entering/exiting from raw normal before flipping
+            bool entering = dot(nrm, rayD) < 0.0;
+            if (!entering) nrm = -nrm;   // flip back-face normal to face incoming ray
 
             // Phase 6.5: Capture G-buffer (normals + depth) at first primary hit for denoising
             if (sp == 0 && bounce == 0) {
@@ -887,7 +884,6 @@ void main() {
                         scat.decay_c2    = scatC2;
                         scat.bounce      = bounce + 1;
                         scat.generation  = generation;
-                        scat.insideGlass = false;
                         rayStack[stackTop++] = scat;
                     }
                 }
@@ -898,7 +894,6 @@ void main() {
                 decayC2    = scatC2;
                 lastSplit  = vec3(0.0);
                 disp       = vec3(0.0);
-                inGlass    = false;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
                 // Two-factor absorption:
@@ -954,7 +949,6 @@ void main() {
                         scat.decay_c2    = scatC2;
                         scat.bounce      = bounce + 1;
                         scat.generation  = generation;
-                        scat.insideGlass = false;
                         rayStack[stackTop++] = scat;
                     }
                 }
@@ -967,7 +961,6 @@ void main() {
                 decayC2    = scatC2;
                 lastSplit  = vec3(0.0);
                 disp       = vec3(0.0);
-                inGlass    = false;
             }
             else if (matType == MATERIAL_DIELECTRIC) {
                 // Force-split before refraction if band is too wide.
@@ -1006,7 +999,6 @@ void main() {
                                        forceChild.throughput, forceChild.decay_c1, forceChild.decay_c2);
                         forceChild.bounce      = bounce;
                         forceChild.generation  = generation + 1;
-                        forceChild.insideGlass = inGlass;
                         rayStack[stackTop++] = forceChild;
                     }
                     // Red child → continue inline, offset opposite direction
@@ -1028,10 +1020,10 @@ void main() {
                 float ior_end   = cauchyIOR(mat, float(lamEnd));
                 float ior_mid   = cauchyIOR(mat, float(lamMid));
 
-                // Precompute etas (already account for insideGlass)
-                float eta_start = inGlass ? ior_start : (1.0 / ior_start);
-                float eta_end   = inGlass ? ior_end   : (1.0 / ior_end);
-                float eta_mid   = inGlass ? ior_mid   : (1.0 / ior_mid);
+                // Precompute etas (entering? 1/ior : ior)
+                float eta_start = entering ? (1.0 / ior_start) : ior_start;
+                float eta_end   = entering ? (1.0 / ior_end)   : ior_end;
+                float eta_mid   = entering ? (1.0 / ior_mid)   : ior_mid;
 
                 // Volume absorption — Legendre expansion of decay D(x) = exp(-τ(x))
                 // Replaces scalar midpoint approximation with full 2nd-order fit.
@@ -1055,7 +1047,7 @@ void main() {
                     R0 = R0 * R0;
                     float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
 
-                    if (!inGlass) {
+                    if (entering) {
                         // Entry: push Fresnel reflection (visible glass reflection)
                         float reflThroughput = throughput * fresnelR;
                         if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
@@ -1072,7 +1064,6 @@ void main() {
                             refl.decay_c2    = decayC2 * fresnelR;
                             refl.bounce      = bounce + 1;
                             refl.generation  = generation;
-                            refl.insideGlass = inGlass;
                             rayStack[stackTop++] = refl;
                         }
                         throughput *= (1.0 - fresnelR);
@@ -1144,7 +1135,6 @@ void main() {
                                        violet.throughput, violet.decay_c1, violet.decay_c2);
                         violet.bounce      = bounce + 1;
                         violet.generation  = nextGen;
-                        violet.insideGlass = !inGlass;
 
                         if (stackTop < SPECTRAL_STACK_MAX) {
                             rayStack[stackTop++] = violet;
@@ -1166,7 +1156,6 @@ void main() {
                         float redMidWl = float(lamStart + lamEnd) * 0.5;
                         rayO += splitOffsetDir * (parentMidWl - redMidWl) * offsetScaleMain;
                     }
-                    inGlass = !inGlass;
                 }
                 else {
                     // ---- Total Internal Reflection ----
@@ -1175,7 +1164,6 @@ void main() {
                     disp       = disp - 2.0 * dot(disp, nrm) * nrm;
                     rayD       = newDir;
                     rayO       = pos + nrm * 0.001 +newDir * 0.01;
-                    // inGlass unchanged (still in same medium)
                 }
             }
             else if (matType == MATERIAL_METAL) {
@@ -1209,7 +1197,6 @@ void main() {
                 rayO       = pos + nrm * 0.001 +reflDir * 0.01;
                 lastSplit  = lastSplit - 2.0 * dot(lastSplit, nrm) * nrm;
                 disp       = disp - 2.0 * dot(disp, nrm) * nrm;
-                inGlass    = false;
             }
             else {
                 // Unknown → absorb
