@@ -106,6 +106,7 @@ add_executable(vkrt
     src/ray/RaySorter.cpp
     src/ray/EnvMap.cpp
     src/ray/GeometryBuffer.cpp
+    src/ray/AccelBuilder.cpp
     src/render/Renderer.cpp
     src/scene/SceneConfig.cpp
     src/scene/SceneXmlParser.cpp

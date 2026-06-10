@@ -1,181 +1,88 @@
 #pragma once
 
 #include "core/GPUBuffer.h"
+#include "ray/AccelBuilder.h"
 #include "ray/EnvMap.h"
 #include "ray/GeometryBuffer.h"
 #include <vulkan/vulkan_raii.hpp>
-
 #include <cstdint>
 #include <vector>
 
-/// Manages BLAS (Bottom-Level) and TLAS (Top-Level) acceleration structures
-/// for ray tracing. Uses VK_KHR_acceleration_structure.
-/// Also owns the material uniform buffer uploaded to the GPU.
 class AccelerationStructure {
 public:
-    /// Maximum number of materials in the UBO (matches shader array size).
     static constexpr uint32_t MAX_MATERIALS = 16;
-
-    /// Input vertex data (positions and normals, interleaved as xyz floats).
-    struct MeshData {
-        std::vector<float>    vertices;   // interleaved xyz positions
-        std::vector<uint32_t> indices;    // triangle indices (3 per triangle)
-        std::vector<float>    normals;    // interleaved xyz normals (same indexing as vertices; empty = use geometric)
-    };
-
-    /// Descriptor for a single TLAS instance.
-    struct InstanceInfo {
-        MeshData mesh;
-        uint32_t customIndex  = 0;   // rayQueryGetIntersectionInstanceCustomIndexEXT
-        uint32_t materialID   = 0;   // index into material UBO
-        bool     hasNormals   = false; // per-vertex normals available for smooth interpolation
-        float    transform[3][4] = {  // row-major 3×4 affine transform
-            {1,0,0,0},
-            {0,1,0,0},
-            {0,0,1,0}
-        };
-    };
-
-    /// CPU-side material data uploaded to the GPU UBO.
-    /// Must match GpuMaterial in raytrace.comp (std140).
-    struct alignas(16) MaterialGPU {
-        float cauchyA[4] = {};    // (R, G, B, _) — IOR Cauchy A
-        float cauchyB[4] = {};    // (R, G, B, _) — IOR Cauchy B (λ in μm)
-        float absorpA[4] = {};    // (R, G, B, _) — absorption Cauchy A: α(λ)=A+B/λ² [m⁻¹]
-        float absorpB[4] = {};    // (R, G, B, _) — absorption Cauchy B
-        float albedo[4]   = {};   // (R, G, B, _)
-        float params[4]   = {};   // (ior, roughness, type, _)
-    };
-
-    /// Maximum number of lights in the light UBO.
-    static constexpr uint32_t MAX_LIGHTS = 4;
-
-    /// Maximum number of TLAS instances (must match shader).
+    static constexpr uint32_t MAX_LIGHTS    = 4;
     static constexpr uint32_t MAX_INSTANCES = 16;
 
-    /// CPU-side light data. Must match GpuLight in raytrace.comp (std140).
-    /// 4 × vec4 = 64 bytes per light, MAX_LIGHTS = 4 = 256 bytes total.
-    /// Light types: 0=point, 1=directional, 2=spot, 3=ambient/sky
+    struct MeshData {
+        std::vector<float>    vertices, normals;
+        std::vector<uint32_t> indices;
+    };
+    struct InstanceInfo {
+        MeshData mesh;
+        uint32_t customIndex = 0, materialID = 0;
+        bool     hasNormals = false;
+        float    transform[3][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0}};
+    };
+    struct alignas(16) MaterialGPU {
+        float cauchyA[4]{}, cauchyB[4]{}, absorpA[4]{}, absorpB[4]{};
+        float albedo[4]{}, params[4]{};
+    };
     struct alignas(16) GpuLight {
-        float pos_type[4];        // xyz=position, w=type
-        float color_intensity[4]; // rgb=color, a=intensity
-        float dir_inner[4];       // xyz=direction, w=innerAngle (degrees, for spot)
-        float outer_range[4];     // x=outerAngle (spot), y=maxDistance, z/w unused
+        float pos_type[4]{}, color_intensity[4]{};
+        float dir_inner[4]{}, outer_range[4]{};
     };
 
-    AccelerationStructure(
-        const vk::raii::Device&         device,
-        const vk::raii::PhysicalDevice& physDevice,
-        uint32_t                        computeQueueFamily
-    );
+    AccelerationStructure(const vk::raii::Device& dev,
+        const vk::raii::PhysicalDevice& physDev, uint32_t qf);
     ~AccelerationStructure();
-
-    // Non-copyable, non-movable
-    AccelerationStructure(const AccelerationStructure&)            = delete;
+    AccelerationStructure(const AccelerationStructure&) = delete;
     AccelerationStructure& operator=(const AccelerationStructure&) = delete;
-    AccelerationStructure(AccelerationStructure&&)                 = delete;
-    AccelerationStructure& operator=(AccelerationStructure&&)      = delete;
+    AccelerationStructure(AccelerationStructure&&) = delete;
+    AccelerationStructure& operator=(AccelerationStructure&&) = delete;
 
-    /// Build BLAS from a single mesh, wrap in single-instance TLAS (Phase 1 compat).
     void build(const MeshData& mesh);
+    void buildTwoInstance(const InstanceInfo& i0, const InstanceInfo& i1,
+        const std::vector<MaterialGPU>& mats, const GpuLight& sky);
+    void buildScene(const std::vector<InstanceInfo>& instances,
+        const std::vector<MaterialGPU>& mats,
+        const std::vector<GpuLight>&    lights);
 
-    /// Build two BLAS, then a TLAS with two instances (Phase 2 prism).
-    /// Each instance gets its own customIndex (for shader identification)
-    /// and materialID (index into the material UBO).
-    void buildTwoInstance(
-        const InstanceInfo& inst0,
-        const InstanceInfo& inst1,
-        const std::vector<MaterialGPU>& materialData,
-        const GpuLight& skyLight
-    );
-
-    /// Build N instances with their BLAS + TLAS + materials + lights.
-    void buildScene(
-        const std::vector<InstanceInfo>& instances,
-        const std::vector<MaterialGPU>& materialData,
-        const std::vector<GpuLight>&    lights
-    );
-
-    /// Get the TLAS handle for descriptor binding.
     vk::AccelerationStructureKHR getTLAS() const { return *m_tlas; }
+    vk::DeviceAddress getTLASAddress() const { return m_tlasAddr; }
+    const GPUBuffer& getMaterialBuffer() const { return m_matBuf; }
+    const GPUBuffer& getLightBuffer()    const { return m_lightBuf; }
+    const GeometryBuffer& getGeometry()  const { return m_geom; }
+    const GPUBuffer& getInstanceNormalBuffer() const { return m_normBuf; }
+    uint32_t getInstanceCount()  const { return m_instCount; }
+    uint32_t getMaterialCount()  const { return m_matCount; }
 
-    /// Device address of the TLAS (for shader binding).
-    vk::DeviceAddress getTLASAddress() const { return m_tlasAddress; }
-
-    /// Get the material uniform buffer for descriptor binding.
-    const GPUBuffer& getMaterialBuffer() const { return m_materialBuffer; }
-
-    /// Get the light uniform buffer for descriptor binding.
-    const GPUBuffer& getLightBuffer() const { return m_lightBuffer; }
-
-    const GeometryBuffer& getGeometry() const { return m_geometry; }
-
-    /// Get the per-instance normal matrix SSBO (inverse-transpose of 3×3 affine).
-    const GPUBuffer& getInstanceNormalBuffer() const { return m_instanceNormalBuffer; }
-
-    /// Number of TLAS instances.
-    uint32_t getInstanceCount() const { return m_instanceCount; }
-
-    /// Number of materials stored in the UBO.
-    uint32_t getMaterialCount() const { return m_materialCount; }
-
-    /// Load environment map from a JPEG/PNG file, upload to GPU.
-    void loadEnvMap(const std::string& path) {
-        m_envMap.load(m_device, m_physDevice, m_queueFamily, path);
-    }
-
+    void loadEnvMap(const std::string& path)
+        { m_envMap.load(m_device, m_physDevice, m_qf, path); }
     EnvMap& getEnvMap() { return m_envMap; }
     const EnvMap& getEnvMap() const { return m_envMap; }
 
 private:
-    void createCommandPool(uint32_t computeQueueFamily);
-    vk::raii::CommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(vk::raii::CommandBuffer& cmdBuf);
+    void uploadMaterialBuffer(const std::vector<MaterialGPU>& d);
+    void uploadLightBuffer(const std::vector<GpuLight>& l);
 
-    /// Build a single BLAS from mesh data. Returns {blas handle, address, buffer}.
-    struct BlasResult {
-        vk::raii::AccelerationStructureKHR blas      = nullptr;
-        vk::DeviceAddress                  address   = 0;
-        GPUBuffer                          buffer;
-    };
-    BlasResult buildSingleBLAS(const MeshData& mesh);
+    const vk::raii::Device&         m_device;
+    const vk::raii::PhysicalDevice& m_physDevice;
+    uint32_t m_qf = 0;
 
-    void buildTLAS(uint32_t instanceCount);
-    void uploadMaterialBuffer(const std::vector<MaterialGPU>& data);
-    void uploadLightBuffer(const std::vector<GpuLight>& lights);
-    const vk::raii::Device&          m_device;
-    const vk::raii::PhysicalDevice&  m_physDevice;
-    uint32_t                         m_queueFamily = 0;
+    AccelBuilder m_builder;
+    std::vector<AccelBuilder::BlasResult> m_blasList;
+    vk::raii::AccelerationStructureKHR m_tlas = nullptr;
+    vk::DeviceAddress m_tlasAddr = 0;
+    GPUBuffer m_scratch, m_tlasBuf, m_instBuf;
+    GPUBuffer m_matBuf, m_lightBuf;
+    uint32_t m_matCount = 0, m_instCount = 0;
 
-    vk::raii::CommandPool            m_commandPool        = nullptr;
-
-    // BLAS (one or more — Phase 1 keeps one, Phase 2 keeps two)
-    std::vector<BlasResult>          m_blasList;
-
-    // TLAS
-    vk::raii::AccelerationStructureKHR m_tlas             = nullptr;
-    vk::DeviceAddress                   m_tlasAddress     = 0;
-
-    // Temporary build buffers
-    GPUBuffer m_scratchBuffer;
-    GPUBuffer m_tlasBuffer;
-    GPUBuffer m_instanceBuffer;
-
-    // Material uniform buffer
-    GPUBuffer m_materialBuffer;
-    uint32_t  m_materialCount = 0;
-
-    // Light uniform buffer (sky/environment SPD)
-    GPUBuffer m_lightBuffer;
-
-    GeometryBuffer m_geometry;
-    GPUBuffer      m_instanceNormalBuffer;
-    uint32_t                 m_instanceCount = 0;
-    std::vector<std::vector<float>>    m_stagedVertices;   // keep a copy for SSBO
-    std::vector<std::vector<uint32_t>> m_stagedIndices;    // keep a copy for SSBO
-    std::vector<std::vector<float>>    m_stagedNormals;    // per-instance vertex normal data
-    std::vector<std::array<std::array<float,4>,3>> m_instanceTransforms;  // per-instance 3×4
-
-    // Environment map texture
+    GeometryBuffer m_geom;
+    GPUBuffer      m_normBuf;
+    std::vector<std::vector<float>>    m_stagedV;
+    std::vector<std::vector<uint32_t>> m_stagedI;
+    std::vector<std::vector<float>>    m_stagedN;
+    std::vector<std::array<std::array<float,4>,3>> m_xfs;
     EnvMap m_envMap;
 };
