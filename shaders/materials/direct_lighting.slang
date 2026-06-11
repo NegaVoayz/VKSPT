@@ -74,21 +74,45 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             continue;
         }
 
+        // ---- Straight-through fallback: pass light through glass ----
+        bool passThrough = false;
+        {
+            float3 stOrg = sOrg;
+            float stRemain = tMax;
+            for (int p = 0; p < 4 && stRemain > 0.001; p++) {
+                RayQuery<RAY_FLAG_FORCE_OPAQUE> srq;
+                RayDesc sr = { stOrg, 0.001, toLight, stRemain };
+                srq.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, sr);
+                while (srq.Proceed()) {}
+                if (srq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) { passThrough = true; break; }
+                float sHit = srq.CommittedRayT();
+                int smi = srq.CommittedInstanceID();
+                uint smat = instanceRanges[0].materialID[smi];
+                GpuMaterial sm = materials.items[clamp(smat, 0u, 15u)];
+                if (int(sm.params.z) != MATERIAL_DIELECTRIC) break;
+                stOrg = stOrg + toLight * (sHit + 0.05);
+                stRemain -= (sHit + 0.05);
+            }
+        }
+        if (passThrough) {
+            float r2 = distToLight * distToLight + 1.0;
+            float att = lintensity / max(r2, 1.0);
+            if (ltype == LIGHT_DIRECTIONAL) att = lintensity * 0.01;
+            contrib += lcolor * (albedo * 0.31831) * (att * nDotL * spotAtt) * diffuseStrength;
+        }
+
         // ---- Spectral caustics: trace through dielectric per bucket ----
         float3 entryNrm = computeGeometricNormal(miEntry, primEntry);
-        // Flip so normal faces the incoming ray direction
         if (dot(entryNrm, toLight) >= 0.0) entryNrm = -entryNrm;
 
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
-            float lam = float(LAMBDA_MIN + 40 * b + 20); // bucket center nm
+            float lam = float(LAMBDA_MIN + 40 * b + 20);
             float ior = cauchyIOR(entryMat, lam);
             float etaEnter = 1.0 / ior;
 
             float3 insideDir;
-            if (!refractDir(toLight, entryNrm, etaEnter, insideDir))
-                continue; // TIR at entry — this wavelength doesn't pass
+            if (!refractDir(toLight, entryNrm, etaEnter, insideDir)) continue;
 
-            // Trace through the dielectric interior
             float3 entryPt = sOrg + toLight * tEntry;
             float3 insideOrg = entryPt + insideDir * 0.05;
             float insideTMax = tMax - tEntry - 0.05;
@@ -97,31 +121,25 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             rq1.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, insideRay);
             while (rq1.Proceed()) {}
 
-            if (rq1.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
-                continue; // no exit face hit (shouldn't happen for closed mesh)
+            if (rq1.CommittedStatus() != COMMITTED_TRIANGLE_HIT) continue;
             int miExit = rq1.CommittedInstanceID();
-            if (miExit != miEntry) continue; // hit different object
+            if (miExit != miEntry) continue;
 
             int primExit = rq1.CommittedPrimitiveIndex();
             float tInside = rq1.CommittedRayT();
             float3 exitNrm = computeGeometricNormal(miExit, primExit);
-            // Flip so normal faces the incoming ray direction (from inside)
             if (dot(exitNrm, insideDir) >= 0.0) exitNrm = -exitNrm;
 
             float3 finalDir;
-            if (!refractDir(insideDir, exitNrm, ior, finalDir))
-                continue; // TIR at exit
+            if (!refractDir(insideDir, exitNrm, ior, finalDir)) continue;
 
-            // Trace from exit point towards the light
             float3 exitPt = insideOrg + insideDir * tInside;
             float3 exitOrg = exitPt + finalDir * 0.05;
             float exitTMax = tMax - tEntry - tInside - 0.1;
             float3 toLightFromExit = ltype == LIGHT_DIRECTIONAL ? toLight : normalize(lpos - exitOrg);
 
-            // Shadow ray: skip same dielectric instance (avoid self-hit)
             bool exitBlocked = false;
-            float3 esOrg = exitOrg;
-            float esRemain = exitTMax;
+            float3 esOrg = exitOrg; float esRemain = exitTMax;
             for (int ep = 0; ep < 3 && esRemain > 0.001; ep++) {
                 RayQuery<RAY_FLAG_FORCE_OPAQUE> rq2;
                 RayDesc eRay = { esOrg, 0.001, toLightFromExit, esRemain };
@@ -132,16 +150,12 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
                 int emi = rq2.CommittedInstanceID();
                 uint ematIdx = instanceRanges[0].materialID[emi];
                 GpuMaterial emat = materials.items[clamp(ematIdx, 0u, 15u)];
-                if (int(emat.params.z) != MATERIAL_DIELECTRIC) {
-                    exitBlocked = true; break;
-                }
-                // Another dielectric: advance past it
+                if (int(emat.params.z) != MATERIAL_DIELECTRIC) { exitBlocked = true; break; }
                 esOrg = esOrg + toLightFromExit * (etHit + 0.05);
                 esRemain -= (etHit + 0.05);
             }
             if (exitBlocked) continue;
 
-            // Light reached! Accumulate into spectral bucket
             float r2 = distToLight * distToLight + 1.0;
             float att = lintensity / max(r2, 1.0);
             if (ltype == LIGHT_DIRECTIONAL) att = lintensity * 0.01;
