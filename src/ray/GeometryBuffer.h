@@ -9,7 +9,7 @@
 /// normal, instance range) used by the shader for normal computation.
 class GeometryBuffer {
 public:
-    static constexpr uint32_t MAX_INSTANCES = 16;
+    uint32_t maxInstances = 16;
 
     void upload(const vk::raii::Device& dev,
                 const vk::raii::PhysicalDevice& physDev,

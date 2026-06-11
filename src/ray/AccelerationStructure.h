@@ -10,9 +10,10 @@
 
 class AccelerationStructure {
 public:
-    static constexpr uint32_t MAX_MATERIALS = 16;
-    static constexpr uint32_t MAX_LIGHTS    = 4;
-    static constexpr uint32_t MAX_INSTANCES = 16;
+    // Limits set from XML before buildScene()
+    uint32_t maxMaterials = 16;
+    uint32_t maxLights    = 8;
+    uint32_t maxInstances = 16;
 
     struct MeshData {
         std::vector<float>    vertices, normals;
@@ -56,6 +57,11 @@ public:
     const GPUBuffer& getInstanceNormalBuffer() const { return m_normBuf; }
     uint32_t getInstanceCount()  const { return m_instCount; }
     uint32_t getMaterialCount()  const { return m_matCount; }
+    uint32_t getLightCount()     const { return m_lightCount; }
+    float    getDiffuseStrength()  const { return m_diffuseStrength; }
+    float    getSpecularStrength() const { return m_specularStrength; }
+    void setDiffuseStrength(float v)  { m_diffuseStrength = v; }
+    void setSpecularStrength(float v) { m_specularStrength = v; }
 
     void loadEnvMap(const std::string& path)
         { m_envMap.load(m_device, m_physDevice, m_qf, path); }
@@ -76,7 +82,8 @@ private:
     vk::DeviceAddress m_tlasAddr = 0;
     GPUBuffer m_scratch, m_tlasBuf, m_instBuf;
     GPUBuffer m_matBuf, m_lightBuf;
-    uint32_t m_matCount = 0, m_instCount = 0;
+    uint32_t m_matCount = 0, m_lightCount = 0, m_instCount = 0;
+    float m_diffuseStrength = 0.5f, m_specularStrength = 1.0f;
 
     GeometryBuffer m_geom;
     GPUBuffer      m_normBuf;

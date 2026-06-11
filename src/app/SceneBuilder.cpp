@@ -6,6 +6,11 @@
 void SceneBuilder::build(const SceneDescription& desc,
                           AccelerationStructure& as)
 {
+    // Apply resource limits from XML
+    as.maxMaterials = desc.maxMaterials;
+    as.maxLights    = desc.maxLights;
+    as.maxInstances = desc.maxInstances;
+
     std::vector<AccelerationStructure::InstanceInfo> instances;
     std::vector<AccelerationStructure::MaterialGPU>  materials;
 
@@ -56,7 +61,7 @@ void SceneBuilder::build(const SceneDescription& desc,
         materials.push_back(mat);
     }
 
-    constexpr uint32_t MAX_LIGHTS = 4;
+    const uint32_t MAX_LIGHTS = as.maxLights;
     std::vector<AccelerationStructure::GpuLight> gpuLights;
     {
         AccelerationStructure::GpuLight amb;
@@ -109,5 +114,7 @@ void SceneBuilder::build(const SceneDescription& desc,
     while (gpuLights.size() < MAX_LIGHTS)
         gpuLights.push_back(AccelerationStructure::GpuLight{});
 
+    as.setDiffuseStrength(desc.diffuseStrength);
+    as.setSpecularStrength(desc.specularStrength);
     as.buildScene(instances, materials, gpuLights);
 }

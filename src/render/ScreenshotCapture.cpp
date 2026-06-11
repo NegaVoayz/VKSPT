@@ -99,7 +99,8 @@ void ScreenshotCapture::traceAndDenoise(
         int spp, maxBounces, matCount;
         float fovTan, splitMult, forceSplitWidth;
         int scatterSamples; float mergeThreshold;
-        int frameIndex; int _padEnd[2]; } pc{};
+        int frameIndex;
+        float diffuseStrength, specularStrength; int numLights; } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
     pc.camU[0]=camera.camU[0]; pc.camU[1]=camera.camU[1];
@@ -113,6 +114,9 @@ void ScreenshotCapture::traceAndDenoise(
     pc.fovTan=0.57735f; pc.splitMult=1.0f;
     pc.forceSplitWidth=0.0f; pc.scatterSamples=1;
     pc.mergeThreshold=0.999f; pc.frameIndex=static_cast<int>(f);
+    pc.diffuseStrength=as.getDiffuseStrength();
+    pc.specularStrength=as.getSpecularStrength();
+    pc.numLights=static_cast<int>(as.getLightCount());
 
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
                     pipeline.getPipeline());

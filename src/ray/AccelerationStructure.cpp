@@ -16,7 +16,7 @@ void AccelerationStructure::uploadMaterialBuffer(
     const std::vector<MaterialGPU>& data)
 {
     m_matCount = uint32_t(data.size());
-    vk::DeviceSize sz = MAX_MATERIALS * sizeof(MaterialGPU);
+    vk::DeviceSize sz = maxMaterials * sizeof(MaterialGPU);
     m_matBuf = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eUniformBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -30,14 +30,15 @@ void AccelerationStructure::uploadMaterialBuffer(
 void AccelerationStructure::uploadLightBuffer(
     const std::vector<GpuLight>& lights)
 {
-    vk::DeviceSize sz = MAX_LIGHTS * sizeof(GpuLight);
+    vk::DeviceSize sz = maxLights * sizeof(GpuLight);
     m_lightBuf = GPUBuffer::create(m_device, sz,
         vk::BufferUsageFlagBits::eUniformBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
     void* m = m_lightBuf.memory.mapMemory(0, sz);
     std::memset(m, 0, size_t(sz));
-    size_t n = std::min(lights.size(), size_t(MAX_LIGHTS));
+    size_t n = std::min(lights.size(), size_t(maxLights));
+    m_lightCount = uint32_t(n);
     std::memcpy(m, lights.data(), n * sizeof(GpuLight));
     m_lightBuf.memory.unmapMemory();
 }
@@ -88,13 +89,13 @@ void AccelerationStructure::buildScene(
 
     // Normal matrices
     {
-        std::vector<float> nd(MAX_INSTANCES * 3 * 4, 0);
+        std::vector<float> nd(maxInstances * 3 * 4, 0);
         for (uint32_t i = 0; i < m_instCount; ++i) {
             glm::mat3 m33;
             for (int c=0;c<3;++c) for (int r=0;r<3;++r) m33[c][r]=m_xfs[i][r][c];
             glm::mat3 nm = glm::transpose(glm::inverse(m33));
             for (int c=0;c<3;++c) {
-                size_t b = (c*MAX_INSTANCES+i)*4;
+                size_t b = (c*maxInstances+i)*4;
                 nd[b]=nm[c].x; nd[b+1]=nm[c].y; nd[b+2]=nm[c].z;
             }
         }
@@ -109,6 +110,7 @@ void AccelerationStructure::buildScene(
         sfs.push_back((instances[i].hasNormals && i<m_stagedN.size()
                        && !m_stagedN[i].empty()) ? 1u : 0u);
     }
+    m_geom.maxInstances = maxInstances;
     m_geom.upload(m_device, m_physDevice, m_stagedV, m_stagedI, m_stagedN,
                   mids, sfs);
     uploadMaterialBuffer(mats);

@@ -47,6 +47,15 @@ struct SceneDescription {
     // ---- Spheres (legacy: not yet implemented) ----
     bool sphereDisplay[4] = { false };
 
+    // ---- Strength multipliers ----
+    float diffuseStrength  = 0.5f;
+    float specularStrength = 1.0f;
+
+    // ---- Resource limits (from XML, configurable per-scene) ----
+    uint32_t maxInstances = 16;
+    uint32_t maxMaterials = 16;
+    uint32_t maxLights    = 8;
+
     // ---- Misc (informational) ----
     int refractionMethod = 1;
     int rayOffsetMethod  = 1;

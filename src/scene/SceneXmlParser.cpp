@@ -3,13 +3,16 @@
 #include <tinyxml2.h>
 #include <stdexcept>
 #include <cstring>
+#include <string>
+#include <unordered_set>
 
-// Known object element names in the XML schema
-static const char* kObjectNames[] = {
-    "Duck","Bunny","Dragon","Venus","Asschercut","FudanLogo",
-    "Prism","Checkerboard","Box"
+// XML element tags that are NOT objects (parsed separately elsewhere)
+static const std::unordered_set<std::string> kNonObjectTags = {
+    "RefractionMethod", "EnvironmentMap", "DepthMax", "Camera",
+    "SpheresDisplay", "PointLight", "PointLight2", "SpotLight",
+    "DirectionalLight", "AmbientAgrs", "Strength", "ResourceLimits",
+    "RayOffsetMethod"
 };
-static constexpr int kNumObjectNames = 9;
 
 static float xmlFloat(tinyxml2::XMLElement* el,
     const char* attr, float fallback = 0.0f)
@@ -155,6 +158,18 @@ SceneDescription parseSceneXML(const std::string& xmlPath) {
     if (auto* em = root->FirstChildElement("EnvironmentMap"))
         if (auto* a = em->FirstChildElement("Args"))
             desc.envMapDisplay = (xmlInt(a, "display", 0) != 0);
+    if (auto* rl = root->FirstChildElement("ResourceLimits"))
+        if (auto* a = rl->FirstChildElement("Args")) {
+            desc.maxInstances = xmlInt(a, "maxInstances", 16);
+            desc.maxMaterials = xmlInt(a, "maxMaterials", 16);
+            desc.maxLights    = xmlInt(a, "maxLights", 8);
+        }
+    if (auto* str = root->FirstChildElement("Strength")) {
+        if (auto* d = str->FirstChildElement("diffuseStrength"))
+            desc.diffuseStrength = xmlFloat(d, "value", 0.5f);
+        if (auto* s = str->FirstChildElement("specularStrength"))
+            desc.specularStrength = xmlFloat(s, "value", 1.0f);
+    }
     if (auto* sd = root->FirstChildElement("SpheresDisplay"))
         if (auto* a = sd->FirstChildElement("Args")) {
             desc.sphereDisplay[0] = (xmlInt(a,"sphere1",0) != 0);
@@ -163,13 +178,15 @@ SceneDescription parseSceneXML(const std::string& xmlPath) {
             desc.sphereDisplay[3] = (xmlInt(a,"sphere4",0) != 0);
         }
 
-    for (int i = 0; i < kNumObjectNames; ++i)
-        for (auto* obj = root->FirstChildElement(kObjectNames[i]); obj;
-             obj = obj->NextSiblingElement(kObjectNames[i])) {
-            auto e = parseObject(obj);
-            if (e.display && !e.objFilename.empty())
-                desc.objects.push_back(std::move(e));
-        }
+    // Discover objects: any child element not in kNonObjectTags is an object
+    for (auto* obj = root->FirstChildElement(); obj;
+         obj = obj->NextSiblingElement()) {
+        const char* tag = obj->Name();
+        if (!tag || kNonObjectTags.count(tag)) continue;
+        auto e = parseObject(obj);
+        if (e.display && !e.objFilename.empty())
+            desc.objects.push_back(std::move(e));
+    }
 
     parseLights(root, desc);
     return desc;

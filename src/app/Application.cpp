@@ -121,10 +121,14 @@ void Application::initScene() {
               desc.cameraWidth, desc.cameraHeight, desc.maxDepth,
               desc.objects.size(), desc.pointLights.size(),
               desc.envMapDisplay ? "yes" : "no");
+    m_outputName = desc.outputName;
     SceneBuilder().build(desc, *m_as);
     Log::info("  Build complete: {} instances, {} materials",
               m_as->getInstanceCount(), m_as->getMaterialCount());
-    m_as->loadEnvMap("../../assets/envmap.jpg");
+    if (desc.envMapDisplay)
+        m_as->loadEnvMap("../../assets/envmap.jpg");
+    else
+        Log::info("  Environment map disabled by config");
 }
 
 void Application::run() {
@@ -196,7 +200,7 @@ void Application::run() {
             capCam.camV[0] = cv.x; capCam.camV[1] = cv.y; capCam.camV[2] = cv.z;
             capCam.camW[0] = cw.x; capCam.camW[1] = cw.y; capCam.camW[2] = cw.z;
 
-            m_renderer->captureScreenshot("screenshot.png", *m_as, *m_pipeline,
+            m_renderer->captureScreenshot(m_outputName, *m_as, *m_pipeline,
                                            capCam, 2560, 1440, 64);
         }
     }

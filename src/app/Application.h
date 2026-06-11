@@ -54,4 +54,5 @@ private:
     Camera   m_camera;
     uint32_t m_width;
     uint32_t m_height;
+    std::string m_outputName;
 };

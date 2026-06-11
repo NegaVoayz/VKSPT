@@ -3,9 +3,9 @@ import common.types;
 import common.bindings;
 
 [ForceInline]
-public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint rng) {
+public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint rng, float diffuseStrength, int numLights) {
     float3 contrib = float3(0.0);
-    for (int li = 0; li < 4; li++) {
+    for (int li = 0; li < numLights; li++) {
         float4 ptype = lights.items[li].pos_type;
         int ltype = int(ptype.w);
         if (ltype == LIGHT_AMBIENT) continue;
@@ -52,7 +52,8 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             float r2 = distToLight * distToLight + 1.0;
             float att = lintensity / max(r2, 1.0);
             if (ltype == LIGHT_DIRECTIONAL) att = lintensity;
-            contrib += lcolor * (albedo * 0.31831) * (att * nDotL * spotAtt);
+            float3 diffContrib = lcolor * (albedo * 0.31831) * (att * nDotL * spotAtt);
+            contrib += diffContrib * diffuseStrength;
         }
     }
     return contrib;

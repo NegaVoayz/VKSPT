@@ -19,7 +19,8 @@ struct PushConstants {
     int   samplesPerPixel, maxBounces, materialCount;
     float fovTan, splitMult, forceSplitWidth;
     int   scatterSamples; float mergeThreshold;
-    int   frameIndex; int _padEnd0; int _padEnd1;
+    int   frameIndex;
+    float diffuseStrength; float specularStrength; int numLights;
 };
 [[vk::push_constant]] PushConstants params;
 
@@ -128,14 +129,14 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
             }
 
             uint matIdx = instanceRanges[0].materialID[mi];
-            GpuMaterial mat = materials.items[clamp(matIdx, 0u, 7u)];
+            GpuMaterial mat = materials.items[clamp(matIdx, 0u, max(0u, uint(params.materialCount) - 1u))];
             int matType = int(mat.params.z);
 
             if (matType == MATERIAL_CHECKERBOARD) {
                 float cx = floor(pos.x * 0.5); float cz = floor(pos.z * 0.5);
                 bool white = ((int(cx + cz) % 2) == 0);
                 float3 cb = white ? float3(0.75) : float3(0.15);
-                float3 dl = sampleDirectLighting(pos, facingNrm, cb, rng);
+                float3 dl = sampleDirectLighting(pos, facingNrm, cb, rng, params.diffuseStrength, params.numLights);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
@@ -147,7 +148,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 if (throughput < 0.005) break;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
-                float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng);
+                float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng, params.diffuseStrength, params.numLights);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);

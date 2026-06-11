@@ -6,7 +6,7 @@ public [[vk::binding(1, 0)]]  RWTexture2D<float4>             outputImage;
 
 public struct MaterialBlock { public GpuMaterial items[16]; };
 public [[vk::binding(2, 0)]]  ConstantBuffer<MaterialBlock>    materials;
-public struct LightBlock { public GpuLight items[4]; };
+public struct LightBlock { public GpuLight items[8]; };
 public [[vk::binding(3, 0)]]  ConstantBuffer<LightBlock>       lights;
 
 public [[vk::binding(4, 0)]]  StructuredBuffer<float>          vertexData;

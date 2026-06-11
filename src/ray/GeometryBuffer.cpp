@@ -9,20 +9,21 @@ void GeometryBuffer::upload(
     const std::vector<uint32_t>& matIDs,
     const std::vector<uint32_t>& smoothFlags)
 {
-    std::vector<uint32_t> rangeData(6 * MAX_INSTANCES, 0);
-    auto* vOff = &rangeData[0 * MAX_INSTANCES];
-    auto* vCnt = &rangeData[1 * MAX_INSTANCES];
-    auto* iOff = &rangeData[2 * MAX_INSTANCES];
-    auto* iCnt = &rangeData[3 * MAX_INSTANCES];
-    auto* mIDs = &rangeData[4 * MAX_INSTANCES];
-    auto* sFlg = &rangeData[5 * MAX_INSTANCES];
+    uint32_t mi = maxInstances;
+    std::vector<uint32_t> rangeData(6 * mi, 0);
+    auto* vOff = &rangeData[0 * mi];
+    auto* vCnt = &rangeData[1 * mi];
+    auto* iOff = &rangeData[2 * mi];
+    auto* iCnt = &rangeData[3 * mi];
+    auto* mIDs = &rangeData[4 * mi];
+    auto* sFlg = &rangeData[5 * mi];
 
     std::vector<float>    allV;
     std::vector<uint32_t> allI;
     std::vector<float>    allN;
 
     size_t n = stagedVertices.size();
-    for (size_t i = 0; i < n && i < MAX_INSTANCES; ++i) {
+    for (size_t i = 0; i < n && i < maxInstances; ++i) {
         vOff[i] = static_cast<uint32_t>(allV.size());
         vCnt[i] = static_cast<uint32_t>(stagedVertices[i].size());
         iOff[i] = static_cast<uint32_t>(allI.size());

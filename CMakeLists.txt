@@ -71,6 +71,7 @@ file(MAKE_DIRECTORY "${SHADER_OUT_DIR}")
 set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/common/types.slang"
     "${SHADER_SRC_DIR}/common/cmf_data.slang"
+    "${SHADER_SRC_DIR}/common/bindings.slang"
     "${SHADER_SRC_DIR}/math/spectral_math.slang"
     "${SHADER_SRC_DIR}/math/color.slang"
     "${SHADER_SRC_DIR}/math/absorption.slang"
@@ -78,6 +79,12 @@ set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/math/sampling.slang"
     "${SHADER_SRC_DIR}/geometry/dispersion.slang"
     "${SHADER_SRC_DIR}/geometry/normals.slang"
+    "${SHADER_SRC_DIR}/materials/metal.slang"
+    "${SHADER_SRC_DIR}/materials/checkerboard.slang"
+    "${SHADER_SRC_DIR}/materials/lambertian.slang"
+    "${SHADER_SRC_DIR}/materials/dielectric.slang"
+    "${SHADER_SRC_DIR}/materials/sky_handler.slang"
+    "${SHADER_SRC_DIR}/materials/direct_lighting.slang"
 )
 
 function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
