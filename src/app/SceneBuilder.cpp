@@ -36,27 +36,34 @@ void SceneBuilder::build(const SceneDescription& desc,
         instances.push_back(std::move(inst));
 
         AccelerationStructure::MaterialGPU mat{};
-        if (obj.ior <= 0.0f) {
-            mat.albedo[0]=obj.diffuse.r; mat.albedo[1]=obj.diffuse.g;
-            mat.albedo[2]=obj.diffuse.b;
-            mat.params[0]=1; mat.params[1]=1/std::max(obj.shininess,1.f);
-            mat.params[2]=1;
-        } else if (obj.ior > 1.01f) {
+        auto& m = obj.material;
+        switch (m.type) {
+        case SceneDescription::MaterialType::Dielectric:
             for (int c=0;c<3;++c) {
-                mat.cauchyA[c]=obj.ior; mat.cauchyB[c]=obj.dispersionB;
-                mat.absorpA[c]=obj.absorbA[c]; mat.absorpB[c]=obj.absorbB[c];
+                mat.cauchyA[c]=m.ior; mat.cauchyB[c]=m.dispersionB;
+                mat.absorpA[c]=m.absorbA[c]; mat.absorpB[c]=m.absorbB[c];
             }
-            mat.params[0]=obj.ior; mat.params[1]=0; mat.params[2]=0;
-        } else if (obj.objFilename.find("checkerboard")!=std::string::npos) {
-            mat.albedo[0]=obj.diffuse.r; mat.albedo[1]=obj.diffuse.g;
-            mat.albedo[2]=obj.diffuse.b;
-            mat.params[0]=1; mat.params[1]=1/std::max(obj.shininess,1.f);
+            mat.params[0]=m.ior; mat.params[1]=0; mat.params[2]=0;
+            break;
+        case SceneDescription::MaterialType::Metal:
+            mat.albedo[0]=m.albedo.r; mat.albedo[1]=m.albedo.g;
+            mat.albedo[2]=m.albedo.b;
+            mat.params[0]=1; mat.params[1]=1/std::max(m.roughness,1.f);
+            mat.params[2]=1;
+            break;
+        case SceneDescription::MaterialType::Checkerboard:
+            mat.albedo[0]=m.albedo.r; mat.albedo[1]=m.albedo.g;
+            mat.albedo[2]=m.albedo.b;
+            mat.params[0]=1; mat.params[1]=1/std::max(m.roughness,1.f);
             mat.params[2]=3;
-        } else {
-            mat.albedo[0]=obj.diffuse.r; mat.albedo[1]=obj.diffuse.g;
-            mat.albedo[2]=obj.diffuse.b;
-            mat.params[0]=1; mat.params[1]=1/std::max(obj.shininess,1.f);
+            break;
+        case SceneDescription::MaterialType::Lambertian:
+        default:
+            mat.albedo[0]=m.albedo.r; mat.albedo[1]=m.albedo.g;
+            mat.albedo[2]=m.albedo.b;
+            mat.params[0]=1; mat.params[1]=1/std::max(m.roughness,1.f);
             mat.params[2]=2;
+            break;
         }
         materials.push_back(mat);
     }

@@ -1,6 +1,7 @@
 // Sky/miss handler — adaptive spectral splitting at infinity + envmap accumulation
 import common.types;
 import common.cmf_data;
+import common.bindings;
 import math.legendre_decay;
 import math.color;
 import math.spectral_math;
@@ -93,7 +94,10 @@ public void handleSkyMiss(
 
     float lamMid  = float(bs.lamStart + bs.lamEnd) * 0.5;
     float halfW   = float(bs.lamEnd - bs.lamStart) * 0.5;
-    float3 envLinear = srgbToLinear(float3(0.5));
+    float2 uv;
+    uv.x = atan2(rayD.z, rayD.x) * 0.159155 + 0.5;
+    uv.y = acos(clamp(rayD.y, -1.0, 1.0)) * 0.31831;
+    float3 envLinear = envMap.SampleLevel(envSampler, uv, 0).xyz;
     accumulateSpectrumSky(spectral, lamMid, halfW,
                         bs.throughput, bs.decayC1, bs.decayC2, envLinear);
 }

@@ -3,7 +3,7 @@
     <RefractionMethod>
         <Args version="1"/>
     </RefractionMethod>
-    
+
     <EnvironmentMap>
         <Args display="1"/>
     </EnvironmentMap>
@@ -11,11 +11,11 @@
     <ResourceLimits>
         <Args maxInstances="16" maxMaterials="16" maxLights="8"/>
     </ResourceLimits>
-    
+
     <DepthMax>
         <Args DepthMax="4"/>
     </DepthMax>
-    
+
     <Camera>
         <Args width="256" height="192" outputname="output-result-256-192.jpg"/>
     </Camera>
@@ -25,114 +25,118 @@
     </SpheresDisplay>
 
     <Duck>
-        <Args filename="duck.obj" display="0" normalinterpolation="1" rendermethod="1"/>
+        <Args filename="duck.obj" display="1" normalinterpolation="1"/>
         <Scale x="1.0" y="1.0" z="1.0"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.0" y="0.0" z="0.0"/>
-        <RefractiveIndex x="1.5"/>
-        <DispersionB value="0.004"/>
-        <AbsorptionA x="0.02" y="0.02" z="0.02"/>
-        <AbsorptionB x="0.0" y="0.0" z="0.0"/>
-        <Albedo x="0.0" y="0.5" z="0.1" w="0.8"/>
-        <Diffuse r="0.6" g="0.7" b="0.8"/>
-        <Shiness p="125.0"/>
+        <Material type="dielectric">
+            <RefractiveIndex value="1.5"/>
+            <DispersionB value="0.004"/>
+            <AbsorptionA x="0.02" y="0.02" z="0.02"/>
+            <AbsorptionB x="0.0" y="0.0" z="0.0"/>
+            <Albedo r="0.6" g="0.7" b="0.8"/>
+            <Roughness value="125.0"/>
+        </Material>
     </Duck>
-    
+
     <Asschercut>
-        <Args filename="asschercut-mesh.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Args filename="asschercut-mesh.obj" display="1" normalinterpolation="0"/>
         <Scale x="0.5" y="0.5" z="0.5"/>
         <Rotation x="45.0" y="45.0" z="0.0"/>
         <Translation x="0.2" y="-0.4" z="-2.0"/>
-        <RefractiveIndex x="2.4"/>
-        <DispersionB value="0.014"/>
-        <AbsorptionA x="0.02" y="0.02" z="0.02"/>
-        <AbsorptionB x="0.0" y="0.0" z="0.0"/>
-        <Albedo x="0.0" y="0.5" z="0.1" w="0.8"/>
-        <Diffuse r="0.6" g="0.7" b="0.8"/>
-        <Shiness p="125.0"/>
+        <Material type="dielectric">
+            <RefractiveIndex value="2.4"/>
+            <DispersionB value="0.014"/>
+            <AbsorptionA x="0.02" y="0.02" z="0.02"/>
+            <AbsorptionB x="0.0" y="0.0" z="0.0"/>
+            <Albedo r="0.6" g="0.7" b="0.8"/>
+            <Roughness value="125.0"/>
+        </Material>
     </Asschercut>
 
     <Prism>
-        <Args filename="prism.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Args filename="prism.obj" display="1" normalinterpolation="0"/>
         <Scale x="2" y="2" z="2"/>
         <Rotation x="0.0" y="300.0" z="0.0"/>
         <Translation x="0.0" y="-3.0" z="-7.0"/>
-        <RefractiveIndex x="1.5"/>
-        <DispersionB value="0.008"/>
-        <AbsorptionA x="0.02" y="0.02" z="0.02"/>
-        <AbsorptionB x="0.0" y="0.0" z="0.0"/>
-        <Albedo x="0.0" y="0.5" z="0.1" w="0.8"/>
-        <Diffuse r="0.6" g="0.7" b="0.8"/>
-        <Shiness p="125.0"/>
+        <Material type="dielectric">
+            <RefractiveIndex value="1.5"/>
+            <DispersionB value="0.008"/>
+            <AbsorptionA x="0.02" y="0.02" z="0.02"/>
+            <AbsorptionB x="0.0" y="0.0" z="0.0"/>
+            <Albedo r="0.6" g="0.7" b="0.8"/>
+            <Roughness value="125.0"/>
+        </Material>
     </Prism>
 
     <Checkerboard>
-        <Args filename="checkerboard.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Args filename="checkerboard.obj" display="1" normalinterpolation="0"/>
         <Scale x="1.0" y="1.0" z="1.0"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.0" y="1.8" z="-10.0"/>
-        <RefractiveIndex x="1.0"/>
-        <Albedo x="0.8" y="0.8" z="0.8" w="0.0"/>
-        <Diffuse r="0.8" g="0.8" b="0.8"/>
-        <Shiness p="10.0"/>
+        <Material type="checkerboard">
+            <Albedo r="0.8" g="0.8" b="0.8"/>
+            <Roughness value="10.0"/>
+        </Material>
     </Checkerboard>
 
     <Box>
-        <Args filename="box.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Args filename="box.obj" display="1" normalinterpolation="0"/>
         <Scale x="1.0" y="1.0" z="1.0"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.0" y="0.0" z="-10.0"/>
-        <RefractiveIndex x="1.5"/>
-        <DispersionB value="0.004"/>
-        <AbsorptionA x="0.02" y="0.02" z="0.02"/>
-        <AbsorptionB x="0.0" y="0.0" z="0.0"/>
-        <Albedo x="0.0" y="0.5" z="0.1" w="0.8"/>
-        <Diffuse r="0.6" g="0.7" b="0.8"/>
-        <Shiness p="125.0"/>
+        <Material type="dielectric">
+            <RefractiveIndex value="1.5"/>
+            <DispersionB value="0.004"/>
+            <AbsorptionA x="0.02" y="0.02" z="0.02"/>
+            <AbsorptionB x="0.0" y="0.0" z="0.0"/>
+            <Albedo r="0.6" g="0.7" b="0.8"/>
+            <Roughness value="125.0"/>
+        </Material>
     </Box>
 
     <Bunny>
-        <Args filename="bunny-mesh.obj" display="1" normalinterpolation="1" rendermethod="1"/>
+        <Args filename="bunny-mesh.obj" display="1" normalinterpolation="1"/>
         <Scale x="0.3" y="0.3" z="0.3"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.9" y="-1.0" z="-1.5"/>
-        <RefractiveIndex x="1.0"/>
-        <Albedo x="0.9" y="0.1" z="0.0" w="0.0"/>
-        <Diffuse r="0.26" g="0.47" b="0.35"/>
-        <Shiness p="10.0"/>
+        <Material type="lambertian">
+            <Albedo r="0.26" g="0.47" b="0.35"/>
+            <Roughness value="10.0"/>
+        </Material>
     </Bunny>
-    
+
     <Dragon>
-        <Args filename="dragon-mesh.obj" display="1" normalinterpolation="1" rendermethod="1"/>
+        <Args filename="dragon-mesh.obj" display="1" normalinterpolation="1"/>
         <Scale x="0.7" y="0.7" z="0.7"/>
         <Rotation x="0.0" y="110.0" z="0.0"/>
         <Translation x="-4.15" y="-3.0" z="-7.0"/>
-        <RefractiveIndex x="1.0"/>
-        <Albedo x="0.9" y="0.1" z="0.0" w="0.0"/>
-        <Diffuse r="0.13" g="0.39" b="0.72"/>
-        <Shiness p="10.0"/>
+        <Material type="lambertian">
+            <Albedo r="0.13" g="0.39" b="0.72"/>
+            <Roughness value="10.0"/>
+        </Material>
     </Dragon>
-    
+
     <Venus>
-        <Args filename="venus-mesh.obj" display="1" normalinterpolation="1" rendermethod="1"/>
+        <Args filename="venus-mesh.obj" display="1" normalinterpolation="1"/>
         <Scale x="5.5" y="5.5" z="5.5"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="-1.0" y="2.0" z="-19.0"/>
-        <RefractiveIndex x="0.0"/>   <!-- IOR=0 → metal -->
-        <Albedo x="0.95" y="0.70" z="0.25" w="0.0"/>   <!-- gold -->
-        <Diffuse r="0.95" g="0.70" b="0.25"/>   <!-- gold reflectance -->
-        <Shiness p="1425.0"/>
+        <Material type="metal">
+            <Albedo r="0.95" g="0.70" b="0.25"/>
+            <Roughness value="1425.0"/>
+        </Material>
     </Venus>
-    
+
     <FudanLogo>
-        <Args filename="fudanlogo-mesh.obj" display="1" normalinterpolation="0" rendermethod="1"/>
+        <Args filename="fudanlogo-mesh.obj" display="1" normalinterpolation="0"/>
         <Scale x="0.4" y="0.4" z="0.4"/>
         <Rotation x="90.0" y="0.0" z="0.0"/>
         <Translation x="-0.5" y="2.0" z="-4.0"/>
-        <RefractiveIndex x="1.0"/>
-        <Albedo x="0.7" y="0.3" z="0.0" w="0.0"/>
-        <Diffuse r="0.235294" g="0.130719" b="0.078431"/>
-        <Shiness p="10.0"/>
+        <Material type="lambertian">
+            <Albedo r="0.235294" g="0.130719" b="0.078431"/>
+            <Roughness value="10.0"/>
+        </Material>
     </FudanLogo>
 
     <PointLight2>
@@ -155,13 +159,13 @@
     </DirectionalLight>
 
     <AmbientAgrs>
-		<Strength value ="0.1f"/>
-		<Color r ="0.1" g ="0.1" b ="0.1"/>
+        <Strength value ="0.1f"/>
+        <Color r ="0.1" g ="0.1" b ="0.1"/>
     </AmbientAgrs>
 
-	<Strength>
-		<diffuseStrength value ="0.5"/>
-		<specularStrength value ="1"/>
-	</Strength>
-	
+    <Strength>
+        <diffuseStrength value ="0.5"/>
+        <specularStrength value ="1"/>
+    </Strength>
+
 </SceneInfo>

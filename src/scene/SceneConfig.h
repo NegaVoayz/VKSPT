@@ -15,20 +15,24 @@ struct SceneDescription {
     int         maxDepth     = 4;
 
     // ---- Object entries (one per XML object element) ----
+    enum class MaterialType { Dielectric, Metal, Lambertian, Checkerboard };
+    struct MaterialData {
+        MaterialType type   = MaterialType::Lambertian;
+        float        ior         = 1.0f;              // refractive index (dielectric)
+        float        dispersionB = 0.004f;             // Cauchy B for IOR dispersion
+        float        roughness   = 1.0f;              // shininess exponent
+        glm::vec3    albedo{ 1.0f, 1.0f, 1.0f };     // base color (diffuse/metal)
+        glm::vec3    absorbA{ 0.0f, 0.0f, 0.0f };    // Cauchy absorption α(λ)=A+B/λ²
+        glm::vec3    absorbB{ 0.0f, 0.0f, 0.0f };
+    };
     struct ObjectEntry {
         std::string objFilename;                     // e.g. "duck.obj"
         bool        display           = true;
-        bool        normalInterpolation = false;     // smooth normals (not yet implemented)
+        bool        normalInterpolation = false;
         glm::vec3   scale{ 1.0f, 1.0f, 1.0f };
         glm::vec3   rotation{ 0.0f, 0.0f, 0.0f };   // Euler angles in degrees
         glm::vec3   translation{ 0.0f, 0.0f, 0.0f };
-        float       ior         = 1.0f;              // refractive index
-        glm::vec4   albedoWt{ 0.0f, 0.0f, 0.0f, 0.0f }; // diffuse/specular/refl/refr weights
-        glm::vec3   diffuse{ 1.0f, 1.0f, 1.0f };    // diffuse colour
-        float       shininess   = 1.0f;              // specular exponent
-        glm::vec3   absorbA{ 0.0f, 0.0f, 0.0f };    // Cauchy absorption α(λ)=A+B/λ²
-        glm::vec3   absorbB{ 0.0f, 0.0f, 0.0f };
-        float       dispersionB = 0.004f;             // Cauchy B for IOR dispersion
+        MaterialData material;
     };
     std::vector<ObjectEntry> objects;
 

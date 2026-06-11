@@ -55,25 +55,36 @@ static SceneDescription::ObjectEntry parseObject(
     if (auto* t = objEl->FirstChildElement("Translation")) {
         entry.translation = {xmlFloat(t,"x",0), xmlFloat(t,"y",0), xmlFloat(t,"z",0)};
     }
-    if (auto* ri = objEl->FirstChildElement("RefractiveIndex"))
-        entry.ior = xmlFloat(ri, "x", 1.0f);
-    if (auto* al = objEl->FirstChildElement("Albedo")) {
-        entry.albedoWt = {xmlFloat(al,"x",0), xmlFloat(al,"y",0),
-                          xmlFloat(al,"z",0), xmlFloat(al,"w",0)};
+
+    // Parse <Material type="dielectric|metal|lambertian|checkerboard">
+    if (auto* matEl = objEl->FirstChildElement("Material")) {
+        auto& mat = entry.material;
+        const char* tstr = xmlStr(matEl, "type", "lambertian");
+        if (std::strcmp(tstr, "dielectric") == 0)
+            mat.type = SceneDescription::MaterialType::Dielectric;
+        else if (std::strcmp(tstr, "metal") == 0)
+            mat.type = SceneDescription::MaterialType::Metal;
+        else if (std::strcmp(tstr, "checkerboard") == 0)
+            mat.type = SceneDescription::MaterialType::Checkerboard;
+        else
+            mat.type = SceneDescription::MaterialType::Lambertian;
+
+        if (auto* ri = matEl->FirstChildElement("RefractiveIndex"))
+            mat.ior = xmlFloat(ri, "value", 1.0f);
+        if (auto* db = matEl->FirstChildElement("DispersionB"))
+            mat.dispersionB = xmlFloat(db, "value", 0.004f);
+        if (auto* ro = matEl->FirstChildElement("Roughness"))
+            mat.roughness = xmlFloat(ro, "value", 1.0f);
+        if (auto* al = matEl->FirstChildElement("Albedo")) {
+            mat.albedo = {xmlFloat(al,"r",1), xmlFloat(al,"g",1), xmlFloat(al,"b",1)};
+        }
+        if (auto* aa = matEl->FirstChildElement("AbsorptionA")) {
+            mat.absorbA = {xmlFloat(aa,"x",0), xmlFloat(aa,"y",0), xmlFloat(aa,"z",0)};
+        }
+        if (auto* ab = matEl->FirstChildElement("AbsorptionB")) {
+            mat.absorbB = {xmlFloat(ab,"x",0), xmlFloat(ab,"y",0), xmlFloat(ab,"z",0)};
+        }
     }
-    if (auto* d = objEl->FirstChildElement("Diffuse")) {
-        entry.diffuse = {xmlFloat(d,"r",1), xmlFloat(d,"g",1), xmlFloat(d,"b",1)};
-    }
-    if (auto* sh = objEl->FirstChildElement("Shiness"))
-        entry.shininess = xmlFloat(sh, "p", 1.0f);
-    if (auto* aa = objEl->FirstChildElement("AbsorptionA")) {
-        entry.absorbA = {xmlFloat(aa,"x",0), xmlFloat(aa,"y",0), xmlFloat(aa,"z",0)};
-    }
-    if (auto* ab = objEl->FirstChildElement("AbsorptionB")) {
-        entry.absorbB = {xmlFloat(ab,"x",0), xmlFloat(ab,"y",0), xmlFloat(ab,"z",0)};
-    }
-    if (auto* db = objEl->FirstChildElement("DispersionB"))
-        entry.dispersionB = xmlFloat(db, "value", 0.004f);
     return entry;
 }
 
