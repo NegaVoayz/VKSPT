@@ -89,8 +89,9 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
                 continue; // TIR at entry — this wavelength doesn't pass
 
             // Trace through the dielectric interior
-            float3 insideOrg = sOrg + toLight * tEntry + insideDir * 0.01;
-            float insideTMax = tMax - tEntry - 0.01;
+            float3 entryPt = sOrg + toLight * tEntry;
+            float3 insideOrg = entryPt + insideDir * 0.05;
+            float insideTMax = tMax - tEntry - 0.05;
             RayQuery<RAY_FLAG_FORCE_OPAQUE> rq1;
             RayDesc insideRay = { insideOrg, 0.001, insideDir, insideTMax };
             rq1.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, insideRay);
@@ -112,17 +113,33 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
                 continue; // TIR at exit
 
             // Trace from exit point towards the light
-            float3 exitOrg = insideOrg + insideDir * tInside + finalDir * 0.01;
-            float exitTMax = tMax - tEntry - tInside - 0.02;
+            float3 exitPt = insideOrg + insideDir * tInside;
+            float3 exitOrg = exitPt + finalDir * 0.05;
+            float exitTMax = tMax - tEntry - tInside - 0.1;
             float3 toLightFromExit = ltype == LIGHT_DIRECTIONAL ? toLight : normalize(lpos - exitOrg);
 
-            RayQuery<RAY_FLAG_FORCE_OPAQUE> rq2;
-            RayDesc exitRay = { exitOrg, 0.001, toLightFromExit, exitTMax };
-            rq2.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, exitRay);
-            while (rq2.Proceed()) {}
-
-            if (rq2.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-                continue; // something blocks the light after the prism
+            // Shadow ray: skip same dielectric instance (avoid self-hit)
+            bool exitBlocked = false;
+            float3 esOrg = exitOrg;
+            float esRemain = exitTMax;
+            for (int ep = 0; ep < 3 && esRemain > 0.001; ep++) {
+                RayQuery<RAY_FLAG_FORCE_OPAQUE> rq2;
+                RayDesc eRay = { esOrg, 0.001, toLightFromExit, esRemain };
+                rq2.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, eRay);
+                while (rq2.Proceed()) {}
+                if (rq2.CommittedStatus() != COMMITTED_TRIANGLE_HIT) break;
+                float etHit = rq2.CommittedRayT();
+                int emi = rq2.CommittedInstanceID();
+                uint ematIdx = instanceRanges[0].materialID[emi];
+                GpuMaterial emat = materials.items[clamp(ematIdx, 0u, 15u)];
+                if (int(emat.params.z) != MATERIAL_DIELECTRIC) {
+                    exitBlocked = true; break;
+                }
+                // Another dielectric: advance past it
+                esOrg = esOrg + toLightFromExit * (etHit + 0.05);
+                esRemain -= (etHit + 0.05);
+            }
+            if (exitBlocked) continue;
 
             // Light reached! Accumulate into spectral bucket
             float r2 = distToLight * distToLight + 1.0;

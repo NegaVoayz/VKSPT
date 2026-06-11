@@ -149,7 +149,7 @@
         <Position x="2.0" y="-2.0" z="-7.0"/>
         <Direction x="-1.0" y="-0.5" z="0.0"/>
         <Args innerAngle="2.5" outerAngle="5.5" intensity="200.0" maxDistance="50.0"/>
-        <Color r="1.0" g="1.0" b="0.0"/>
+        <Color r="1.0" g="1.0" b="1.0"/>
     </SpotLight>
 
     <DirectionalLight>
