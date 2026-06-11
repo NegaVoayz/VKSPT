@@ -69,8 +69,8 @@ static SceneDescription::ObjectEntry parseObject(
         else
             mat.type = SceneDescription::MaterialType::Lambertian;
 
-        if (auto* ri = matEl->FirstChildElement("RefractiveIndex"))
-            mat.ior = xmlFloat(ri, "value", 1.0f);
+        if (auto* da = matEl->FirstChildElement("DispersionA"))
+            mat.ior = xmlFloat(da, "value", 1.0f);
         if (auto* db = matEl->FirstChildElement("DispersionB"))
             mat.dispersionB = xmlFloat(db, "value", 0.004f);
         if (auto* ro = matEl->FirstChildElement("Roughness"))

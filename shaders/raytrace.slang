@@ -136,7 +136,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 float cx = floor(pos.x * 0.5); float cz = floor(pos.z * 0.5);
                 bool white = ((int(cx + cz) % 2) == 0);
                 float3 cb = white ? float3(0.75) : float3(0.15);
-                float3 dl = sampleDirectLighting(pos, facingNrm, cb, rng, params.diffuseStrength, params.numLights);
+                float3 dl = sampleDirectLighting(pos, facingNrm, cb, rng, params.diffuseStrength, params.numLights, spectral);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
@@ -148,7 +148,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 if (throughput < 0.005) break;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
-                float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng, params.diffuseStrength, params.numLights);
+                float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng, params.diffuseStrength, params.numLights, spectral);
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,
                                         lastSplit, disp, lastGeom, geomD,
                                         lamStart, lamEnd, generation, colorAccum);
