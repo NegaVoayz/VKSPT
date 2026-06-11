@@ -13,11 +13,17 @@ public void handleMetal(
     float r2 = (ma.x + ma.z - 2.0*ma.y) / 3.0;
     const float SQRT_3_5 = 0.77459667;
     const float W0 = 5.0/9.0, W1 = 8.0/9.0, W2 = 5.0/9.0;
+    float lamMid = float(bs.lamStart + bs.lamEnd) * 0.5;
+    float halfW  = float(bs.lamEnd - bs.lamStart) * 0.5;
+    const float LAM_CENTER = float(LAMBDA_MIN + LAMBDA_MAX) * 0.5;
+    const float LAM_HALF   = float(LAMBDA_MAX - LAMBDA_MIN) * 0.5;
     float newD[3];
     for (int k = 0; k < 3; k++) {
         float xk = (k == 0) ? -SQRT_3_5 : ((k == 1) ? 0.0 : SQRT_3_5);
         float Dk = evalDecay(bs.throughput, bs.decayC1, bs.decayC2, xk);
-        float Rk = evalDecay(r0, r1, r2, xk);
+        float lam_k = lamMid + halfW * xk;
+        float xFull = (lam_k - LAM_CENTER) / LAM_HALF;
+        float Rk = evalDecay(r0, r1, r2, xFull);
         newD[k] = Dk * Rk;
     }
     bs.throughput = 0.5 * (W0*newD[0] + W1*newD[1] + W2*newD[2]);
