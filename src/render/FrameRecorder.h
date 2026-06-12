@@ -86,7 +86,7 @@ private:
     float     m_tsPeriod;
     bool      m_hasTS;
     uint64_t  m_frameCount = 0;
-    int m_photonCount = 65536;
+    int m_photonCount = 131072;
     int m_photonMaxBounces = 12;
     float m_gatherRadius = 0.02f;
 };

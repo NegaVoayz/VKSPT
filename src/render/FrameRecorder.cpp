@@ -171,7 +171,8 @@ void FrameRecorder::dispatchTrace(
         int   passType;
         float gatherRadius;
         int   photonMaxBounces;
-        float _padEnd[32];
+        int   photonCount;
+        float _padEnd[31];
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -237,7 +238,8 @@ void FrameRecorder::dispatchPhotonTrace(
         int   passType;
         float gatherRadius;
         int   photonMaxBounces;
-        float _padEnd[32];
+        int   photonCount;
+        float _padEnd[31];
     } pc{};
 
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
@@ -252,6 +254,7 @@ void FrameRecorder::dispatchPhotonTrace(
     pc.passType = 1;  // PASS_PHOTON
     pc.gatherRadius = m_gatherRadius;
     pc.photonMaxBounces = m_photonMaxBounces;
+    pc.photonCount = m_photonCount;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());
@@ -281,7 +284,8 @@ void FrameRecorder::dispatchHashCount(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(f), nullptr);
-    cb.dispatch(4096, 1, 1);  // MAX_PHOTONS / 256
+    // photonCount × 16 (max split) / 256 threads per workgroup
+    cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
 }
 
 void FrameRecorder::dispatchHashScan(
@@ -303,7 +307,8 @@ void FrameRecorder::dispatchHashScatter(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(f), nullptr);
-    cb.dispatch(4096, 1, 1);  // MAX_PHOTONS / 256
+    // photonCount × 16 (max split) / 256 threads per workgroup
+    cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
 }
 
 void FrameRecorder::denoisePass(

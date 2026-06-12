@@ -34,7 +34,7 @@ public static const int PASS_CAMERA = 0;
 public static const int PASS_PHOTON = 1;
 
 // Photon map
-public static const int MAX_PHOTONS = 1048576;  // 1M cap
+public static const int MAX_PHOTONS = 2097152;  // 2M cap
 public static const int HASH_TABLE_SIZE = 262144;  // 2^18, spatial hash buckets
 
 public struct PhotonRecord {

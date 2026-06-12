@@ -14,6 +14,8 @@ public:
     uint32_t maxMaterials = 16;
     uint32_t maxLights    = 8;
     uint32_t maxInstances = 16;
+    static constexpr uint32_t MAX_PHOTONS = 2048u * 1024u;
+    static constexpr uint32_t HASH_TABLE_SIZE = 256u * 1024u;
 
     struct MeshData {
         std::vector<float>    vertices, normals;

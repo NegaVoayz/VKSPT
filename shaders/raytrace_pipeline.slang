@@ -68,7 +68,7 @@ void RayGenMain()
 void PhotonRayGenMain()
 {
     uint photonIdx = DispatchRaysIndex().x;
-    uint totalPhotons = 65536u;  // 256x256 initial photons
+    uint totalPhotons = uint(max(1, params.photonCount));
 
     if (photonIdx >= totalPhotons) return;
 

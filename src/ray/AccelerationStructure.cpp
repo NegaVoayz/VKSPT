@@ -121,8 +121,7 @@ void AccelerationStructure::buildScene(
 
 void AccelerationStructure::createPhotonBuffers()
 {
-    constexpr uint32_t MAX_PHOTONS = 1024u * 1024u;  // 1M photons
-    constexpr uint32_t kPhotonRecSize = 72;           // PhotonRecord is 72 bytes
+    constexpr uint32_t kPhotonRecSize = 72;  // PhotonRecord is 72 bytes
 
     m_photonBuf = GPUBuffer::Create(m_device,
         MAX_PHOTONS * kPhotonRecSize,
@@ -137,17 +136,12 @@ void AccelerationStructure::createPhotonBuffers()
 
 void AccelerationStructure::createHashBuffers()
 {
-    constexpr uint32_t HASH_TABLE_SIZE = 256u * 1024u;  // 2^18 = 262144
-    constexpr uint32_t MAX_PHOTONS = 1024u * 1024u;
-
-    // Interleaved [count, offset] pairs — needs TransferDst for vkCmdFillBuffer
     m_hashCellData = GPUBuffer::Create(m_device,
         HASH_TABLE_SIZE * 2 * sizeof(uint32_t),
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 
-    // Sorted photon indices — fully written by scatter pass, no init needed
     m_sortedPhotonIndices = GPUBuffer::Create(m_device,
         MAX_PHOTONS * sizeof(uint32_t),
         vk::BufferUsageFlagBits::eStorageBuffer,

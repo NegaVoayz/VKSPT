@@ -34,7 +34,8 @@ struct PushConstants {
     int   passType;         // PASS_CAMERA or PASS_PHOTON
     float gatherRadius;     // photon gather search radius
     int   photonMaxBounces; // max bounces for photon paths
-    float _padEnd[32];       // expand push constant range to 256 bytes
+    int   photonCount;       // emitted photons per frame
+    float _padEnd[31];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 
