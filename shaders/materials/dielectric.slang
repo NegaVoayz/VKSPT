@@ -45,8 +45,8 @@ public void handleDielectric(
         R0 = R0 * R0;
         float fresnelR = R0 + (1.0 - R0) * pow(1.0 - cosTheta, 5.0);
 
-        float reflThroughput = bs.throughput * fresnelR;
-        if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > 0.005) {
+        float reflThroughput = bs.throughput + log(fresnelR);
+        if (stackTop < SPECTRAL_STACK_MAX && reflThroughput > -5.298317) {
             float3 reflDir = reflectDir(bs.rayD, nrm);
             RayState refl;
             refl.origin      = pos + nrm * 0.001 + reflDir * 0.01;
@@ -58,15 +58,14 @@ public void handleDielectric(
             refl.lam_start   = bs.lamStart;
             refl.lam_end     = bs.lamEnd;
             refl.throughput  = reflThroughput;
-            refl.decay_c1    = bs.decayC1 * fresnelR;
-            refl.decay_c2    = bs.decayC2 * fresnelR;
+            refl.decay_c1    = bs.decayC1;
+            refl.decay_c2    = bs.decayC2;
             refl.bounce      = bounce + 1;
             refl.generation  = bs.generation;
             rayStack[stackTop++] = refl;
         }
-        bs.throughput *= (1.0 - fresnelR);
-        bs.decayC1    *= (1.0 - fresnelR);
-        bs.decayC2    *= (1.0 - fresnelR);
+        bs.throughput += log(max(1.0 - fresnelR, 1e-10));
+        // c1,c2 unchanged — Fresnel is wavelength-independent
 
         float estDist = max(tHit, 50.0);
         float3  predictedGeom = bs.lastGeom + bs.geomD * estDist;
@@ -81,12 +80,12 @@ public void handleDielectric(
         float alphaVar   = abs(exp(-alphaStart * tHit) - exp(-alphaEnd * tHit));
 
         bool forceWide = (int(forceSplitWidth) > 0) && (lamRange > int(forceSplitWidth));
-        bool needSplit = (sepMag > pixThresh) || (alphaVar > 0.05 && decayPoorFit) || forceWide;
+        bool needSplit = (sepMag > pixThresh) || forceWide;
 
         bool spectralDriven = (length(predictedSep) > pixThresh);
         bool geomDriven     = (length(predictedGeom) > pixThresh);
 
-        if (needSplit && lamRange >= 10 && bs.throughput >= 0.05 && bs.generation < 8) {
+        if (needSplit && lamRange >= 10 && !decayIsDead(bs.throughput, bs.decayC2) && bs.generation < 8) {
             int midWl = (bs.lamStart + bs.lamEnd) / 2;
             int nextGen = bs.generation + 1;
 
@@ -101,14 +100,14 @@ public void handleDielectric(
                 gchild.geomDisp    = bs.geomD;
                 gchild.lam_start   = bs.lamStart;
                 gchild.lam_end     = bs.lamEnd;
-                gchild.throughput  = bs.throughput * 0.5;
-                gchild.decay_c1    = bs.decayC1 * 0.5;
-                gchild.decay_c2    = bs.decayC2 * 0.5;
+                gchild.throughput  = bs.throughput - 0.693147; // ln(0.5)
+                gchild.decay_c1    = bs.decayC1;
+                gchild.decay_c2    = bs.decayC2;
                 gchild.bounce      = bounce + 1;
                 gchild.generation  = nextGen;
                 if (stackTop < SPECTRAL_STACK_MAX) {
                     rayStack[stackTop++] = gchild;
-                    bs.throughput *= 0.5; bs.decayC1 *= 0.5; bs.decayC2 *= 0.5;
+                    bs.throughput -= 0.693147;
                     bs.generation = nextGen;
                 }
             } else {

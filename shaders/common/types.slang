@@ -14,6 +14,7 @@ public struct GpuMaterial {
     public float4 cauchyA, cauchyB;
     public float4 absorpA, absorpB;
     public float4 albedo, params;
+    public float4 precalc;       // .x = ln(0.07+0.93*lum) for lambertian
 };
 
 public struct RayState {

@@ -1,6 +1,7 @@
 import common.types;
 import common.cmf_data;
 import common.bindings;
+import math.spectral_math;
 import math.color;
 import math.sampling;
 import geometry.normals;
@@ -48,7 +49,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         int stackTop = 0;
         RayState init = {
             origin, camDir, float3(0), float3(0), float3(0), float3(0),
-            LAMBDA_MIN, LAMBDA_MAX, 1.0, 0.0, 0.0, 0, 0
+            LAMBDA_MIN, LAMBDA_MAX, 0.0, 0.0, 0.0, 0, 0
         };
         rayStack[stackTop++] = init;
 
@@ -74,7 +75,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         int   generation = r.generation;
 
         for (int bounce = r.bounce; bounce < params.maxBounces; ++bounce) {
-            if (throughput < 0.005) break;
+            if (decayIsDead(throughput, decayC2)) break;
 
             RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
             RayDesc ray = { rayO, 0.001, rayD, 10000.0 };
@@ -145,7 +146,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
                          lamStart, lamEnd, generation, colorAccum, bs);
-                if (throughput < 0.005) break;
+                if (decayIsDead(throughput, decayC2)) break;
             }
             else if (matType == MATERIAL_LAMBERTIAN) {
                 float3 dl = sampleDirectLighting(pos, facingNrm, mat.albedo.xyz, rng, params.diffuseStrength, params.numLights, spectral);
@@ -157,7 +158,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 unpackBs(rayO, rayD, throughput, decayC1, decayC2,
                          lastSplit, disp, lastGeom, geomD,
                          lamStart, lamEnd, generation, colorAccum, bs);
-                if (throughput < 0.005) break;
+                if (decayIsDead(throughput, decayC2)) break;
             }
             else if (matType == MATERIAL_DIELECTRIC) {
                 BounceState bs = packBs(rayO, rayD, throughput, decayC1, decayC2,

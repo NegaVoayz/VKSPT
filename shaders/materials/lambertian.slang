@@ -13,7 +13,6 @@ public void handleLambertian(
     int bounce, int scatSamples)
 {
     float nl = rgbToDomLambda(mat.albedo.xyz);
-    float lum = dot(mat.albedo.xyz, float3(0.299, 0.587, 0.114));
     float maxC = max(max(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
     float minC = min(min(mat.albedo.xyz.x, mat.albedo.xyz.y), mat.albedo.xyz.z);
     float sat = (maxC - minC) / max(maxC, 0.001);
@@ -25,22 +24,24 @@ public void handleLambertian(
 
     float preAbsTP = bs.throughput;
     float attMix = lerp(1.0, attAvg, sat);
-    bs.throughput *= attMix * (0.07 + 0.93 * lum);
+    bs.throughput += log(max(attMix, 1e-10)) + mat.precalc.x;
 
-    bs.colorAccum += directLin * preAbsTP;
+    bs.colorAccum += directLin * exp(preAbsTP - 0.5 * bs.decayC2);
 
     if (bounce >= 3) {
-        float survive = max(bs.throughput, 0.1);
-        if (rand1(rng) > survive) { bs.throughput = 0.0; return; }
-        bs.throughput /= survive;
+        float linearTP = exp(bs.throughput - 0.5 * bs.decayC2);
+        float survive = max(linearTP, 0.1);
+        if (rand1(rng) > survive) { bs.throughput = -20.0; return; }
+        bs.throughput -= log(survive);
     }
 
     int scatCount = int(scatSamples);
     if (scatCount < 1) scatCount = 1;
     if (scatCount > 4) scatCount = 4;
-    float scatThroughput = bs.throughput / float(scatCount);
-    float scatC1 = bs.decayC1 / float(scatCount);
-    float scatC2 = bs.decayC2 / float(scatCount);
+    static const float LOG_SCAT[5] = {0.0, 0.0, -0.693147, -1.098612, -1.386294};
+    float scatLogTP = bs.throughput + LOG_SCAT[scatCount];
+    float scatC1 = bs.decayC1;
+    float scatC2 = bs.decayC2;
     for (int s = 0; s < scatCount - 1; s++) {
         if (stackTop < SPECTRAL_STACK_MAX) {
             float3 sDir = cosineSampleHemisphere(nrm, rng);
@@ -53,7 +54,7 @@ public void handleLambertian(
             scat.geomDisp    = float3(0.0);
             scat.lam_start   = bs.lamStart;
             scat.lam_end     = bs.lamEnd;
-            scat.throughput  = scatThroughput;
+            scat.throughput  = scatLogTP;
             scat.decay_c1    = scatC1;
             scat.decay_c2    = scatC2;
             scat.bounce      = bounce + 1;
@@ -63,7 +64,7 @@ public void handleLambertian(
     }
     bs.rayD       = cosineSampleHemisphere(nrm, rng);
     bs.rayO       = pos + nrm * 0.001 + bs.rayD * 0.01;
-    bs.throughput = scatThroughput;
+    bs.throughput = scatLogTP;
     bs.decayC1    = scatC1;
     bs.decayC2    = scatC2;
     bs.lastSplit  = float3(0.0); bs.disp = float3(0.0);

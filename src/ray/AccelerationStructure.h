@@ -27,7 +27,7 @@ public:
     };
     struct alignas(16) MaterialGPU {
         float cauchyA[4]{}, cauchyB[4]{}, absorpA[4]{}, absorpB[4]{};
-        float albedo[4]{}, params[4]{};
+        float albedo[4]{}, params[4]{}, precalc[4]{};
     };
     struct alignas(16) GpuLight {
         float pos_type[4]{}, color_intensity[4]{};

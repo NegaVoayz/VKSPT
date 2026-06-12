@@ -46,7 +46,7 @@ public void handleSkyMiss(
     float skyThresh  = estSkyDist * skyPixHW * 0.5 * splitMult;
 
     int lamRange = bs.lamEnd - bs.lamStart;
-    if (skySepMag > skyThresh && lamRange >= 20 && bs.throughput >= 0.05 && bs.generation < 7) {
+    if (skySepMag > skyThresh && lamRange >= 20 && !decayIsDead(bs.throughput, bs.decayC2) && bs.generation < 7) {
         int midWl = (bs.lamStart + bs.lamEnd) / 2;
         float3 skyPerp = normalize(skyDisp);
         if (length(skyPerp) < 0.0001) skyPerp = float3(1,0,0);

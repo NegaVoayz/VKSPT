@@ -2,6 +2,7 @@
 #include "core/Log.h"
 #include "scene/ObjLoader.h"
 #include <algorithm>
+#include <cmath>
 
 void SceneBuilder::build(const SceneDescription& desc,
                           AccelerationStructure& as)
@@ -63,6 +64,10 @@ void SceneBuilder::build(const SceneDescription& desc,
             mat.albedo[2]=m.albedo.b;
             mat.params[0]=1; mat.params[1]=1/std::max(m.roughness,1.f);
             mat.params[2]=2;
+            {
+                float lum = 0.299f*mat.albedo[0] + 0.587f*mat.albedo[1] + 0.114f*mat.albedo[2];
+                mat.precalc[0] = std::log(0.07f + 0.93f * lum);
+            }
             break;
         }
         materials.push_back(mat);

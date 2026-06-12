@@ -44,7 +44,7 @@ public float3 integrateSkySRGB(float lamMid, float halfWidth,
                        float3 envLinear) {
     float bandWidth = halfWidth * 2.0;
     if (bandWidth > 350.0 && abs(c1) < 0.001 && abs(c2) < 0.001) {
-        return envLinear * c0;
+        return envLinear * exp(c0);  // log-space c0 → linear D=exp(c0)
     }
     const float XK[7] = { -0.94910791, -0.74153119, -0.40584515, 0.0, 0.40584515, 0.74153119, 0.94910791 };
     const float WK[7] = { 0.12948497, 0.27970539, 0.38183005, 0.41795918, 0.38183005, 0.27970539, 0.12948497 };
