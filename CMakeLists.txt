@@ -109,9 +109,28 @@ function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
     set(SHADER_OUTPUT_${TARGET_NAME} "${OUTPUT_FILE}" PARENT_SCOPE)
 endfunction()
 
-compile_shader_slang(raytrace_shader raytrace.slang raytrace.comp.spv
-    SLANGC_FLAGS -capability;spvRayQueryKHR)
 compile_shader_slang(denoise_shader denoise.slang denoise.comp.spv)
+
+# RT Pipeline shader (multi-entry-point RT stages)
+set(RT_PIPELINE_SRC "${SHADER_SRC_DIR}/raytrace_pipeline.slang")
+set(RT_PIPELINE_OUT "${SHADER_OUT_DIR}/raytrace_pipeline.spv")
+add_custom_command(
+    OUTPUT "${RT_PIPELINE_OUT}"
+    COMMAND "${SLANGC}"
+            "${RT_PIPELINE_SRC}"
+            -target spirv
+            -emit-spirv-directly
+            -I "${SHADER_SRC_DIR}"
+            -entry RayGenMain -stage raygeneration
+            -entry ClosestHitMain -stage closesthit
+            -entry MissMain -stage miss
+            -capability spvRayTracingKHR
+            -o "${RT_PIPELINE_OUT}"
+    DEPENDS "${RT_PIPELINE_SRC}"
+            ${SHADER_HEADERS}
+    COMMENT "Compiling Slang shader: raytrace_pipeline.slang -> raytrace_pipeline.spv"
+)
+add_custom_target(raytrace_pipeline_shader DEPENDS "${RT_PIPELINE_OUT}")
 
 # -----------------------------------------------------------------------------
 # Main executable
@@ -143,6 +162,9 @@ add_executable(vkrt
     src/scene/ObjLoader.cpp
 )
 
+# Enable dynamic dispatch (required for VK_KHR_ray_tracing_pipeline functions)
+target_compile_definitions(vkrt PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+
 target_include_directories(vkrt PRIVATE
     src
     ${Vulkan_INCLUDE_DIRS}
@@ -159,16 +181,16 @@ target_link_libraries(vkrt PRIVATE
 )
 
 # Ensure shaders are compiled before the executable
-add_dependencies(vkrt raytrace_shader denoise_shader)
+add_dependencies(vkrt denoise_shader raytrace_pipeline_shader)
 
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkrt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${SHADER_OUT_DIR}/raytrace.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace.comp.spv"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/denoise.comp.spv"
         "$<TARGET_FILE_DIR:vkrt>/shaders/denoise.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/raytrace_pipeline.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace_pipeline.spv"
     COMMENT "Copying shaders to output directory"
 )
 

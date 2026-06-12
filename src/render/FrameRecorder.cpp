@@ -66,6 +66,7 @@ void FrameRecorder::dispatchTrace(
         int   scatterSamples; float mergeThreshold;
         int   frameIndex;
         float diffuseStrength, specularStrength; int numLights;
+        float minSplitNm;
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -83,22 +84,33 @@ void FrameRecorder::dispatchTrace(
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
     pc.numLights=static_cast<int>(as.getLightCount());
+    pc.minSplitNm=20.0f;
+    pc.forceSplitWidth=10.0f;
 
-    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
-                    pipeline.getPipeline());
-    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+    cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
+                    pipeline.getRTPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
         pipeline.desc().pipelineLayout(), 0,
         pipeline.desc().descriptorSet(f), nullptr);
     cb.pushConstants<PC>(pipeline.desc().pipelineLayout(),
-        vk::ShaderStageFlagBits::eCompute, 0, pc);
+        vk::ShaderStageFlagBits::eRaygenKHR |
+            vk::ShaderStageFlagBits::eClosestHitKHR |
+            vk::ShaderStageFlagBits::eMissKHR |
+            vk::ShaderStageFlagBits::eCompute, 0, pc);
 
     if (m_hasTS) {
         cb.resetQueryPool(*m_tsPool, f * TS_PER_FRAME, TS_PER_FRAME);
-        cb.writeTimestamp(vk::PipelineStageFlagBits::eComputeShader,
+        cb.writeTimestamp(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
                           *m_tsPool, f * TS_PER_FRAME);
     }
-    uint32_t gx = (m_w + 7) / 8, gy = (m_h + 7) / 8;
-    cb.dispatch(gx, gy, 1);
+
+    VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
+        static_cast<VkCommandBuffer>(cb),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.raygenRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.missRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.hitRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.callableRegion()),
+        m_w, m_h, 1);
 }
 
 void FrameRecorder::denoisePass(
@@ -117,7 +129,7 @@ void FrameRecorder::denoisePass(
          vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
          VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, m_outImg, sub},
     };
-    cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+    cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
         vk::PipelineStageFlagBits::eComputeShader, {}, {}, {}, gb);
 
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
@@ -184,7 +196,7 @@ void FrameRecorder::submit(
     vk::Semaphore imageAvail, vk::Semaphore renderDone,
     vk::Fence fence, bool first)
 {
-    vk::PipelineStageFlags ws = vk::PipelineStageFlagBits::eComputeShader;
+    vk::PipelineStageFlags ws = vk::PipelineStageFlagBits::eRayTracingShaderKHR;
     m_device->getQueue(m_cqf, 0)
         .submit(vk::SubmitInfo(imageAvail, ws, cb, renderDone), fence);
     m_device->getQueue(m_pqf, 0)

@@ -11,7 +11,7 @@
 class VulkanContext {
 public:
     struct QueueFamilyIndices {
-        std::optional<uint32_t> compute;   // Must support compute + ray query
+        std::optional<uint32_t> compute;   // Must support compute + ray tracing pipeline
         std::optional<uint32_t> present;   // Must support present to surface
 
         bool isComplete() const { return compute.has_value() && present.has_value(); }

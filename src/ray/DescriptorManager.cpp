@@ -19,8 +19,9 @@ void DescriptorManager::createLayout() {
     using DS = vk::DescriptorSetLayoutBinding;
     using DT = vk::DescriptorType;
     using SS = vk::ShaderStageFlagBits;
-    auto sb = [](uint32_t b, DT t) {
-        return DS(b, t, 1, SS::eCompute); };
+    auto rtStages = SS::eRaygenKHR | SS::eClosestHitKHR | SS::eMissKHR | SS::eCompute;
+    auto sb = [&](uint32_t b, DT t) {
+        return DS(b, t, 1, rtStages); };
     std::vector<DS> b = {
         sb(0, DT::eAccelerationStructureKHR),
         sb(1, DT::eStorageImage),
@@ -43,7 +44,7 @@ void DescriptorManager::createLayout() {
     m_layout = vk::raii::DescriptorSetLayout(m_device, {{}, b});
 
     vk::PushConstantRange pc(
-        vk::ShaderStageFlagBits::eCompute, 0, 112);
+        SS::eRaygenKHR | SS::eClosestHitKHR | SS::eMissKHR | SS::eCompute, 0, 116);
     m_pipeLayout = vk::raii::PipelineLayout(
         m_device, {{}, *m_layout, pc});
 }

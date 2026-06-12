@@ -100,7 +100,8 @@ void ScreenshotCapture::traceAndDenoise(
         float fovTan, splitMult, forceSplitWidth;
         int scatterSamples; float mergeThreshold;
         int frameIndex;
-        float diffuseStrength, specularStrength; int numLights; } pc{};
+        float diffuseStrength, specularStrength; int numLights;
+        float minSplitNm; } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
     pc.camU[0]=camera.camU[0]; pc.camU[1]=camera.camU[1];
@@ -117,15 +118,27 @@ void ScreenshotCapture::traceAndDenoise(
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
     pc.numLights=static_cast<int>(as.getLightCount());
+    pc.minSplitNm=20.0f;
+    pc.forceSplitWidth=10.0f;
 
-    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
-                    pipeline.getPipeline());
-    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+    cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
+                    pipeline.getRTPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
         pipeline.desc().pipelineLayout(), 0,
         pipeline.desc().descriptorSet(0), nullptr);
     cb.pushConstants<PC>(pipeline.desc().pipelineLayout(),
-        vk::ShaderStageFlagBits::eCompute, 0, pc);
-    cb.dispatch(gx, gy, 1);
+        vk::ShaderStageFlagBits::eRaygenKHR |
+            vk::ShaderStageFlagBits::eClosestHitKHR |
+            vk::ShaderStageFlagBits::eMissKHR |
+            vk::ShaderStageFlagBits::eCompute, 0, pc);
+
+    VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
+        static_cast<VkCommandBuffer>(cb),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.raygenRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.missRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.hitRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.callableRegion()),
+        gx * 8, gy * 8, 1);
 
     // Barrier: trace → denoise
     { auto sub = vk::ImageSubresourceRange(

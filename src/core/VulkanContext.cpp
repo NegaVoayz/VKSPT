@@ -18,11 +18,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
-// Device extensions for ray query
+// Device extensions for ray tracing pipeline
 static const std::vector<const char*> s_deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-    VK_KHR_RAY_QUERY_EXTENSION_NAME,
+    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 };
@@ -78,6 +78,9 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
 
     m_instance = vk::raii::Instance(m_context, createInfo);
 
+    // Step 2: Init dynamic dispatcher with instance-level functions
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
+
     if constexpr (s_enableValidation) {
         vk::DebugUtilsMessengerCreateInfoEXT debugInfo(
             {},
@@ -106,12 +109,14 @@ void VulkanContext::pickPhysicalDevice() {
         // Prefer discrete GPU
         bool isDiscrete = (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
 
-        // Check ray query support
+        // Check ray tracing pipeline support
         auto rtFeatures = device.getFeatures2<
             vk::PhysicalDeviceFeatures2,
-            vk::PhysicalDeviceRayQueryFeaturesKHR
+            vk::PhysicalDeviceRayTracingPipelineFeaturesKHR
         >();
-        bool hasRayQuery = rtFeatures.get<vk::PhysicalDeviceRayQueryFeaturesKHR>().rayQuery;
+        bool hasRTPipeline = rtFeatures.get<
+            vk::PhysicalDeviceRayTracingPipelineFeaturesKHR
+        >().rayTracingPipeline;
 
         // Check acceleration structure support
         auto asFeatures = device.getFeatures2<
@@ -122,7 +127,7 @@ void VulkanContext::pickPhysicalDevice() {
             vk::PhysicalDeviceAccelerationStructureFeaturesKHR
         >().accelerationStructure;
 
-        if (isDiscrete && hasRayQuery && hasAccelStruct) {
+        if (isDiscrete && hasRTPipeline && hasAccelStruct) {
             m_physicalDevice = std::move(device);
 
             auto rtProps = m_physicalDevice.getProperties2<
@@ -136,7 +141,7 @@ void VulkanContext::pickPhysicalDevice() {
         }
     }
 
-    throw std::runtime_error("No GPU with ray query + acceleration structure support found.");
+    throw std::runtime_error("No GPU with ray tracing pipeline + acceleration structure support found.");
 }
 
 void VulkanContext::createDevice() {
@@ -173,10 +178,10 @@ void VulkanContext::createDevice() {
         queueInfos.push_back({{}, family, 1, &queuePriority});
     }
 
-    vk::PhysicalDeviceRayQueryFeaturesKHR rayQueryFeature(true);
+    vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature(true);
     vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
     accelFeature.setAccelerationStructure(true);
-    accelFeature.setPNext(&rayQueryFeature);
+    accelFeature.setPNext(&rtPipelineFeature);
 
     vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR bufferAddrFeature;
     bufferAddrFeature.setBufferDeviceAddress(true);
@@ -195,6 +200,9 @@ void VulkanContext::createDevice() {
     deviceInfo.ppEnabledExtensionNames = s_deviceExtensions.data();
 
     m_device = vk::raii::Device(m_physicalDevice, deviceInfo);
+
+    // Init device-level function pointers for RT pipeline (vkCmdTraceRaysKHR etc.)
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_device);
 
     m_computeQueue = m_device.getQueue(*m_queueFamilies.compute, 0);
     m_presentQueue = m_device.getQueue(*m_queueFamilies.present, 0);

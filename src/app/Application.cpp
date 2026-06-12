@@ -88,10 +88,11 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     // 6. Create ray tracing pipeline
     Log::info("Creating ray tracing pipeline...");
     m_pipeline = std::make_unique<RayTracingPipeline>(
-        m_ctx->getDevice(), m_width, m_height
+        m_ctx->getDevice(), m_ctx->getPhysicalDevice(),
+        m_ctx->getComputeQueueFamily(), m_width, m_height
     );
-    m_pipeline->createPipeline("shaders/raytrace.comp.spv");
     m_pipeline->createDenoisePipeline("shaders/denoise.comp.spv");
+    m_pipeline->createRTPipeline("shaders/raytrace_pipeline.spv");
 
     // 7. Create renderer
     Log::info("Creating renderer...");
