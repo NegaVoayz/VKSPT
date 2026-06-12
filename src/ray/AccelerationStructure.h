@@ -57,6 +57,8 @@ public:
     const GPUBuffer& getInstanceNormalBuffer() const { return m_normBuf; }
     const GPUBuffer& getPhotonBuffer()  const { return m_photonBuf; }
     const GPUBuffer& getPhotonCounter() const { return m_photonCtr; }
+    const GPUBuffer& getHashCellData()  const { return m_hashCellData; }
+    const GPUBuffer& getSortedPhotonIndices() const { return m_sortedPhotonIndices; }
     uint32_t getInstanceCount()  const { return m_instCount; }
     uint32_t getMaterialCount()  const { return m_matCount; }
     uint32_t getLightCount()     const { return m_lightCount; }
@@ -74,6 +76,7 @@ private:
     void uploadMaterialBuffer(const std::vector<MaterialGPU>& d);
     void uploadLightBuffer(const std::vector<GpuLight>& l);
     void createPhotonBuffers();
+    void createHashBuffers();
 
     const vk::raii::Device&         m_device;
     const vk::raii::PhysicalDevice& m_physDevice;
@@ -86,6 +89,7 @@ private:
     GPUBuffer m_scratch, m_tlasBuf, m_instBuf;
     GPUBuffer m_matBuf, m_lightBuf;
     GPUBuffer m_photonBuf, m_photonCtr;
+    GPUBuffer m_hashCellData, m_sortedPhotonIndices;
     uint32_t m_matCount = 0, m_lightCount = 0, m_instCount = 0;
     float m_diffuseStrength = 0.5f, m_specularStrength = 1.0f;
 

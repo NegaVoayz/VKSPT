@@ -7,6 +7,7 @@ import geometry.dispersion;
 import math.sampling;
 import math.spectral_math;
 import math.color;
+import common.hash_utils;
 import rt.payload;
 import rt.direct_light;
 
@@ -215,30 +216,57 @@ void storePhoton(inout Payload p, float3 pos, float3 fNrm)
 void gatherPhotons(float3 pos, float3 nrm, float radius,
                    inout float spectral[NUM_SPECTRAL_BUCKETS])
 {
-    uint count = min(photonCounter[0], uint(MAX_PHOTONS));
     float r2 = radius * radius;
-    for (uint i = 0; i < count; i++) {
-        PhotonRecord ph = photonBuffer[i];
-        float3 d = ph.phPos.xyz - pos;
-        float d2 = dot(d, d);
-        if (d2 >= r2) continue;
-        if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+    float cellSz = max(radius, 0.001);
 
-        float w = max(0.0, 1.0 - sqrt(d2) / radius);
-        float filt = w;  // no area normalization — radius only controls smoothness
+    // Query sphere intersects at most 3 cells per axis (cell size = radius)
+    int3 cellMin = computeCell(pos - float3(radius), cellSz);
+    int3 cellMax = computeCell(pos + float3(radius), cellSz);
 
-        // fp16 → fp32 implicit on load
-        spectral[0] += float(ph.spectral0_3.x) * filt;
-        spectral[1] += float(ph.spectral0_3.y) * filt;
-        spectral[2] += float(ph.spectral0_3.z) * filt;
-        spectral[3] += float(ph.spectral0_3.w) * filt;
-        spectral[4] += float(ph.spectral4_7.x) * filt;
-        spectral[5] += float(ph.spectral4_7.y) * filt;
-        spectral[6] += float(ph.spectral4_7.z) * filt;
-        spectral[7] += float(ph.spectral4_7.w) * filt;
-        spectral[8] += float(ph.spectral8_9.x) * filt;
-        spectral[9] += float(ph.spectral8_9.y) * filt;
+    // Local accumulators reduce global memory traffic
+    float specLocal[10] = {0,0,0,0,0,0,0,0,0,0};
+
+    for (int cx = cellMin.x; cx <= cellMax.x; cx++) {
+        for (int cy = cellMin.y; cy <= cellMax.y; cy++) {
+            for (int cz = cellMin.z; cz <= cellMax.z; cz++) {
+                uint hash = computeCellHash(int3(cx, cy, cz));
+                uint count = hashCellData[hash * 2 + 0];
+                uint offset = hashCellData[hash * 2 + 1];
+
+                for (uint j = 0; j < count; j++) {
+                    PhotonRecord ph = photonBuffer[sortedPhotonIndices[offset + j]];
+                    float3 d = ph.phPos.xyz - pos;
+                    float d2 = dot(d, d);
+                    if (d2 >= r2) continue;
+                    if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+
+                    float w = max(0.0, 1.0 - sqrt(d2) / radius);
+
+                    specLocal[0] += float(ph.spectral0_3.x) * w;
+                    specLocal[1] += float(ph.spectral0_3.y) * w;
+                    specLocal[2] += float(ph.spectral0_3.z) * w;
+                    specLocal[3] += float(ph.spectral0_3.w) * w;
+                    specLocal[4] += float(ph.spectral4_7.x) * w;
+                    specLocal[5] += float(ph.spectral4_7.y) * w;
+                    specLocal[6] += float(ph.spectral4_7.z) * w;
+                    specLocal[7] += float(ph.spectral4_7.w) * w;
+                    specLocal[8] += float(ph.spectral8_9.x) * w;
+                    specLocal[9] += float(ph.spectral8_9.y) * w;
+                }
+            }
+        }
     }
+
+    spectral[0] += specLocal[0];
+    spectral[1] += specLocal[1];
+    spectral[2] += specLocal[2];
+    spectral[3] += specLocal[3];
+    spectral[4] += specLocal[4];
+    spectral[5] += specLocal[5];
+    spectral[6] += specLocal[6];
+    spectral[7] += specLocal[7];
+    spectral[8] += specLocal[8];
+    spectral[9] += specLocal[9];
 }
 
 void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int matType)

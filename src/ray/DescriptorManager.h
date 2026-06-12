@@ -32,8 +32,8 @@ public:
     void BindInstanceNormalBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void BindPhotonBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void BindPhotonCounter(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
-
-private:
+    void BindHashCellData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
+    void BindSortedPhotonIndices(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void createLayout();
     void createPool();
     void allocateSets();

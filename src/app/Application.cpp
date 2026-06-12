@@ -78,6 +78,9 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
 
     Log::info("Creating ray tracing pipeline...");
     m_pipeline.CreateDenoisePipeline("shaders/denoise.comp.spv");
+    m_pipeline.CreateHashCountPipeline("shaders/hash_count.comp.spv");
+    m_pipeline.CreateHashScanPipeline("shaders/hash_scan.comp.spv");
+    m_pipeline.CreateHashScatterPipeline("shaders/hash_scatter.comp.spv");
     m_pipeline.CreateRTPipeline("shaders/raytrace_pipeline.spv");
 
     Log::info("Initialization complete!");

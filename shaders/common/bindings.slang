@@ -38,5 +38,10 @@ public [[vk::binding(16, 0)]] StructuredBuffer<InstanceNormalBlock> instanceNorm
 public [[vk::binding(7, 0)]]  RWStructuredBuffer<PhotonRecord>  photonBuffer;
 public [[vk::binding(8, 0)]]  RWStructuredBuffer<uint>         photonCounter;
 
+// Spatial hash map for accelerated photon gather
+// Interleaved: [h*2]=count, [h*2+1]=offset (both uint)
+public [[vk::binding(9, 0)]]  RWStructuredBuffer<uint>         hashCellData;
+public [[vk::binding(10, 0)]] RWStructuredBuffer<uint>         sortedPhotonIndices;
+
 public [[vk::binding(11, 0)]] Texture2D<float4> envMap;
 public [[vk::binding(11, 0)]] SamplerState      envSampler;

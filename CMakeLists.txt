@@ -83,6 +83,7 @@ set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/rt/sky.slang"
     "${SHADER_SRC_DIR}/rt/material_handlers.slang"
     "${SHADER_SRC_DIR}/photon/photon_light.slang"
+    "${SHADER_SRC_DIR}/common/hash_utils.slang"
 )
 
 function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
@@ -108,6 +109,9 @@ function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
 endfunction()
 
 compile_shader_slang(denoise_shader denoise.slang denoise.comp.spv)
+compile_shader_slang(hash_count_shader photon/hash_count.slang hash_count.comp.spv)
+compile_shader_slang(hash_scan_shader photon/hash_scan.slang hash_scan.comp.spv)
+compile_shader_slang(hash_scatter_shader photon/hash_scatter.slang hash_scatter.comp.spv)
 
 # RT Pipeline shader (multi-entry-point RT stages)
 set(RT_PIPELINE_SRC "${SHADER_SRC_DIR}/raytrace_pipeline.slang")
@@ -180,7 +184,8 @@ target_link_libraries(vkrt PRIVATE
 )
 
 # Ensure shaders are compiled before the executable
-add_dependencies(vkrt denoise_shader raytrace_pipeline_shader)
+add_dependencies(vkrt denoise_shader raytrace_pipeline_shader
+    hash_count_shader hash_scan_shader hash_scatter_shader)
 
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkrt POST_BUILD
@@ -190,6 +195,15 @@ add_custom_command(TARGET vkrt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/raytrace_pipeline.spv"
         "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace_pipeline.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/hash_count.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_count.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/hash_scan.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_scan.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/hash_scatter.comp.spv"
+        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_scatter.comp.spv"
     COMMENT "Copying shaders to output directory"
 )
 

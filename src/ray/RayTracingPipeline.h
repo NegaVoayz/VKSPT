@@ -19,6 +19,14 @@ public:
     void CreateDenoisePipeline(const std::string& spv);
     vk::Pipeline GetDenoisePipeline() const { return *m_denPipe; }
 
+    // Hash grid builders (compute pipelines)
+    void CreateHashCountPipeline(const std::string& spv);
+    void CreateHashScanPipeline(const std::string& spv);
+    void CreateHashScatterPipeline(const std::string& spv);
+    vk::Pipeline GetHashCountPipeline()   const { return *m_hashCountPipe; }
+    vk::Pipeline GetHashScanPipeline()    const { return *m_hashScanPipe; }
+    vk::Pipeline GetHashScatterPipeline() const { return *m_hashScatterPipe; }
+
     // RT pipeline
     void CreateRTPipeline(const std::string& spv);
     vk::Pipeline GetRTPipeline() const { return *m_rtPipeline; }
@@ -46,6 +54,14 @@ private:
     // Compute pipeline (denoiser)
     vk::raii::ShaderModule m_denSm = nullptr;
     vk::raii::Pipeline     m_denPipe = nullptr;
+
+    // Compute pipelines (hash grid builders)
+    vk::raii::ShaderModule m_hashCountSm = nullptr;
+    vk::raii::Pipeline     m_hashCountPipe = nullptr;
+    vk::raii::ShaderModule m_hashScanSm = nullptr;
+    vk::raii::Pipeline     m_hashScanPipe = nullptr;
+    vk::raii::ShaderModule m_hashScatterSm = nullptr;
+    vk::raii::Pipeline     m_hashScatterPipe = nullptr;
 
     // RT pipeline
     vk::raii::ShaderModule               m_rtSm = nullptr;

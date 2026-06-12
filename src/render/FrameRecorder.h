@@ -61,6 +61,15 @@ private:
                               uint32_t                     f,
                               const AccelerationStructure& as,
                               RayTracingPipeline&          pipeline);
+    void dispatchHashCount(vk::CommandBuffer            cb,
+                           uint32_t                     f,
+                           RayTracingPipeline&          pipeline);
+    void dispatchHashScan(vk::CommandBuffer            cb,
+                          uint32_t                     f,
+                          RayTracingPipeline&          pipeline);
+    void dispatchHashScatter(vk::CommandBuffer            cb,
+                             uint32_t                     f,
+                             RayTracingPipeline&          pipeline);
     void denoisePass(vk::CommandBuffer    cb,
                      uint32_t             f,
                      RayTracingPipeline&  pipeline);

@@ -116,6 +116,10 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
         f, *as.getPhotonBuffer().Buffer, as.getPhotonBuffer().Size);
     pipeline.Desc().BindPhotonCounter(
         f, *as.getPhotonCounter().Buffer, as.getPhotonCounter().Size);
+    pipeline.Desc().BindHashCellData(
+        f, *as.getHashCellData().Buffer, as.getHashCellData().Size);
+    pipeline.Desc().BindSortedPhotonIndices(
+        f, *as.getSortedPhotonIndices().Buffer, as.getSortedPhotonIndices().Size);
 
     // Record + submit
     auto& cb = m_commandBuffers[f];

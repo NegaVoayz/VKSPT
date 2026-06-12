@@ -38,6 +38,15 @@ vk::raii::Pipeline RayTracingPipeline::mkPipe(
 void RayTracingPipeline::CreateDenoisePipeline(const std::string& s)
     { m_denPipe = mkPipe(m_denSm, s); }
 
+void RayTracingPipeline::CreateHashCountPipeline(const std::string& s)
+    { m_hashCountPipe = mkPipe(m_hashCountSm, s); }
+
+void RayTracingPipeline::CreateHashScanPipeline(const std::string& s)
+    { m_hashScanPipe = mkPipe(m_hashScanSm, s); }
+
+void RayTracingPipeline::CreateHashScatterPipeline(const std::string& s)
+    { m_hashScatterPipe = mkPipe(m_hashScatterSm, s); }
+
 // ---- RT Pipeline + SBT ----
 void RayTracingPipeline::CreateRTPipeline(const std::string& spv)
 {
