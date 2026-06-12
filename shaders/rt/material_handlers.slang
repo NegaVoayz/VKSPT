@@ -97,7 +97,11 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float3 newDir;
     if (refractDir(WorldRayDirection(), dn, eta_mid, newDir)) {
         float3 newDisp = computeDispersion(WorldRayDirection(), dn, eta_mid, deta);
-        float3 rotSplit = rotateToNewFrame(p.D, WorldRayDirection(), newDir);
+        // Roll back in-medium propagation: D at interface uses pre-segment state.
+        // The propagation inside the medium is absorbed by the surface —
+        // only V (angular spread) carries into the new direction.
+        float3 Dbefore = p.D - p.V * p.hitT;
+        float3 rotSplit = rotateToNewFrame(Dbefore, WorldRayDirection(), newDir);
         float3 rotDisp  = rotateToNewFrame(p.V, WorldRayDirection(), newDir);
 
         float cosTheta = abs(dot(WorldRayDirection(), dn));
