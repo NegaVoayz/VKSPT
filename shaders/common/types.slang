@@ -17,75 +17,11 @@ public struct GpuMaterial {
     public float4 precalc;       // .x = ln(0.07+0.93*lum) for lambertian
 };
 
-public struct RayState {
-    public float3 origin;
-    public float3 direction;
-    public float3 last_split;
-    public float3 dispersion;
-    public float3 last_geom;
-    public float3 geomDisp;
-    public int  lam_start;
-    public int  lam_end;
-    public float throughput;
-    public float decay_c1;
-    public float decay_c2;
-    public int  bounce;
-    public int  generation;
-};
-
-// Mutable per-bounce state passed to material handlers
-public struct BounceState {
-    public float3 rayO, rayD;
-    public float  throughput;
-    public float  decayC1, decayC2;
-    public float3 lastSplit, disp;
-    public float3 lastGeom, geomD;
-    public int    lamStart, lamEnd;
-    public int    generation;
-    public float3 colorAccum;
-};
-
-[ForceInline]
-public BounceState packBs(
-    float3 rayO, float3 rayD,
-    float throughput, float decayC1, float decayC2,
-    float3 lastSplit, float3 disp,
-    float3 lastGeom, float3 geomD,
-    int lamStart, int lamEnd, int generation, float3 colorAccum)
-{
-    BounceState bs;
-    bs.rayO = rayO; bs.rayD = rayD;
-    bs.throughput = throughput; bs.decayC1 = decayC1; bs.decayC2 = decayC2;
-    bs.lastSplit = lastSplit; bs.disp = disp;
-    bs.lastGeom = lastGeom; bs.geomD = geomD;
-    bs.lamStart = lamStart; bs.lamEnd = lamEnd;
-    bs.generation = generation; bs.colorAccum = colorAccum;
-    return bs;
-}
-
-[ForceInline]
-public void unpackBs(
-    inout float3 rayO, inout float3 rayD,
-    inout float throughput, inout float decayC1, inout float decayC2,
-    inout float3 lastSplit, inout float3 disp,
-    inout float3 lastGeom, inout float3 geomD,
-    inout int lamStart, inout int lamEnd,
-    inout int generation, inout float3 colorAccum,
-    BounceState bs)
-{
-    rayO = bs.rayO; rayD = bs.rayD;
-    throughput = bs.throughput; decayC1 = bs.decayC1; decayC2 = bs.decayC2;
-    lastSplit = bs.lastSplit; disp = bs.disp;
-    lastGeom = bs.lastGeom; geomD = bs.geomD;
-    lamStart = bs.lamStart; lamEnd = bs.lamEnd;
-    generation = bs.generation; colorAccum = bs.colorAccum;
-}
-
 public struct GpuLight {
-    public float4 pos_type;
-    public float4 color_intensity;
-    public float4 dir_inner;
-    public float4 outer_range;
+    public float4 posType;
+    public float4 colorIntensity;
+    public float4 dirInner;
+    public float4 outerRange;
 };
 
 public static const int LIGHT_POINT       = 0;

@@ -2,11 +2,11 @@
 #include <algorithm>
 #include <stdexcept>
 
-vk::Image SwapchainManager::imageAt(uint32_t i) const {
+vk::Image SwapchainManager::ImageAt(uint32_t i) const {
     return m_images[i];
 }
 
-void SwapchainManager::init(
+SwapchainManager::SwapchainManager(
     const vk::raii::Device&         device,
     const vk::raii::PhysicalDevice& physDevice,
     const vk::raii::SurfaceKHR&     surface,
@@ -19,31 +19,10 @@ void SwapchainManager::init(
     auto fmts = physDevice.getSurfaceFormatsKHR(*surface);
     auto modes = physDevice.getSurfacePresentModesKHR(*surface);
 
-    // Pick format: prefer R8G8B8A8_SRGB, fallback B8G8R8A8_SRGB
-    vk::SurfaceFormatKHR chosen = fmts[0];
-    for (const auto& f : fmts) {
-        if (f.format == vk::Format::eR8G8B8A8Srgb &&
-            f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-            chosen = f; break;
-        }
-    }
-    if (chosen.format != vk::Format::eR8G8B8A8Srgb) {
-        for (const auto& f : fmts) {
-            if (f.format == vk::Format::eB8G8R8A8Srgb &&
-                f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-                chosen = f; break;
-            }
-        }
-    }
+    auto chosen = pickSurfaceFormat(fmts);
     m_format = chosen.format;
 
-    // Pick present mode: prefer MAILBOX, fallback FIFO
-    vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
-    for (const auto& m : modes) {
-        if (m == vk::PresentModeKHR::eMailbox) {
-            presentMode = m; break;
-        }
-    }
+    auto presentMode = pickPresentMode(modes);
 
     // Clamp extent
     vk::Extent2D extent = caps.currentExtent;
@@ -95,10 +74,45 @@ void SwapchainManager::init(
         device.bindImageMemory2(bindInfo);
     }
 
-    // Create views
+    createImageViews(device, chosen.format);
+}
+
+vk::SurfaceFormatKHR SwapchainManager::pickSurfaceFormat(
+    const std::vector<vk::SurfaceFormatKHR>& fmts)
+{
+    vk::SurfaceFormatKHR chosen = fmts[0];
+    for (const auto& f : fmts) {
+        if (f.format == vk::Format::eR8G8B8A8Srgb &&
+            f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+            chosen = f; break;
+        }
+    }
+    if (chosen.format != vk::Format::eR8G8B8A8Srgb) {
+        for (const auto& f : fmts) {
+            if (f.format == vk::Format::eB8G8R8A8Srgb &&
+                f.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+                chosen = f; break;
+            }
+        }
+    }
+    return chosen;
+}
+
+vk::PresentModeKHR SwapchainManager::pickPresentMode(
+    const std::vector<vk::PresentModeKHR>& modes)
+{
+    for (const auto& m : modes)
+        if (m == vk::PresentModeKHR::eMailbox)
+            return m;
+    return vk::PresentModeKHR::eFifo;
+}
+
+void SwapchainManager::createImageViews(
+    const vk::raii::Device& device, vk::Format format)
+{
     for (const auto& img : m_images) {
         vk::ImageViewCreateInfo viewInfo(
-            {}, img, vk::ImageViewType::e2D, chosen.format,
+            {}, img, vk::ImageViewType::e2D, format,
             vk::ComponentMapping{},
             vk::ImageSubresourceRange(
                 vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));

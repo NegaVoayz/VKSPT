@@ -14,21 +14,19 @@
 /// Also handles submission and timestamp readback.
 class FrameRecorder {
 public:
-    FrameRecorder() = default;
-
-    void init(const vk::raii::Device&           device,
-              const vk::raii::SwapchainKHR&     swapchain,
-              const std::vector<vk::Image>&      swapchainImages,
-              vk::Image                         outputImage,
-              vk::Image                         normalImage,
-              vk::Image                         depthImage,
-              uint32_t                          width,
-              uint32_t                          height,
-              uint32_t                          computeQf,
-              uint32_t                          presentQf,
-              const vk::raii::QueryPool*        timestampPool,
-              float                             timestampPeriod,
-              bool                              hasTimestamps);
+    FrameRecorder(const vk::raii::Device&        device,
+                  const vk::raii::SwapchainKHR&  swapchain,
+                  const std::vector<vk::Image>&   swapchainImages,
+                  vk::Image                      outputImage,
+                  vk::Image                      normalImage,
+                  vk::Image                      depthImage,
+                  uint32_t                       width,
+                  uint32_t                       height,
+                  uint32_t                       computeQf,
+                  uint32_t                       presentQf,
+                  const vk::raii::QueryPool*     timestampPool,
+                  float                          timestampPeriod,
+                  bool                           hasTimestamps);
 
     /// Record trace + denoise + swapchain-copy into the command buffer.
     void record(vk::CommandBuffer                 cb,
@@ -65,13 +63,13 @@ private:
     void copyOutputToSwapchain(vk::CommandBuffer cb,
                                uint32_t          imageIndex);
 
-    const vk::raii::Device*        m_device = nullptr;
-    const vk::raii::SwapchainKHR*  m_swapchain = nullptr;
-    const std::vector<vk::Image>*  m_swapImages = nullptr;
+    const vk::raii::Device&        m_device;
+    const vk::raii::SwapchainKHR&  m_swapchain;
+    const std::vector<vk::Image>&  m_swapImages;
     vk::Image m_outImg, m_nrmImg, m_depImg;
     uint32_t  m_w, m_h;
     uint32_t  m_cqf, m_pqf;
-    const vk::raii::QueryPool* m_tsPool;
+    const vk::raii::QueryPool*     m_tsPool;  // nullable — optional query pool
     float     m_tsPeriod;
     bool      m_hasTS;
     uint64_t  m_frameCount = 0;

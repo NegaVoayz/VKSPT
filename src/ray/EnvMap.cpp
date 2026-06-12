@@ -17,14 +17,14 @@ void EnvMap::load(const vk::raii::Device&         device,
         throw std::runtime_error("Failed to load env map: " + path);
 
     vk::DeviceSize imgSize = static_cast<vk::DeviceSize>(w) * h * 4;
-    auto staging = GPUBuffer::create(
+    auto staging = GPUBuffer::Create(
         device, imgSize, vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent,
         physDevice);
-    void* mapped = staging.memory.mapMemory(0, imgSize);
+    void* mapped = staging.Memory.mapMemory(0, imgSize);
     std::memcpy(mapped, pixels, static_cast<size_t>(imgSize));
-    staging.memory.unmapMemory();
+    staging.Memory.unmapMemory();
     stbi_image_free(pixels);
 
     // Device-local image
@@ -75,7 +75,7 @@ void EnvMap::load(const vk::raii::Device&         device,
         vk::ImageSubresourceLayers(
             vk::ImageAspectFlagBits::eColor, 0, 0, 1),
         {0, 0, 0}, {uint32_t(w), uint32_t(h), 1});
-    cb.copyBufferToImage(*staging.buffer, *m_image,
+    cb.copyBufferToImage(*staging.Buffer, *m_image,
         vk::ImageLayout::eTransferDstOptimal, region);
 
     vk::ImageMemoryBarrier toRead(

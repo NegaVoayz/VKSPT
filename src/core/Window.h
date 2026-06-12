@@ -32,28 +32,28 @@ public:
     Window& operator=(Window&&)      = delete;
 
     /// Returns the Vulkan instance extensions required by SDL3 for surface creation.
-    static std::vector<const char*> getRequiredInstanceExtensions();
+    static std::vector<const char*> GetRequiredInstanceExtensions();
 
     /// Create the Vulkan surface for the given instance.
-    vk::raii::SurfaceKHR createSurface(const vk::raii::Instance& instance) const;
+    vk::raii::SurfaceKHR CreateSurface(const vk::raii::Instance& instance) const;
 
     /// Poll SDL events. Returns false if quit requested.
     /// Fills m_input with current frame's input state.
-    bool pollEvents();
+    bool PollEvents();
 
     /// Returns false when the window should close.
-    bool isOpen() const { return m_open; }
+    bool IsOpen() const { return m_open; }
 
     /// Get the current frame's input state.
-    const InputState& getInput() const { return m_input; }
+    const InputState& GetInput() const { return m_input; }
 
     /// Get framebuffer size in pixels (may differ from window size on HiDPI).
-    std::pair<int, int> getFramebufferSize() const;
+    std::pair<int, int> GetFramebufferSize() const;
 
     /// Toggle relative mouse mode (cursor hidden + locked for FPS look).
-    void setRelativeMouse(bool enabled);
+    void SetRelativeMouse(bool enabled);
 
-    SDL_Window* getHandle() const { return m_window; }
+    SDL_Window* GetHandle() const { return m_window; }
 
 private:
     SDL_Window*  m_window  = nullptr;

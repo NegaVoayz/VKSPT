@@ -28,7 +28,7 @@ void FrameCapture::savePNG(
     m_device.waitIdle();
 
     vk::DeviceSize imgSize = width * height * 4;  // RGBA8
-    auto staging = GPUBuffer::create(
+    auto staging = GPUBuffer::Create(
         m_device, imgSize,
         vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -55,7 +55,7 @@ void FrameCapture::savePNG(
 
     cb.copyImageToBuffer(
         outputImage, vk::ImageLayout::eGeneral,
-        *staging.buffer,
+        *staging.Buffer,
         vk::BufferImageCopy(0, 0, 0,
             vk::ImageSubresourceLayers(
                 vk::ImageAspectFlagBits::eColor, 0, 0, 1),
@@ -67,12 +67,12 @@ void FrameCapture::savePNG(
     q.submit(vk::SubmitInfo({}, {}, *cb), nullptr);
     q.waitIdle();
 
-    void* mapped = staging.memory.mapMemory(0, imgSize);
+    void* mapped = staging.Memory.mapMemory(0, imgSize);
     int stride = static_cast<int>(width) * 4;
     int r = stbi_write_png(path.c_str(),
         static_cast<int>(width), static_cast<int>(height),
         4, mapped, stride);
-    staging.memory.unmapMemory();
+    staging.Memory.unmapMemory();
 
     if (r == 0)
         Log::error("Failed to write output image: {}", path);

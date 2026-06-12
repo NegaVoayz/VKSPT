@@ -25,7 +25,7 @@ Window::~Window() {
     SDL_Quit();
 }
 
-std::vector<const char*> Window::getRequiredInstanceExtensions() {
+std::vector<const char*> Window::GetRequiredInstanceExtensions() {
     // SDL3: use SDL_Vulkan_GetInstanceExtensions
     unsigned int count = 0;
     const char* const* exts = SDL_Vulkan_GetInstanceExtensions(&count);
@@ -37,7 +37,7 @@ std::vector<const char*> Window::getRequiredInstanceExtensions() {
     return std::vector<const char*>(exts, exts + count);
 }
 
-vk::raii::SurfaceKHR Window::createSurface(const vk::raii::Instance& instance) const {
+vk::raii::SurfaceKHR Window::CreateSurface(const vk::raii::Instance& instance) const {
     VkSurfaceKHR rawSurface = VK_NULL_HANDLE;
     if (!SDL_Vulkan_CreateSurface(m_window, *instance, nullptr, &rawSurface)) {
         throw std::runtime_error(
@@ -48,7 +48,7 @@ vk::raii::SurfaceKHR Window::createSurface(const vk::raii::Instance& instance) c
     return vk::raii::SurfaceKHR(instance, rawSurface);
 }
 
-bool Window::pollEvents() {
+bool Window::PollEvents() {
     // Reset per-frame deltas (key states persist across frames)
     m_input.mouseDX = m_mouseAccumX;
     m_input.mouseDY = m_mouseAccumY;
@@ -92,14 +92,14 @@ bool Window::pollEvents() {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (event.button.button == SDL_BUTTON_LEFT) {
                 m_input.mouseLeft = true;
-                setRelativeMouse(true);
+                SetRelativeMouse(true);
             }
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
             if (event.button.button == SDL_BUTTON_LEFT) {
                 m_input.mouseLeft = false;
-                setRelativeMouse(false);
+                SetRelativeMouse(false);
             }
             break;
 
@@ -118,11 +118,11 @@ bool Window::pollEvents() {
     return m_open;
 }
 
-void Window::setRelativeMouse(bool enabled) {
+void Window::SetRelativeMouse(bool enabled) {
     SDL_SetWindowRelativeMouseMode(m_window, enabled);
 }
 
-std::pair<int, int> Window::getFramebufferSize() const {
+std::pair<int, int> Window::GetFramebufferSize() const {
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(m_window, &w, &h);
     return {w, h};

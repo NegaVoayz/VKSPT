@@ -74,17 +74,14 @@ set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/common/bindings.slang"
     "${SHADER_SRC_DIR}/math/spectral_math.slang"
     "${SHADER_SRC_DIR}/math/color.slang"
-    "${SHADER_SRC_DIR}/math/absorption.slang"
     "${SHADER_SRC_DIR}/math/legendre_decay.slang"
     "${SHADER_SRC_DIR}/math/sampling.slang"
     "${SHADER_SRC_DIR}/geometry/dispersion.slang"
     "${SHADER_SRC_DIR}/geometry/normals.slang"
-    "${SHADER_SRC_DIR}/materials/metal.slang"
-    "${SHADER_SRC_DIR}/materials/checkerboard.slang"
-    "${SHADER_SRC_DIR}/materials/lambertian.slang"
-    "${SHADER_SRC_DIR}/materials/dielectric.slang"
-    "${SHADER_SRC_DIR}/materials/sky_handler.slang"
-    "${SHADER_SRC_DIR}/materials/direct_lighting.slang"
+    "${SHADER_SRC_DIR}/rt/payload.slang"
+    "${SHADER_SRC_DIR}/rt/direct_light.slang"
+    "${SHADER_SRC_DIR}/rt/sky.slang"
+    "${SHADER_SRC_DIR}/rt/material_handlers.slang"
 )
 
 function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)

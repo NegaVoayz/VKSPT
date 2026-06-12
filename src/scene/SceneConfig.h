@@ -68,7 +68,7 @@ struct SceneDescription {
 /// Build a 3×4 affine row-major transform matrix from scale, Euler rotation (degrees),
 /// and translation.  Result is 3 rows of 4 floats suitable for
 /// VkAccelerationStructureInstanceKHR::transform.
-void buildTransformMatrix(const glm::vec3& scale,
+void BuildTransformMatrix(const glm::vec3& scale,
                           const glm::vec3& rotation,
                           const glm::vec3& translation,
                           float            out[3][4]);

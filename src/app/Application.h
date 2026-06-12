@@ -8,7 +8,6 @@
 
 #include <glm/glm.hpp>
 
-#include <memory>
 #include <string>
 
 /// First-person camera state.
@@ -44,12 +43,12 @@ public:
 private:
     void initScene();
 
-    std::unique_ptr<Window>              m_window;
-    std::unique_ptr<VulkanContext>       m_ctx;
-    vk::raii::SurfaceKHR                 m_surface = nullptr;
-    std::unique_ptr<AccelerationStructure> m_as;
-    std::unique_ptr<RayTracingPipeline>  m_pipeline;
-    std::unique_ptr<Renderer>            m_renderer;
+    Window                  m_window;
+    VulkanContext            m_ctx;
+    vk::raii::SurfaceKHR    m_surface = nullptr;
+    AccelerationStructure   m_as;
+    RayTracingPipeline      m_pipeline;
+    Renderer               m_renderer;
 
     Camera   m_camera;
     uint32_t m_width;

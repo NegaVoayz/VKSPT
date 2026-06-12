@@ -3,20 +3,27 @@
 
 static constexpr uint32_t TS_PER_FRAME = 2;
 
-void FrameRecorder::init(
+FrameRecorder::FrameRecorder(
     const vk::raii::Device&         device,
     const vk::raii::SwapchainKHR&   swapchain,
     const std::vector<vk::Image>&   swapchainImages,
     vk::Image out, vk::Image nrm, vk::Image dep,
     uint32_t w, uint32_t h, uint32_t cqf, uint32_t pqf,
     const vk::raii::QueryPool* tp, float tsPeriod, bool hasTS)
-{
-    m_device = &device;  m_swapchain = &swapchain;
-    m_swapImages = &swapchainImages;
-    m_outImg = out;  m_nrmImg = nrm;  m_depImg = dep;
-    m_w = w;  m_h = h;  m_cqf = cqf;  m_pqf = pqf;
-    m_tsPool = tp;  m_tsPeriod = tsPeriod;  m_hasTS = hasTS;
-}
+    : m_device(device)
+    , m_swapchain(swapchain)
+    , m_swapImages(swapchainImages)
+    , m_outImg(out)
+    , m_nrmImg(nrm)
+    , m_depImg(dep)
+    , m_w(w)
+    , m_h(h)
+    , m_cqf(cqf)
+    , m_pqf(pqf)
+    , m_tsPool(tp)
+    , m_tsPeriod(tsPeriod)
+    , m_hasTS(hasTS)
+{}
 
 void FrameRecorder::record(
     vk::CommandBuffer cb, uint32_t f, uint32_t imageIndex,
@@ -88,11 +95,11 @@ void FrameRecorder::dispatchTrace(
     pc.forceSplitWidth=10.0f;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
-                    pipeline.getRTPipeline());
+                    pipeline.GetRTPipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
-        pipeline.desc().pipelineLayout(), 0,
-        pipeline.desc().descriptorSet(f), nullptr);
-    cb.pushConstants<PC>(pipeline.desc().pipelineLayout(),
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
+    cb.pushConstants<PC>(pipeline.Desc().PipelineLayout(),
         vk::ShaderStageFlagBits::eRaygenKHR |
             vk::ShaderStageFlagBits::eClosestHitKHR |
             vk::ShaderStageFlagBits::eMissKHR |
@@ -106,10 +113,10 @@ void FrameRecorder::dispatchTrace(
 
     VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
         static_cast<VkCommandBuffer>(cb),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.raygenRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.missRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.hitRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.callableRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.RaygenRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.MissRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
         m_w, m_h, 1);
 }
 
@@ -133,10 +140,10 @@ void FrameRecorder::denoisePass(
         vk::PipelineStageFlagBits::eComputeShader, {}, {}, {}, gb);
 
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
-                    pipeline.getDenoisePipeline());
+                    pipeline.GetDenoisePipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-        pipeline.desc().pipelineLayout(), 0,
-        pipeline.desc().descriptorSet(f), nullptr);
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
     uint32_t gx = (m_w + 7) / 8, gy = (m_h + 7) / 8;
     cb.dispatch(gx, gy, 1);
 
@@ -161,7 +168,7 @@ void FrameRecorder::copyOutputToSwapchain(
             vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, ob);
     }
 
-    vk::Image sw = (*m_swapImages)[imageIndex];
+    vk::Image sw = m_swapImages[imageIndex];
 
     // Undefined → TransferDst
     {
@@ -197,17 +204,17 @@ void FrameRecorder::submit(
     vk::Fence fence, bool first)
 {
     vk::PipelineStageFlags ws = vk::PipelineStageFlagBits::eRayTracingShaderKHR;
-    m_device->getQueue(m_cqf, 0)
+    m_device.getQueue(m_cqf, 0)
         .submit(vk::SubmitInfo(imageAvail, ws, cb, renderDone), fence);
-    m_device->getQueue(m_pqf, 0)
-        .presentKHR(vk::PresentInfoKHR(renderDone, **m_swapchain, imageIndex));
+    m_device.getQueue(m_pqf, 0)
+        .presentKHR(vk::PresentInfoKHR(renderDone, *m_swapchain, imageIndex));
 
     if (first)
-        m_device->waitForFences(fence, true, UINT64_MAX);
+        m_device.waitForFences(fence, true, UINT64_MAX);
 
     if (m_hasTS && !first) {
         uint64_t r[2];
-        auto res = static_cast<vk::Device>(**m_device).getQueryPoolResults(
+        auto res = static_cast<vk::Device>(m_device).getQueryPoolResults(
             *m_tsPool, f * TS_PER_FRAME, TS_PER_FRAME,
             sizeof(r), r, sizeof(uint64_t),
             vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);

@@ -87,21 +87,22 @@ void ScreenshotCapture::renderOneFrame(
     m_device.getQueue(m_queueFamily, 0).waitIdle();
 }
 
-void ScreenshotCapture::traceAndDenoise(
-    vk::CommandBuffer cb, uint32_t f, uint32_t gx, uint32_t gy,
-    const AccelerationStructure& as,
-    RayTracingPipeline& pipeline, const CameraParams& camera,
-    const TempImages& temps)
+namespace { struct TracePC {
+    float camOrigin[3]; float _pad0;
+    float camU[3]; float _pad1; float camV[3]; float _pad2;
+    float camW[3]; float _pad3;
+    int spp, maxBounces, matCount;
+    float fovTan, splitMult, forceSplitWidth;
+    int scatterSamples; float mergeThreshold;
+    int frameIndex;
+    float diffuseStrength, specularStrength; int numLights;
+    float minSplitNm;
+}; }
+
+static void buildPushConstants(
+    const AccelerationStructure& as, const CameraParams& camera,
+    uint32_t frameIndex, TracePC& pc)
 {
-    struct PC { float camOrigin[3]; float _pad0;
-        float camU[3]; float _pad1; float camV[3]; float _pad2;
-        float camW[3]; float _pad3;
-        int spp, maxBounces, matCount;
-        float fovTan, splitMult, forceSplitWidth;
-        int scatterSamples; float mergeThreshold;
-        int frameIndex;
-        float diffuseStrength, specularStrength; int numLights;
-        float minSplitNm; } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
     pc.camU[0]=camera.camU[0]; pc.camU[1]=camera.camU[1];
@@ -114,19 +115,29 @@ void ScreenshotCapture::traceAndDenoise(
     pc.matCount=static_cast<int>(as.getMaterialCount());
     pc.fovTan=0.57735f; pc.splitMult=1.0f;
     pc.forceSplitWidth=20.0f; pc.scatterSamples=1;
-    pc.mergeThreshold=0.999f; pc.frameIndex=static_cast<int>(f);
+    pc.mergeThreshold=0.999f; pc.frameIndex=static_cast<int>(frameIndex);
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
     pc.numLights=static_cast<int>(as.getLightCount());
     pc.minSplitNm=20.0f;
     pc.forceSplitWidth=10.0f;
+}
+
+void ScreenshotCapture::traceAndDenoise(
+    vk::CommandBuffer cb, uint32_t f, uint32_t gx, uint32_t gy,
+    const AccelerationStructure& as,
+    RayTracingPipeline& pipeline, const CameraParams& camera,
+    const TempImages& temps)
+{
+    TracePC pc{};
+    buildPushConstants(as, camera, f, pc);
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
-                    pipeline.getRTPipeline());
+                    pipeline.GetRTPipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
-        pipeline.desc().pipelineLayout(), 0,
-        pipeline.desc().descriptorSet(0), nullptr);
-    cb.pushConstants<PC>(pipeline.desc().pipelineLayout(),
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(0), nullptr);
+    cb.pushConstants<TracePC>(pipeline.Desc().PipelineLayout(),
         vk::ShaderStageFlagBits::eRaygenKHR |
             vk::ShaderStageFlagBits::eClosestHitKHR |
             vk::ShaderStageFlagBits::eMissKHR |
@@ -134,10 +145,10 @@ void ScreenshotCapture::traceAndDenoise(
 
     VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
         static_cast<VkCommandBuffer>(cb),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.raygenRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.missRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.hitRegion()),
-        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.callableRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.RaygenRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.MissRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
         gx * 8, gy * 8, 1);
 
     // Barrier: trace → denoise
@@ -157,10 +168,10 @@ void ScreenshotCapture::traceAndDenoise(
           vk::PipelineStageFlagBits::eComputeShader, {}, {}, {}, gb); }
 
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
-                    pipeline.getDenoisePipeline());
+                    pipeline.GetDenoisePipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-        pipeline.desc().pipelineLayout(), 0,
-        pipeline.desc().descriptorSet(0), nullptr);
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(0), nullptr);
     cb.dispatch(gx, gy, 1);
 
     // Barrier: denoise → transfer
@@ -179,7 +190,7 @@ void ScreenshotCapture::readbackToPNG(
     const vk::raii::Queue& q)
 {
     vk::DeviceSize ib = w * h * 4;
-    auto stg = GPUBuffer::create(m_device, ib,
+    auto stg = GPUBuffer::Create(m_device, ib,
         vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
@@ -189,7 +200,7 @@ void ScreenshotCapture::readbackToPNG(
         {*cp, vk::CommandBufferLevel::ePrimary, 1});
     cbs[0].begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     cbs[0].copyImageToBuffer(img, vk::ImageLayout::eGeneral,
-        *stg.buffer, vk::BufferImageCopy(0, 0, 0,
+        *stg.Buffer, vk::BufferImageCopy(0, 0, 0,
             vk::ImageSubresourceLayers(
                 vk::ImageAspectFlagBits::eColor, 0, 0, 1),
             {0,0,0}, {w, h, 1}));
@@ -197,10 +208,10 @@ void ScreenshotCapture::readbackToPNG(
     q.submit(vk::SubmitInfo({}, {}, *cbs[0]), nullptr);
     q.waitIdle();
 
-    void* m = stg.memory.mapMemory(0, ib);
+    void* m = stg.Memory.mapMemory(0, ib);
     int r = stbi_write_png(path.c_str(), (int)w, (int)h,
                            4, m, (int)w * 4);
-    stg.memory.unmapMemory();
+    stg.Memory.unmapMemory();
 
     if (!r) Log::error("[Screenshot] Failed: {}", path);
     else Log::info("[Screenshot] Saved: {} ({}x{})", path, w, h);
@@ -219,30 +230,30 @@ void ScreenshotCapture::capture(
     auto q = m_device.getQueue(m_queueFamily, 0);
 
     vk::DeviceSize asz = cw * ch * 4 * sizeof(float);
-    auto capAcc = GPUBuffer::create(m_device, asz,
+    auto capAcc = GPUBuffer::Create(m_device, asz,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
-    auto capStg = GPUBuffer::create(m_device, asz,
+    auto capStg = GPUBuffer::Create(m_device, asz,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
-    { void* m = capStg.memory.mapMemory(0, asz);
-      std::memset(m, 0, (size_t)asz); capStg.memory.unmapMemory();
+    { void* m = capStg.Memory.mapMemory(0, asz);
+      std::memset(m, 0, (size_t)asz); capStg.Memory.unmapMemory();
       auto cp = vk::raii::CommandPool(m_device,
           {vk::CommandPoolCreateFlagBits::eTransient, m_queueFamily});
       auto cbs = vk::raii::CommandBuffers(m_device,
           {*cp, vk::CommandBufferLevel::ePrimary, 1});
       cbs[0].begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
-      cbs[0].copyBuffer(*capStg.buffer, *capAcc.buffer,
+      cbs[0].copyBuffer(*capStg.Buffer, *capAcc.Buffer,
                         vk::BufferCopy(0, 0, asz));
       cbs[0].end(); q.submit(vk::SubmitInfo({}, {}, *cbs[0]), nullptr);
       q.waitIdle(); }
 
-    pipeline.desc().bindOutputImage(0, *temps.view, nullptr);
-    pipeline.desc().bindAccumBuffer(0, *capAcc.buffer, asz);
-    pipeline.desc().bindNormalImage(0, *temps.nrmView);
-    pipeline.desc().bindDepthImage(0, *temps.depView);
+    pipeline.Desc().BindOutputImage(0, *temps.view, nullptr);
+    pipeline.Desc().BindAccumBuffer(0, *capAcc.Buffer, asz);
+    pipeline.Desc().BindNormalImage(0, *temps.nrmView);
+    pipeline.Desc().BindDepthImage(0, *temps.depView);
 
     uint32_t gx = (cw+7)/8, gy = (ch+7)/8;
     for (uint32_t f = 0; f < nFrames; ++f)
@@ -250,9 +261,9 @@ void ScreenshotCapture::capture(
 
     readbackToPNG(path, *temps.img, cw, ch, q);
 
-    pipeline.desc().bindOutputImage(0, mainOutView, nullptr);
-    pipeline.desc().bindAccumBuffer(0, mainAccBuf, mainAccSz);
-    pipeline.desc().bindNormalImage(0, mainNrmView);
-    pipeline.desc().bindDepthImage(0, mainDepView);
+    pipeline.Desc().BindOutputImage(0, mainOutView, nullptr);
+    pipeline.Desc().BindAccumBuffer(0, mainAccBuf, mainAccSz);
+    pipeline.Desc().BindNormalImage(0, mainNrmView);
+    pipeline.Desc().BindDepthImage(0, mainDepView);
     Log::info("[Screenshot] Done.");
 }

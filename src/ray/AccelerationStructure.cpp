@@ -17,30 +17,30 @@ void AccelerationStructure::uploadMaterialBuffer(
 {
     m_matCount = uint32_t(data.size());
     vk::DeviceSize sz = maxMaterials * sizeof(MaterialGPU);
-    m_matBuf = GPUBuffer::create(m_device, sz,
+    m_matBuf = GPUBuffer::Create(m_device, sz,
         vk::BufferUsageFlagBits::eUniformBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
-    void* m = m_matBuf.memory.mapMemory(0, sz);
+    void* m = m_matBuf.Memory.mapMemory(0, sz);
     std::memset(m, 0, size_t(sz));
     std::memcpy(m, data.data(), data.size() * sizeof(MaterialGPU));
-    m_matBuf.memory.unmapMemory();
+    m_matBuf.Memory.unmapMemory();
 }
 
 void AccelerationStructure::uploadLightBuffer(
     const std::vector<GpuLight>& lights)
 {
     vk::DeviceSize sz = maxLights * sizeof(GpuLight);
-    m_lightBuf = GPUBuffer::create(m_device, sz,
+    m_lightBuf = GPUBuffer::Create(m_device, sz,
         vk::BufferUsageFlagBits::eUniformBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent, m_physDevice);
-    void* m = m_lightBuf.memory.mapMemory(0, sz);
+    void* m = m_lightBuf.Memory.mapMemory(0, sz);
     std::memset(m, 0, size_t(sz));
     size_t n = std::min(lights.size(), size_t(maxLights));
     m_lightCount = uint32_t(n);
     std::memcpy(m, lights.data(), n * sizeof(GpuLight));
-    m_lightBuf.memory.unmapMemory();
+    m_lightBuf.Memory.unmapMemory();
 }
 
 void AccelerationStructure::build(const MeshData& mesh)
@@ -99,7 +99,7 @@ void AccelerationStructure::buildScene(
                 nd[b]=nm[c].x; nd[b+1]=nm[c].y; nd[b+2]=nm[c].z;
             }
         }
-        m_normBuf = GPUBuffer::createStaging(m_device, nd.data(),
+        m_normBuf = GPUBuffer::CreateStaging(m_device, nd.data(),
             nd.size()*sizeof(float),
             vk::BufferUsageFlagBits::eStorageBuffer, m_physDevice);
     }

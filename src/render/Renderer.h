@@ -39,20 +39,20 @@ public:
     Renderer(Renderer&&)                 = delete;
     Renderer& operator=(Renderer&&)      = delete;
 
-    void renderFrame(const AccelerationStructure& as,
+    void RenderFrame(const AccelerationStructure& as,
                      RayTracingPipeline& pipeline,
                      const CameraParams& camera = {});
 
-    void saveOutputPNG(const std::string& path);
+    void SaveOutputPNG(const std::string& path);
 
-    void captureScreenshot(const std::string& path,
+    void CaptureScreenshot(const std::string& path,
                            const AccelerationStructure& as,
                            RayTracingPipeline& pipeline,
                            const CameraParams& camera,
                            uint32_t capWidth, uint32_t capHeight,
                            uint32_t capFrames);
 
-    vk::Extent2D getExtent() const {
+    vk::Extent2D GetExtent() const {
         return {m_config.width, m_config.height}; }
 
 private:

@@ -3,7 +3,7 @@
 #include <cstring>
 #include <stdexcept>
 
-GPUBuffer GPUBuffer::create(
+GPUBuffer GPUBuffer::Create(
     const vk::raii::Device&         device,
     vk::DeviceSize                  size,
     vk::BufferUsageFlags            usage,
@@ -11,14 +11,14 @@ GPUBuffer GPUBuffer::create(
     const vk::raii::PhysicalDevice& physDevice)
 {
     GPUBuffer result;
-    result.size = size;
+    result.Size = size;
 
     // Create buffer
     vk::BufferCreateInfo bufferInfo({}, size, usage);
-    result.buffer = vk::raii::Buffer(device, bufferInfo);
+    result.Buffer = vk::raii::Buffer(device, bufferInfo);
 
     // Allocate memory
-    auto memRequirements = result.buffer.getMemoryRequirements();
+    auto memRequirements = result.Buffer.getMemoryRequirements();
     auto memTypeIndex    = [&]() -> uint32_t {
         auto memProperties = physDevice.getMemoryProperties();
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
@@ -36,21 +36,21 @@ GPUBuffer GPUBuffer::create(
         vk::MemoryAllocateFlagBits::eDeviceAddress
     );
     vk::MemoryAllocateInfo allocInfo(memRequirements.size, memTypeIndex, &allocFlags);
-    result.memory = vk::raii::DeviceMemory(device, allocInfo);
+    result.Memory = vk::raii::DeviceMemory(device, allocInfo);
 
     // Bind
-    result.buffer.bindMemory(*result.memory, 0);
+    result.Buffer.bindMemory(*result.Memory, 0);
 
     // Get device address if requested
     if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
-        vk::BufferDeviceAddressInfo addrInfo(*result.buffer);
-        result.address = device.getBufferAddress(addrInfo);
+        vk::BufferDeviceAddressInfo addrInfo(*result.Buffer);
+        result.Address = device.getBufferAddress(addrInfo);
     }
 
     return result;
 }
 
-GPUBuffer GPUBuffer::createStaging(
+GPUBuffer GPUBuffer::CreateStaging(
     const vk::raii::Device&         device,
     const void*                     data,
     vk::DeviceSize                  size,
@@ -58,7 +58,7 @@ GPUBuffer GPUBuffer::createStaging(
     const vk::raii::PhysicalDevice& physDevice)
 {
     // Create with host-visible + coherent memory
-    auto buf = create(
+    auto buf = Create(
         device, size,
         usage | vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -67,9 +67,9 @@ GPUBuffer GPUBuffer::createStaging(
     );
 
     // Map and copy
-    void* mapped = buf.memory.mapMemory(0, size);
+    void* mapped = buf.Memory.mapMemory(0, size);
     std::memcpy(mapped, data, static_cast<size_t>(size));
-    buf.memory.unmapMemory();
+    buf.Memory.unmapMemory();
 
     return buf;
 }

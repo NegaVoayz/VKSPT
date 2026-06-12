@@ -1,6 +1,6 @@
 #include "render/Denoiser.h"
 
-void Denoiser::init(const vk::raii::Device&         device,
+Denoiser::Denoiser(const vk::raii::Device&         device,
                     const vk::raii::PhysicalDevice& physDevice,
                     uint32_t width, uint32_t height)
 {

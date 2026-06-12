@@ -32,24 +32,14 @@ vk::raii::Pipeline RayTracingPipeline::mkPipe(
     vk::PipelineShaderStageCreateInfo stage(
         {}, vk::ShaderStageFlagBits::eCompute, *m, "main");
     return vk::raii::Pipeline(m_dev, nullptr,
-        vk::ComputePipelineCreateInfo({}, stage, m_desc.pipelineLayout()));
+        vk::ComputePipelineCreateInfo({}, stage, m_desc.PipelineLayout()));
 }
 
-void RayTracingPipeline::createPipeline(const std::string& s)
-    { m_pipeline = mkPipe(m_sm, s); }
-void RayTracingPipeline::createSortPipeline(const std::string& s)
-    { m_sortPipe = mkPipe(m_sortSm, s); }
-void RayTracingPipeline::createNormalizePipeline(const std::string& s)
-    { m_normPipe = mkPipe(m_normSm, s); }
-void RayTracingPipeline::createClassifyPipeline(const std::string& s)
-    { m_classPipe = mkPipe(m_classSm, s); }
-void RayTracingPipeline::createProcessPipeline(const std::string& s)
-    { m_procPipe = mkPipe(m_procSm, s); }
-void RayTracingPipeline::createDenoisePipeline(const std::string& s)
+void RayTracingPipeline::CreateDenoisePipeline(const std::string& s)
     { m_denPipe = mkPipe(m_denSm, s); }
 
 // ---- RT Pipeline + SBT ----
-void RayTracingPipeline::createRTPipeline(const std::string& spv)
+void RayTracingPipeline::CreateRTPipeline(const std::string& spv)
 {
     auto code = readFile(spv);
     m_rtSm = vk::raii::ShaderModule(m_dev,
@@ -74,7 +64,7 @@ void RayTracingPipeline::createRTPipeline(const std::string& spv)
     rtInfo.setStages(stages);
     rtInfo.setGroups(groups);
     rtInfo.setMaxPipelineRayRecursionDepth(31);
-    rtInfo.setLayout(m_desc.pipelineLayout());
+    rtInfo.setLayout(m_desc.PipelineLayout());
 
     auto rawDev = static_cast<VkDevice>(*m_dev);
     VkPipeline rawPipeline;
@@ -87,7 +77,13 @@ void RayTracingPipeline::createRTPipeline(const std::string& spv)
         throw std::runtime_error("Failed to create RT pipeline");
     m_rtPipeline = vk::raii::Pipeline(m_dev, rawPipeline);
 
-    // Query SBT properties
+    querySbtProperties();
+    auto handles = getShaderGroupHandles();
+    uploadSbtBuffer(handles);
+}
+
+void RayTracingPipeline::querySbtProperties()
+{
     auto rtProps = m_physDev.getProperties2<
         vk::PhysicalDeviceProperties2,
         vk::PhysicalDeviceRayTracingPipelinePropertiesKHR
@@ -96,18 +92,23 @@ void RayTracingPipeline::createRTPipeline(const std::string& spv)
     uint32_t align = std::max(rtProps.shaderGroupBaseAlignment,
                               rtProps.shaderGroupHandleSize);
     m_sbtStride = ((m_sbtHandleSize + align - 1) / align) * align;
+}
 
-    // Get shader group handles
+std::vector<uint8_t> RayTracingPipeline::getShaderGroupHandles() const
+{
     uint32_t dataSize = RT_GROUP_COUNT * m_sbtHandleSize;
     std::vector<uint8_t> handles(dataSize);
-    result = static_cast<vk::Result>(
+    auto result = static_cast<vk::Result>(
         VULKAN_HPP_DEFAULT_DISPATCHER.vkGetRayTracingShaderGroupHandlesKHR(
-            rawDev, *m_rtPipeline, 0, RT_GROUP_COUNT,
+            static_cast<VkDevice>(*m_dev), *m_rtPipeline, 0, RT_GROUP_COUNT,
             dataSize, handles.data()));
     if (result != vk::Result::eSuccess)
         throw std::runtime_error("Failed to get RT shader group handles");
+    return handles;
+}
 
-    // Build SBT: stride-aligned entries
+void RayTracingPipeline::uploadSbtBuffer(const std::vector<uint8_t>& handles)
+{
     vk::DeviceSize sbtSize = m_sbtStride * RT_GROUP_COUNT;
     std::vector<uint8_t> sbtData(static_cast<size_t>(sbtSize), 0);
     for (uint32_t i = 0; i < RT_GROUP_COUNT; ++i)
@@ -115,25 +116,22 @@ void RayTracingPipeline::createRTPipeline(const std::string& spv)
                     handles.data() + i * m_sbtHandleSize,
                     m_sbtHandleSize);
 
-    // Create SBT buffer and upload via staging
-    auto staging = GPUBuffer::createStaging(m_dev, sbtData.data(), sbtSize,
+    auto staging = GPUBuffer::CreateStaging(m_dev, sbtData.data(), sbtSize,
         vk::BufferUsageFlagBits::eTransferSrc, m_physDev);
-    m_sbtBuffer = GPUBuffer::create(m_dev, sbtSize,
+    m_sbtBuffer = GPUBuffer::Create(m_dev, sbtSize,
         vk::BufferUsageFlagBits::eShaderBindingTableKHR |
             vk::BufferUsageFlagBits::eShaderDeviceAddress |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDev);
 
-    // Upload SBT via one-time command buffer
     {
-        vk::raii::CommandPool cmdPool(m_dev,
-            {{}, m_computeQf});
+        vk::raii::CommandPool cmdPool(m_dev, {{}, m_computeQf});
         vk::raii::CommandBuffers cmdBufs(m_dev,
             {*cmdPool, vk::CommandBufferLevel::ePrimary, 1});
         cmdBufs[0].begin(vk::CommandBufferBeginInfo(
             vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
         vk::BufferCopy copy(0, 0, sbtSize);
-        cmdBufs[0].copyBuffer(*staging.buffer, *m_sbtBuffer.buffer, copy);
+        cmdBufs[0].copyBuffer(*staging.Buffer, *m_sbtBuffer.Buffer, copy);
         cmdBufs[0].end();
         vk::SubmitInfo si;
         si.setCommandBuffers(*cmdBufs[0]);
@@ -141,8 +139,7 @@ void RayTracingPipeline::createRTPipeline(const std::string& spv)
         m_dev.waitIdle();
     }
 
-    // Strided device address regions
-    vk::DeviceAddress sbtAddr = m_sbtBuffer.address;
+    vk::DeviceAddress sbtAddr = m_sbtBuffer.Address;
     m_raygenRegion   = vk::StridedDeviceAddressRegionKHR(sbtAddr,                   m_sbtStride, m_sbtStride);
     m_hitRegion      = vk::StridedDeviceAddressRegionKHR(sbtAddr + 1 * m_sbtStride, m_sbtStride, m_sbtStride);
     m_missRegion     = vk::StridedDeviceAddressRegionKHR(sbtAddr + 2 * m_sbtStride, m_sbtStride, m_sbtStride);

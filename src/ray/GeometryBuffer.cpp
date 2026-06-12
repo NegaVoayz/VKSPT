@@ -44,19 +44,19 @@ void GeometryBuffer::upload(
                  vk::BufferUsageFlagBits::eShaderDeviceAddress;
 
     if (!allV.empty())
-        m_vertex = GPUBuffer::createStaging(dev, allV.data(),
+        m_vertex = GPUBuffer::CreateStaging(dev, allV.data(),
             allV.size() * sizeof(float), usage, physDev);
     if (!allI.empty())
-        m_index = GPUBuffer::createStaging(dev, allI.data(),
+        m_index = GPUBuffer::CreateStaging(dev, allI.data(),
             allI.size() * sizeof(uint32_t), usage, physDev);
     if (!allN.empty())
-        m_normal = GPUBuffer::createStaging(dev, allN.data(),
+        m_normal = GPUBuffer::CreateStaging(dev, allN.data(),
             allN.size() * sizeof(float), usage, physDev);
     else {
         float d[4] = {0, 1, 0, 0};
-        m_normal = GPUBuffer::createStaging(dev, d, sizeof(d),
+        m_normal = GPUBuffer::CreateStaging(dev, d, sizeof(d),
                                              usage, physDev);
     }
-    m_range = GPUBuffer::createStaging(dev, rangeData.data(),
+    m_range = GPUBuffer::CreateStaging(dev, rangeData.data(),
         rangeData.size() * sizeof(uint32_t), usage, physDev);
 }

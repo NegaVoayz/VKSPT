@@ -23,7 +23,7 @@ void SceneBuilder::build(const SceneDescription& desc,
                   mesh.vertices.size()/3, mesh.indices.size()/3);
 
         float xf[3][4];
-        buildTransformMatrix(obj.scale, obj.rotation, obj.translation, xf);
+        BuildTransformMatrix(obj.scale, obj.rotation, obj.translation, xf);
 
         AccelerationStructure::InstanceInfo inst;
         inst.mesh = std::move(mesh);

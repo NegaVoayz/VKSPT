@@ -1,7 +1,7 @@
 #include "render/OutputImage.h"
 #include <stdexcept>
 
-void OutputImage::init(const vk::raii::Device&         device,
+OutputImage::OutputImage(const vk::raii::Device&         device,
                        const vk::raii::PhysicalDevice& physDevice,
                        uint32_t width, uint32_t height)
 {

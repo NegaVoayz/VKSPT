@@ -27,19 +27,19 @@ public:
     VulkanContext& operator=(VulkanContext&&)      = delete;
 
     // --- Accessors ---
-    const vk::raii::Instance&       getInstance()       const { return m_instance; }
-    const vk::raii::PhysicalDevice& getPhysicalDevice()  const { return m_physicalDevice; }
-    const vk::raii::Device&         getDevice()          const { return m_device; }
-    const QueueFamilyIndices&       getQueueFamilies()   const { return m_queueFamilies; }
+    const vk::raii::Instance&       GetInstance()       const { return m_instance; }
+    const vk::raii::PhysicalDevice& GetPhysicalDevice()  const { return m_physicalDevice; }
+    const vk::raii::Device&         GetDevice()          const { return m_device; }
+    const QueueFamilyIndices&       GetQueueFamilies()   const { return m_queueFamilies; }
 
-    vk::Queue getComputeQueue() const { return m_computeQueue; }
-    vk::Queue getPresentQueue() const { return m_presentQueue; }
+    vk::Queue GetComputeQueue() const { return m_computeQueue; }
+    vk::Queue GetPresentQueue() const { return m_presentQueue; }
 
-    uint32_t getComputeQueueFamily() const { return *m_queueFamilies.compute; }
-    uint32_t getPresentQueueFamily() const { return *m_queueFamilies.present; }
+    uint32_t GetComputeQueueFamily() const { return *m_queueFamilies.compute; }
+    uint32_t GetPresentQueueFamily() const { return *m_queueFamilies.present; }
 
     /// Query ray tracing properties for this physical device.
-    const vk::PhysicalDeviceRayTracingPipelinePropertiesKHR& getRayTracingProperties() const {
+    const vk::PhysicalDeviceRayTracingPipelinePropertiesKHR& GetRayTracingProperties() const {
         return m_rtProperties;
     }
 

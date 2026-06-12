@@ -142,7 +142,7 @@ static void parseLights(tinyxml2::XMLElement* root, SceneDescription& desc)
     }
 }
 
-SceneDescription parseSceneXML(const std::string& xmlPath) {
+SceneDescription ParseSceneXML(const std::string& xmlPath) {
     SceneDescription desc;
     tinyxml2::XMLDocument doc;
     if (doc.LoadFile(xmlPath.c_str()) != tinyxml2::XML_SUCCESS)

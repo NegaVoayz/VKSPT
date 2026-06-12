@@ -3,7 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-void buildTransformMatrix(const glm::vec3& scale,
+void BuildTransformMatrix(const glm::vec3& scale,
                           const glm::vec3& rotation,
                           const glm::vec3& translation,
                           float            out[3][4])

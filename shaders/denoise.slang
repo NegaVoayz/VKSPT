@@ -53,13 +53,11 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
     float3 centerNormal = normalImage.Load(int2(px.x, px.y)).xyz * 2.0 - 1.0;
     float centerDepth = depthImage.Load(int2(px.x, px.y)).x;
 
-    // Sky pixel → pass through unfiltered
     if (length(centerNormal) < 0.001) {
         outputImage[int2(px.x, px.y)] = float4(centerColor, 1.0);
         return;
     }
 
-    // ---- 2 scales: step=1 (fine), step=2 (coarse) ----
     // Heavily weighted toward fine scale (0.8) to preserve detail
     float3 result = float3(0.0);
     float totalW = 0.0;
@@ -85,7 +83,7 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
                 float3 qNormal = normalImage.Load(int2(qp.x, qp.y)).xyz * 2.0 - 1.0;
                 float qDepth = depthImage.Load(int2(qp.x, qp.y)).x;
 
-                if (length(qNormal) < 0.001) continue;  // skip sky neighbors
+                if (length(qNormal) < 0.001) continue;
 
                 float w = normalWeight(centerNormal, qNormal)
                         * depthWeight(centerDepth, qDepth)
