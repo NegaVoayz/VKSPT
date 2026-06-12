@@ -8,7 +8,7 @@ public float3 computeDispersion(float3 I, float3 N, float eta_mid, float deta) {
     if (!refractDir(I, N, eta_mid, t0)) return float3(0);
     if (!refractDir(I, N, eta_mid + h, t1)) return float3(0);
     float3 dT_deta = (t1 - t0) / h;
-    float3 spread = dT_deta * deta;
+    float3 spread = dT_deta * deta * 0.5;
     return spread - dot(spread, t0) * t0;
 }
 
