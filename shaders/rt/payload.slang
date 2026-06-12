@@ -95,7 +95,7 @@ void traceSpectralSplit(inout Payload p,
         acc += L;
         int lamRight = p.lamStart + (acc >> k);
 
-        float3 childPos = childOrigin + S * splitD;
+        float3 childPos = childOrigin;
         float3 childDir = normalize(baseDir + S * splitV);
 
         float childC2 = s2 * parentC2;
@@ -106,8 +106,8 @@ void traceSpectralSplit(inout Payload p,
         Payload childP;
         initPayload(childP, lamLeft, lamRight, childC0, childC1, childC2,
                      childBounce, childGen, p.rng);
-        childP.D = childD;
-        childP.V = childV;
+        childP.D = childD - dot(childD, childDir) * childDir;
+        childP.V = childV - dot(childV, childDir) * childDir;
 
         RayDesc cr;
         cr.Origin = childPos; cr.Direction = childDir;
