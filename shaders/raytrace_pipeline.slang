@@ -85,8 +85,7 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
         max(0u, uint(params.materialCount)-1u))];
     int matType = int(mat.params.z);
 
-    p.D += p.V * p.hitT;
-
+    // D,V propagation happens inside handlers, after split decision
     if (p.bounce >= 3) {
         float linTp = exp(p.throughput - 0.5*p.decayC2);
         float survive = max(linTp, 0.1);
