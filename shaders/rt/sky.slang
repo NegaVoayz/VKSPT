@@ -47,7 +47,10 @@ void handleSkyMiss(inout Payload p)
     if (p.bounce < 0) { p.isShadowed = 1.0; return; }
 
     float3 dir = WorldRayDirection();
-    float3 skyD = p.D + p.V * 10000.0;
+    // Effective sky distance for dispersion split: prevent over-splitting
+    // when the sky is far away relative to the dispersion spread.
+    float skyDist = 2000.0;
+    float3 skyD = p.D + p.V * skyDist;
     float3 Dperp = skyD - dot(skyD, dir) * dir;
     float d = 2.0 * length(Dperp);
     int lamRange = p.lamEnd - p.lamStart;

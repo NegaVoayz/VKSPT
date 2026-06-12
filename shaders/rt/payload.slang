@@ -68,6 +68,13 @@ void traceSpectralSplit(inout Payload p,
         return;
 
     int k = int(ceil(log2(d / params.forceSplitWidth)));
+
+    // Cap k by wavelength range: each child must have >= minSplitNm
+    int lamRange = p.lamEnd - p.lamStart;
+    if (params.minSplitNm > 0.0 && lamRange > 0) {
+        int maxKWl = int(floor(log2(float(lamRange) / params.minSplitNm)));
+        k = min(k, max(maxKWl, 0));
+    }
     int n = 1 << k;
 
     float s  = exp2(float(-k));
