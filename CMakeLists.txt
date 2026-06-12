@@ -82,6 +82,7 @@ set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/rt/direct_light.slang"
     "${SHADER_SRC_DIR}/rt/sky.slang"
     "${SHADER_SRC_DIR}/rt/material_handlers.slang"
+    "${SHADER_SRC_DIR}/photon/photon_light.slang"
 )
 
 function(compile_shader_slang TARGET_NAME SRC_FILE OUTPUT_NAME)
@@ -121,6 +122,7 @@ add_custom_command(
             -entry RayGenMain -stage raygeneration
             -entry ClosestHitMain -stage closesthit
             -entry MissMain -stage miss
+            -entry PhotonRayGenMain -stage raygeneration
             -capability spvRayTracingKHR
             -o "${RT_PIPELINE_OUT}"
     DEPENDS "${RT_PIPELINE_SRC}"

@@ -30,6 +30,8 @@ void DescriptorManager::createLayout() {
         sb(4, DT::eStorageBuffer),
         sb(5, DT::eStorageBuffer),
         sb(6, DT::eStorageBuffer),
+        sb(7, DT::eStorageBuffer),   // photon buffer
+        sb(8, DT::eStorageBuffer),   // photon counter
         sb(11, DT::eCombinedImageSampler),
         sb(12, DT::eStorageBuffer),
         sb(13, DT::eStorageBuffer),
@@ -40,7 +42,7 @@ void DescriptorManager::createLayout() {
     m_layout = vk::raii::DescriptorSetLayout(m_device, {{}, b});
 
     vk::PushConstantRange pc(
-        SS::eRaygenKHR | SS::eClosestHitKHR | SS::eMissKHR | SS::eCompute, 0, 116);
+        SS::eRaygenKHR | SS::eClosestHitKHR | SS::eMissKHR | SS::eCompute, 0, 128);
     m_pipeLayout = vk::raii::PipelineLayout(
         m_device, {{}, *m_layout, pc});
 }
@@ -53,7 +55,7 @@ void DescriptorManager::createPool() {
         {DT::eAccelerationStructureKHR, N},
         {DT::eStorageImage,             N * 3},
         {DT::eUniformBuffer,            N * 2},
-        {DT::eStorageBuffer,            N * 6},
+        {DT::eStorageBuffer,            N * 8},
         {DT::eCombinedImageSampler,     N},
     };
     m_pool = vk::raii::DescriptorPool(
@@ -138,3 +140,9 @@ void DescriptorManager::BindDepthImage(uint32_t fi, vk::ImageView v)
     { writeImg(m_device, *m_sets[fi], 15, vk::DescriptorType::eStorageImage, v, {}); }
 void DescriptorManager::BindInstanceNormalBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
     { writeBuf(m_device, *m_sets[fi], 16, vk::DescriptorType::eStorageBuffer, b, sz); }
+
+void DescriptorManager::BindPhotonBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
+    { writeBuf(m_device, *m_sets[fi], 7, vk::DescriptorType::eStorageBuffer, b, sz); }
+
+void DescriptorManager::BindPhotonCounter(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
+    { writeBuf(m_device, *m_sets[fi], 8, vk::DescriptorType::eStorageBuffer, b, sz); }

@@ -1,10 +1,12 @@
 // RT pipeline material handlers — each uses Payload + TraceRay recursion
 import common.types;
+import common.cmf_data;
 import common.bindings;
 import geometry.normals;
 import geometry.dispersion;
 import math.sampling;
 import math.spectral_math;
+import math.color;
 import rt.payload;
 import rt.direct_light;
 
@@ -13,12 +15,14 @@ void handleCheckerboard(inout Payload p, float3 pos, float3 fNrm, inout uint rng
 {
     float cx = floor(pos.x*0.5), cz = floor(pos.z*0.5);
     float3 alb = ((int(cx+cz)%2)==0) ? float3(0.75) : float3(0.15);
-    p.color = exp(p.throughput) * directLight(pos, fNrm, alb, rng);
+
+    gatherPhotons(pos, fNrm, params.gatherRadius, p.spectral);
 
     float3 sDir = cosineSampleHemisphere(fNrm, rng);
     Payload np; initPayload(np, p.lamStart, p.lamEnd,
         p.throughput + log(dot(alb, float3(0.333))),
-        p.decayC1, p.decayC2, p.bounce+1, p.generation, rng);
+        p.decayC1, p.decayC2, p.bounce+1, p.generation,
+        p.specularChain, p.lightRGB, rng);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+sDir*0.01; nr.Direction=sDir;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -30,12 +34,15 @@ void handleLambertian(inout Payload p, float3 pos, float3 fNrm,
                        GpuMaterial mat, inout uint rng)
 {
     float3 alb = mat.albedo.xyz;
-    p.color = exp(p.throughput) * directLight(pos, fNrm, alb, rng);
+
+    // Illumination comes from photon gather (fills p.spectral[])
+    gatherPhotons(pos, fNrm, params.gatherRadius, p.spectral);
 
     float3 sDir = cosineSampleHemisphere(fNrm, rng);
     Payload np; initPayload(np, p.lamStart, p.lamEnd,
         p.throughput + log(dot(alb, float3(0.333))),
-        p.decayC1, p.decayC2, p.bounce+1, p.generation, rng);
+        p.decayC1, p.decayC2, p.bounce+1, p.generation,
+        p.specularChain, p.lightRGB, rng);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+sDir*0.01; nr.Direction=sDir;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -72,7 +79,8 @@ void handleMetal(inout Payload p, float3 pos, float3 fNrm,
 
     float3 refl = reflectDir(WorldRayDirection(), fNrm);
     Payload np; initPayload(np, p.lamStart, p.lamEnd, newC0, newC1, newC2,
-                            p.bounce+1, p.generation, rng);
+                            p.bounce+1, p.generation,
+                            p.specularChain, p.lightRGB, rng);
     float3 Dprop = p.D + p.V * p.hitT;
     np.D = Dprop - 2.0*dot(Dprop, fNrm)*fNrm;
     np.V      = p.V      - 2.0*dot(p.V, fNrm)*fNrm;
@@ -112,7 +120,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             float3 refl = reflectDir(WorldRayDirection(), dn);
             Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
                 p.throughput+log(max(fresnelR,1e-10)),
-                p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
+                p.decayC1, p.decayC2, p.bounce+1, p.generation,
+                p.specularChain, p.lightRGB, p.rng);
             float3 DpropRefl = p.D + p.V * p.hitT;
             rp.D = DpropRefl - 2.0*dot(DpropRefl, dn)*dn;
             rp.V      = p.V-2.0*dot(p.V,dn)*dn;
@@ -136,7 +145,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                                    p.bounce+1, p.generation+1);
             } else {
                 Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
-                    refrTp, p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
+                    refrTp, p.decayC1, p.decayC2, p.bounce+1, p.generation,
+                    p.specularChain, p.lightRGB, p.rng);
                 tp.D = rotSplit; tp.V = rotDisp + newDisp;
                 RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;
                 tr.TMin=0.001; tr.TMax=10000.0;
@@ -148,7 +158,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         // TIR — total internal reflection
         float3 refl = reflectDir(WorldRayDirection(), dn);
         Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
-            p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
+            p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
+            p.specularChain, p.lightRGB, p.rng);
         float3 DpropTIR = p.D + p.V * p.hitT;
         rp.D = DpropTIR - 2.0*dot(DpropTIR, dn)*dn;
         rp.V      = p.V-2.0*dot(p.V, dn)*dn;
@@ -156,5 +167,104 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         rr.TMin=0.001; rr.TMax=10000.0;
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
         mergeChild(p, rp, float3(1.0));
+    }
+}
+
+// ---- Photon mode helpers ----
+
+void storePhoton(inout Payload p, float3 pos, float3 fNrm)
+{
+    uint slot;
+    InterlockedAdd(photonCounter[0], 1, slot);
+    if (slot >= MAX_PHOTONS) return;
+
+    PhotonRecord rec;
+    rec.phPos = float4(pos, 0.0);
+    rec.phNrm = float4(fNrm, 0.0);
+    rec.phDir = float4(normalize(WorldRayDirection()), 0.0);
+
+    // Spectral energy: Wiener spectrum × Legendre attenuation.
+    // Legendre coefficients track log-energy level + transport attenuation;
+    // spectral detail comes from estimateSpectrum (matching sky's S * D pattern).
+    float lamMid = float(p.lamStart + p.lamEnd) * 0.5;
+    float halfW  = float(p.lamEnd - p.lamStart) * 0.5;
+    float invHW  = 1.0 / max(halfW, 0.001);
+
+    float specBucket[10];
+    for (int b = 0; b < 10; b++) {
+        float bS = float(LAMBDA_MIN + 40 * b);
+        float bE = bS + 40.0;
+        float oS = max(float(p.lamStart), bS);
+        float oE = min(float(p.lamEnd), bE);
+        if (oS >= oE) { specBucket[b] = 0.0; continue; }
+
+        float lamMidB = (oS + oE) * 0.5;
+        float x = clamp((lamMidB - lamMid) * invHW, -1.0, 1.0);
+        float S = estimateSpectrum(lamMidB, p.lightRGB);
+        float D = evalDecay(p.throughput, p.decayC1, p.decayC2, x);
+        specBucket[b] = S * D * (oE - oS);
+    }
+
+    rec.spectral0_3 = half4(half(specBucket[0]), half(specBucket[1]), half(specBucket[2]), half(specBucket[3]));
+    rec.spectral4_7 = half4(half(specBucket[4]), half(specBucket[5]), half(specBucket[6]), half(specBucket[7]));
+    rec.spectral8_9 = half2(half(specBucket[8]), half(specBucket[9]));
+    rec.pad = 0u;
+    photonBuffer[slot] = rec;
+}
+
+void gatherPhotons(float3 pos, float3 nrm, float radius,
+                   inout float spectral[NUM_SPECTRAL_BUCKETS])
+{
+    uint count = min(photonCounter[0], uint(MAX_PHOTONS));
+    float r2 = radius * radius;
+    for (uint i = 0; i < count; i++) {
+        PhotonRecord ph = photonBuffer[i];
+        float3 d = ph.phPos.xyz - pos;
+        float d2 = dot(d, d);
+        if (d2 >= r2) continue;
+        if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+
+        float w = max(0.0, 1.0 - sqrt(d2) / radius);
+        float filt = w;  // no area normalization — radius only controls smoothness
+
+        // fp16 → fp32 implicit on load
+        spectral[0] += float(ph.spectral0_3.x) * filt;
+        spectral[1] += float(ph.spectral0_3.y) * filt;
+        spectral[2] += float(ph.spectral0_3.z) * filt;
+        spectral[3] += float(ph.spectral0_3.w) * filt;
+        spectral[4] += float(ph.spectral4_7.x) * filt;
+        spectral[5] += float(ph.spectral4_7.y) * filt;
+        spectral[6] += float(ph.spectral4_7.z) * filt;
+        spectral[7] += float(ph.spectral4_7.w) * filt;
+        spectral[8] += float(ph.spectral8_9.x) * filt;
+        spectral[9] += float(ph.spectral8_9.y) * filt;
+    }
+}
+
+void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int matType)
+{
+    if (p.bounce >= params.photonMaxBounces || decayIsDead(p.throughput, p.decayC2))
+        return;
+
+    if (p.bounce >= 3) {
+        float linTp = exp(p.throughput - 0.5 * p.decayC2);
+        float survive = max(linTp, 0.1);
+        if (rand1(p.rng) > survive) return;
+        p.throughput -= log(survive);
+    }
+
+    GpuMaterial mat = materials.items[clamp(uint(matType), 0u,
+        max(0u, uint(params.materialCount) - 1u))];
+
+    if (matType == MATERIAL_DIELECTRIC) {
+        p.specularChain++;
+        handleDielectric(p, pos, nrm, mat);
+    }
+    else if (matType == MATERIAL_METAL) {
+        p.specularChain++;
+        handleMetal(p, pos, fNrm, mat, p.rng);
+    }
+    else if (matType == MATERIAL_LAMBERTIAN || matType == MATERIAL_CHECKERBOARD) {
+        storePhoton(p, pos, fNrm);
     }
 }

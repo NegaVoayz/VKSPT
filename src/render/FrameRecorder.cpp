@@ -31,6 +31,38 @@ void FrameRecorder::record(
     const CameraParams& camera, int accumFrame, bool first)
 {
     transitionImages(cb, first);
+
+    // Photon pass: reset counter, trace photons from lights
+    cb.fillBuffer(*as.getPhotonCounter().Buffer, 0, 4, 0);
+    {
+        vk::BufferMemoryBarrier b(
+            vk::AccessFlagBits::eTransferWrite,
+            vk::AccessFlagBits::eShaderWrite,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *as.getPhotonCounter().Buffer, 0, 4);
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            {}, {}, b, {});
+    }
+    dispatchPhotonTrace(cb, f, as, pipeline);
+
+    // Barrier: photon buffer write → camera shader read
+    {
+        std::vector<vk::BufferMemoryBarrier> bArr = {
+            {vk::AccessFlagBits::eShaderWrite,
+             vk::AccessFlagBits::eShaderRead,
+             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+             *as.getPhotonBuffer().Buffer, 0, as.getPhotonBuffer().Size},
+            {vk::AccessFlagBits::eShaderWrite,
+             vk::AccessFlagBits::eShaderRead,
+             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+             *as.getPhotonCounter().Buffer, 0, 4},
+        };
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            {}, {}, bArr, {});
+    }
+
     dispatchTrace(cb, f, as, pipeline, camera, accumFrame);
     denoisePass(cb, f, pipeline);
     copyOutputToSwapchain(cb, imageIndex);
@@ -74,6 +106,10 @@ void FrameRecorder::dispatchTrace(
         int   frameIndex;
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
+        int   passType;
+        float gatherRadius;
+        int   photonMaxBounces;
+        float _pad4;
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -86,13 +122,14 @@ void FrameRecorder::dispatchTrace(
     pc.spp=4; pc.maxBounces=24;
     pc.matCount=static_cast<int>(as.getMaterialCount());
     pc.fovTan=0.57735f; pc.splitMult=1.0f;
-    pc.forceSplitWidth=20.0f; pc.scatterSamples=1;
+    pc.forceSplitWidth=0.01f; pc.scatterSamples=1;
     pc.mergeThreshold=0.999f; pc.frameIndex=accumFrame;
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
     pc.numLights=static_cast<int>(as.getLightCount());
     pc.minSplitNm=20.0f;
-    pc.forceSplitWidth=10.0f;
+    pc.passType = 0;  // PASS_CAMERA
+    pc.gatherRadius = m_gatherRadius;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());
@@ -118,6 +155,61 @@ void FrameRecorder::dispatchTrace(
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
         m_w, m_h, 1);
+}
+
+void FrameRecorder::dispatchPhotonTrace(
+    vk::CommandBuffer cb, uint32_t f,
+    const AccelerationStructure& as, RayTracingPipeline& pipeline)
+{
+    struct PC {
+        float camOrigin[3]; float _pad0;
+        float camU[3];      float _pad1;
+        float camV[3];      float _pad2;
+        float camW[3];      float _pad3;
+        int   spp, maxBounces, matCount;
+        float fovTan, splitMult, forceSplitWidth;
+        int   scatterSamples; float mergeThreshold;
+        int   frameIndex;
+        float diffuseStrength, specularStrength; int numLights;
+        float minSplitNm;
+        int   passType;
+        float gatherRadius;
+        int   photonMaxBounces;
+        float _pad4;
+    } pc{};
+
+    pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
+    pc.matCount = static_cast<int>(as.getMaterialCount());
+    pc.fovTan = 0.57735f; pc.splitMult = 1.0f;
+    pc.forceSplitWidth = 0.005f; pc.scatterSamples = 1;
+    pc.mergeThreshold = 0.999f; pc.frameIndex = 0;
+    pc.diffuseStrength = as.getDiffuseStrength();
+    pc.specularStrength = as.getSpecularStrength();
+    pc.numLights = static_cast<int>(as.getLightCount());
+    pc.minSplitNm = 20.0f;
+    pc.passType = 1;  // PASS_PHOTON
+    pc.gatherRadius = m_gatherRadius;
+    pc.photonMaxBounces = m_photonMaxBounces;
+    pc._pad4 = 0.0f;
+
+    cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
+                    pipeline.GetRTPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
+    cb.pushConstants<PC>(pipeline.Desc().PipelineLayout(),
+        vk::ShaderStageFlagBits::eRaygenKHR |
+            vk::ShaderStageFlagBits::eClosestHitKHR |
+            vk::ShaderStageFlagBits::eMissKHR |
+            vk::ShaderStageFlagBits::eCompute, 0, pc);
+
+    VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
+        static_cast<VkCommandBuffer>(cb),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.PhotonRaygenRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.MissRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
+        reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
+        m_photonCount, 1, 1);
 }
 
 void FrameRecorder::denoisePass(

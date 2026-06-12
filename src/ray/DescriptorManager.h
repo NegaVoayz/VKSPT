@@ -30,6 +30,8 @@ public:
     void BindNormalImage(uint32_t fi, vk::ImageView v);
     void BindDepthImage(uint32_t fi, vk::ImageView v);
     void BindInstanceNormalBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
+    void BindPhotonBuffer(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
+    void BindPhotonCounter(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
 
 private:
     void createLayout();

@@ -28,3 +28,21 @@ public static const int LIGHT_POINT       = 0;
 public static const int LIGHT_DIRECTIONAL = 1;
 public static const int LIGHT_SPOT        = 2;
 public static const int LIGHT_AMBIENT     = 3;
+
+// Pass type for shared RT pipeline
+public static const int PASS_CAMERA = 0;
+public static const int PASS_PHOTON = 1;
+
+// Photon map
+public static const int MAX_PHOTONS = 1048576;  // 1M cap
+
+public struct PhotonRecord {
+    public float4 phPos;            // xyz = hit position, w = unused
+    public float4 phNrm;            // xyz = surface normal, w = unused
+    public float4 phDir;            // xyz = photon arrival direction, w = unused
+    public half4  spectral0_3;      // fp16 spectral buckets 0-3
+    public half4  spectral4_7;      // fp16 spectral buckets 4-7
+    public half2  spectral8_9;      // fp16 spectral buckets 8-9
+    public uint   pad;              // alignment
+};
+// Total: 72 bytes

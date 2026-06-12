@@ -18,8 +18,11 @@ float3 directLight(float3 pos, float3 nrm, float3 albedo, inout uint rng)
             toLight /= d; tM = d - 0.001;
             att = l.colorIntensity.w / max(d*d, 1.0);
             if (lt == LIGHT_SPOT) {
+                // innerAngle/outerAngle stored in degrees; convert to cos for comparison
+                float cosOuter = cos(l.outerRange.x * 3.14159265 / 180.0);
+                float cosInner = cos(l.dirInner.w * 3.14159265 / 180.0);
                 float cA = dot(-toLight, l.dirInner.xyz);
-                spA = smoothstep(l.outerRange.x, l.outerRange.x+0.05, cA);
+                spA = smoothstep(cosOuter, cosInner, cA);
             }
         }
         if (att < 0.0001 || spA < 0.001) continue;

@@ -115,4 +115,21 @@ void AccelerationStructure::buildScene(
                   mids, sfs);
     uploadMaterialBuffer(mats);
     uploadLightBuffer(lights);
+    createPhotonBuffers();
+}
+
+void AccelerationStructure::createPhotonBuffers()
+{
+    constexpr uint32_t MAX_PHOTONS = 1024u * 1024u;  // 1M photons
+    constexpr uint32_t kPhotonRecSize = 72;           // PhotonRecord is 72 bytes
+
+    m_photonBuf = GPUBuffer::Create(m_device,
+        MAX_PHOTONS * kPhotonRecSize,
+        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+
+    m_photonCtr = GPUBuffer::Create(m_device, 4,
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }

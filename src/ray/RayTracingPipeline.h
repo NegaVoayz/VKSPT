@@ -22,10 +22,11 @@ public:
     // RT pipeline
     void CreateRTPipeline(const std::string& spv);
     vk::Pipeline GetRTPipeline() const { return *m_rtPipeline; }
-    const vk::StridedDeviceAddressRegionKHR& RaygenRegion()  const { return m_raygenRegion; }
-    const vk::StridedDeviceAddressRegionKHR& MissRegion()    const { return m_missRegion; }
-    const vk::StridedDeviceAddressRegionKHR& HitRegion()     const { return m_hitRegion; }
-    const vk::StridedDeviceAddressRegionKHR& CallableRegion() const { return m_callableRegion; }
+    const vk::StridedDeviceAddressRegionKHR& RaygenRegion()        const { return m_raygenRegion; }
+    const vk::StridedDeviceAddressRegionKHR& PhotonRaygenRegion()  const { return m_photonRaygenRegion; }
+    const vk::StridedDeviceAddressRegionKHR& MissRegion()          const { return m_missRegion; }
+    const vk::StridedDeviceAddressRegionKHR& HitRegion()           const { return m_hitRegion; }
+    const vk::StridedDeviceAddressRegionKHR& CallableRegion()      const { return m_callableRegion; }
 
     DescriptorManager& Desc() { return m_desc; }
     const DescriptorManager& Desc() const { return m_desc; }
@@ -53,6 +54,7 @@ private:
     uint32_t                             m_sbtHandleSize = 0;
     uint32_t                             m_sbtStride = 0;
     vk::StridedDeviceAddressRegionKHR    m_raygenRegion{};
+    vk::StridedDeviceAddressRegionKHR    m_photonRaygenRegion{};
     vk::StridedDeviceAddressRegionKHR    m_missRegion{};
     vk::StridedDeviceAddressRegionKHR    m_hitRegion{};
     vk::StridedDeviceAddressRegionKHR    m_callableRegion{};

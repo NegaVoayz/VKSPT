@@ -11,6 +11,7 @@ import rt.payload;
 import rt.direct_light;
 import rt.sky;
 import rt.material_handlers;
+import photon.photon_light;
 
 [shader("raygeneration")]
 void RayGenMain()
@@ -34,7 +35,7 @@ void RayGenMain()
         uint seed = wangHash(uint(px.x)*1973u + uint(px.y)*9277u +
                              uint(sp)*2654435761u +
                              uint(params.frameIndex)*134775813u);
-        initPayload(p, LAMBDA_MIN, LAMBDA_MAX, 0.0, 0.0, 0.0, 0, 0, seed);
+        initPayload(p, LAMBDA_MIN, LAMBDA_MAX, 0.0, 0.0, 0.0, 0, 0, 0, float3(0,0,0), seed);
 
         RayDesc ray;
         ray.Origin = origin; ray.Direction = camDir;
@@ -62,6 +63,46 @@ void RayGenMain()
     outputImage[int2(px)] = float4(linearToSRGB(newAcc/max(newCnt,1.0)*2.5), 1.0);
 }
 
+// ---- Photon tracing raygen ----
+[shader("raygeneration")]
+void PhotonRayGenMain()
+{
+    uint photonIdx = DispatchRaysIndex().x;
+    uint totalPhotons = 65536u;  // 256x256 initial photons
+
+    if (photonIdx >= totalPhotons) return;
+
+    uint seed = wangHash(photonIdx ^ uint(params.frameIndex) * 134775813u);
+
+    // Equal photon count per light — each light's photons carry only that light's power
+    int numLights = max(1, params.numLights);
+    int li = photonIdx % numLights;
+    GpuLight l = lights.items[li];
+    float3 lightRGB = l.colorIntensity.xyz;
+    float lightIntensity = l.colorIntensity.w;
+
+    // Sample position and direction on the selected light
+    float3 origin, direction;
+    sampleLightSource(l, origin, direction, seed);
+
+    // Photon power: light's intensity split equally among its photon share
+    uint photonsPerLight = totalPhotons / uint(numLights);
+
+    float c0 = log(max(lightIntensity, 1e-10) / float(max(photonsPerLight, 1u))) + 7.0f;
+    float c1 = 0.0;
+    float c2 = 0.0;
+
+    Payload p;
+    initPayload(p, LAMBDA_MIN, LAMBDA_MAX, c0, c1, c2,
+                0, 0, 0, lightRGB, seed);
+    p.specularChain = 0;
+
+    RayDesc ray;
+    ray.Origin = origin; ray.Direction = direction;
+    ray.TMin = 0.001; ray.TMax = 10000.0;
+    TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, ray, p);
+}
+
 [shader("closesthit")]
 void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes attr)
 {
@@ -84,6 +125,12 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
     GpuMaterial mat = materials.items[clamp(matIdx, 0u,
         max(0u, uint(params.materialCount)-1u))];
     int matType = int(mat.params.z);
+
+    // Photon pass: handle in material_handlers and return
+    if (params.passType == PASS_PHOTON) {
+        handlePhotonHit(p, pos, fNrm, nrm, matType);
+        return;
+    }
 
     // D,V propagation happens inside handlers, after split decision
     if (p.bounce >= 3) {
@@ -110,5 +157,6 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
 [shader("miss")]
 void MissMain(inout Payload p)
 {
+    if (params.passType == PASS_PHOTON) return;
     handleSkyMiss(p);
 }

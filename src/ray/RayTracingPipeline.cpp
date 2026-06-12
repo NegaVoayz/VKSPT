@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <cstring>
 
-static constexpr uint32_t RT_GROUP_COUNT = 3;  // raygen, chit, miss
+static constexpr uint32_t RT_GROUP_COUNT = 4;  // raygen(camera), chit, miss, raygen(photon)
 
 RayTracingPipeline::RayTracingPipeline(
     const vk::raii::Device& d, const vk::raii::PhysicalDevice& pd,
@@ -49,6 +49,7 @@ void RayTracingPipeline::CreateRTPipeline(const std::string& spv)
         {{}, vk::ShaderStageFlagBits::eRaygenKHR,      *m_rtSm, "RayGenMain"},
         {{}, vk::ShaderStageFlagBits::eClosestHitKHR,   *m_rtSm, "ClosestHitMain"},
         {{}, vk::ShaderStageFlagBits::eMissKHR,         *m_rtSm, "MissMain"},
+        {{}, vk::ShaderStageFlagBits::eRaygenKHR,       *m_rtSm, "PhotonRayGenMain"},
     };
 
     vk::RayTracingShaderGroupCreateInfoKHR groups[RT_GROUP_COUNT] = {
@@ -58,6 +59,8 @@ void RayTracingPipeline::CreateRTPipeline(const std::string& spv)
          VK_SHADER_UNUSED_KHR, 1, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
         {vk::RayTracingShaderGroupTypeKHR::eGeneral,
          2, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
+        {vk::RayTracingShaderGroupTypeKHR::eGeneral,
+         3, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
     };
 
     vk::RayTracingPipelineCreateInfoKHR rtInfo;
@@ -140,10 +143,11 @@ void RayTracingPipeline::uploadSbtBuffer(const std::vector<uint8_t>& handles)
     }
 
     vk::DeviceAddress sbtAddr = m_sbtBuffer.Address;
-    m_raygenRegion   = vk::StridedDeviceAddressRegionKHR(sbtAddr,                   m_sbtStride, m_sbtStride);
-    m_hitRegion      = vk::StridedDeviceAddressRegionKHR(sbtAddr + 1 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_missRegion     = vk::StridedDeviceAddressRegionKHR(sbtAddr + 2 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_callableRegion = vk::StridedDeviceAddressRegionKHR(0, 0, 0);
+    m_raygenRegion        = vk::StridedDeviceAddressRegionKHR(sbtAddr + 0 * m_sbtStride, m_sbtStride, m_sbtStride);
+    m_hitRegion           = vk::StridedDeviceAddressRegionKHR(sbtAddr + 1 * m_sbtStride, m_sbtStride, m_sbtStride);
+    m_missRegion          = vk::StridedDeviceAddressRegionKHR(sbtAddr + 2 * m_sbtStride, m_sbtStride, m_sbtStride);
+    m_photonRaygenRegion  = vk::StridedDeviceAddressRegionKHR(sbtAddr + 3 * m_sbtStride, m_sbtStride, m_sbtStride);
+    m_callableRegion      = vk::StridedDeviceAddressRegionKHR(0, 0, 0);
 
     Log::info("RT pipeline created: {} shader groups, SBT {} bytes", RT_GROUP_COUNT, sbtSize);
 }

@@ -16,6 +16,8 @@ struct Payload {
     uint   rng;
     float  spectral[NUM_SPECTRAL_BUCKETS];
     float  isShadowed;
+    int    specularChain;  // specular bounces before this diffuse hit
+    float3 lightRGB;       // emitting light's color (photon mode)
 };
 
 struct PushConstants {
@@ -29,17 +31,24 @@ struct PushConstants {
     int   frameIndex;
     float diffuseStrength; float specularStrength; int numLights;
     float minSplitNm;
+    int   passType;         // PASS_CAMERA or PASS_PHOTON
+    float gatherRadius;     // photon gather search radius
+    int   photonMaxBounces; // max bounces for photon paths
+    float _pad4;
 };
 [[vk::push_constant]] PushConstants params;
 
 void initPayload(out Payload p, int ls, int le, float tp, float c1, float c2,
-                 int bounce, int gen, uint rng)
+                 int bounce, int gen, int specChain, float3 lightRgb, uint rng)
 {
     p.color = float3(0.0); p.normal = float3(0,0,1);
     p.lamStart = ls; p.lamEnd = le;
     p.D = float3(0); p.V = float3(0);
     p.throughput = tp; p.decayC1 = c1; p.decayC2 = c2;
     p.bounce = bounce; p.generation = gen; p.rng = rng;
+    p.isShadowed = 0.0;
+    p.specularChain = specChain;
+    p.lightRGB = lightRgb;
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) p.spectral[b] = 0.0;
 }
 
@@ -115,7 +124,7 @@ void traceSpectralSplit(inout Payload p,
 
         Payload childP;
         initPayload(childP, lamLeft, lamRight, childC0, childC1, childC2,
-                     childBounce, childGen, p.rng);
+                     childBounce, childGen, p.specularChain, p.lightRGB, p.rng);
         childP.D = childD - dot(childD, childDir) * childDir;
         childP.V = childV - dot(childV, childDir) * childDir;
 

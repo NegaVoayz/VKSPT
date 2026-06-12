@@ -35,5 +35,8 @@ public struct InstanceNormalBlock {
 };
 public [[vk::binding(16, 0)]] StructuredBuffer<InstanceNormalBlock> instanceNormals;
 
+public [[vk::binding(7, 0)]]  RWStructuredBuffer<PhotonRecord>  photonBuffer;
+public [[vk::binding(8, 0)]]  RWStructuredBuffer<uint>         photonCounter;
+
 public [[vk::binding(11, 0)]] Texture2D<float4> envMap;
 public [[vk::binding(11, 0)]] SamplerState      envSampler;
