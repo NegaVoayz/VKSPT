@@ -36,28 +36,7 @@ public bool applyVolumeDecay(inout float c0, inout float c1, inout float c2,
     return false; // absorption-driven split deferred in log space
 }
 
-// Binary split at midpoint: child = LEFT half of parent [lamStart, midWl]
-//   a = -0.5, b = 0.5
-[ForceInline]
-public void reprojectDecayLeft(float parentC0, float parentC1, float parentC2,
-                                out float childC0, out float childC1, out float childC2) {
-    childC0 = parentC0 - 0.5 * parentC1;
-    childC1 = 0.5 * parentC1 - 0.75 * parentC2;
-    childC2 = 0.25 * parentC2;
-}
-
-// Binary split at midpoint: child = RIGHT half of parent [midWl, lamEnd]
-//   a = 0.5, b = 0.5
-[ForceInline]
-public void reprojectDecayRight(float parentC0, float parentC1, float parentC2,
-                                 out float childC0, out float childC1, out float childC2) {
-    childC0 = parentC0 + 0.5 * parentC1;
-    childC1 = 0.5 * parentC1 + 0.75 * parentC2;
-    childC2 = 0.25 * parentC2;
-}
-
-// General affine reprojection for non-binary splits.
-// Prefer reprojectDecayLeft/Right for the common binary-split case.
+// General affine Legendre reprojection: parent[mid±half] → child[mid±half]
 public void reprojectDecay(float parentC0, float parentC1, float parentC2,
                     float parentMid, float parentHalf,
                     float childMid,  float childHalf,

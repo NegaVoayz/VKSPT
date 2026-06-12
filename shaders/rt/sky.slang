@@ -47,20 +47,20 @@ void handleSkyMiss(inout Payload p)
     if (p.bounce < 0) { p.isShadowed = 1.0; return; }
 
     float3 dir = WorldRayDirection();
-    float3 skyDisp = p.lastSplit + p.disp * 10000.0;
-    float skySepMag = length(skyDisp);
+    float3 skyD = p.D + p.V * 10000.0;
+    float3 Dperp = skyD - dot(skyD, dir) * dir;
+    float d = 2.0 * length(Dperp);
     int lamRange = p.lamEnd - p.lamStart;
     int minRange = max(int(params.minSplitNm), 20);
 
-    if (skySepMag > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
+    if (d > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
         lamRange >= minRange &&
         !decayIsDead(p.throughput, p.decayC2) && p.generation < 7) {
 
         traceSpectralSplit(p, WorldRayOrigin(), dir,
-                           normalize(skyDisp), skySepMag, 10000.0,
+                           skyD, p.V,
                            p.throughput, p.decayC1, p.decayC2,
-                           p.bounce, p.generation+1,
-                           p.lastSplit, p.disp);
+                           p.bounce, p.generation+1);
         p.hitT = 1e6; p.normal = float3(0,0,1);
         return;
     }

@@ -73,8 +73,8 @@ void handleMetal(inout Payload p, float3 pos, float3 fNrm,
     float3 refl = reflectDir(WorldRayDirection(), fNrm);
     Payload np; initPayload(np, p.lamStart, p.lamEnd, newC0, newC1, newC2,
                             p.bounce+1, p.generation, rng);
-    np.lastSplit = p.lastSplit - 2.0*dot(p.lastSplit, fNrm)*fNrm;
-    np.disp      = p.disp      - 2.0*dot(p.disp, fNrm)*fNrm;
+    np.D = p.D - 2.0*dot(p.D, fNrm)*fNrm;
+    np.V      = p.V      - 2.0*dot(p.V, fNrm)*fNrm;
     RayDesc nr; nr.Origin=pos+fNrm*0.001+refl*0.01; nr.Direction=refl;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -97,8 +97,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float3 newDir;
     if (refractDir(WorldRayDirection(), dn, eta_mid, newDir)) {
         float3 newDisp = computeDispersion(WorldRayDirection(), dn, eta_mid, deta);
-        float3 rotSplit = rotateToNewFrame(p.lastSplit, WorldRayDirection(), newDir);
-        float3 rotDisp  = rotateToNewFrame(p.disp, WorldRayDirection(), newDir);
+        float3 rotSplit = rotateToNewFrame(p.D, WorldRayDirection(), newDir);
+        float3 rotDisp  = rotateToNewFrame(p.V, WorldRayDirection(), newDir);
 
         float cosTheta = abs(dot(WorldRayDirection(), dn));
         float r0 = (ior_mid-1.0)/(ior_mid+1.0); r0 *= r0;
@@ -109,8 +109,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
                 p.throughput+log(max(fresnelR,1e-10)),
                 p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
-            rp.lastSplit = p.lastSplit-2.0*dot(p.lastSplit,dn)*dn;
-            rp.disp      = p.disp-2.0*dot(p.disp,dn)*dn;
+            rp.D = p.D-2.0*dot(p.D,dn)*dn;
+            rp.V      = p.V-2.0*dot(p.V,dn)*dn;
             RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
             rr.TMin=0.001; rr.TMax=10000.0;
             TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
@@ -119,21 +119,21 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
 
         float refrTp = p.throughput + log(max(1.0-fresnelR, 1e-10));
         if (!decayIsDead(refrTp, p.decayC2)) {
-            float estDist = max(p.hitT, 50.0);
-            float3 predictedSep = rotSplit + (rotDisp + newDisp) * estDist;
-            float sepMag = length(predictedSep);
+            float3 childD = rotSplit;
+            float3 childV = rotDisp + newDisp;
+            float3 Dperp = childD - dot(childD, newDir) * newDir;
+            float d = 2.0 * length(Dperp);
 
-            if (sepMag > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
+            if (d > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
                 p.generation < 7) {
                 traceSpectralSplit(p, pos-dn*0.001, newDir,
-                                   normalize(predictedSep), sepMag, estDist,
+                                   childD, childV,
                                    refrTp, p.decayC1, p.decayC2,
-                                   p.bounce+1, p.generation+1,
-                                   rotSplit, rotDisp + newDisp);
+                                   p.bounce+1, p.generation+1);
             } else {
                 Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
                     refrTp, p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
-                tp.lastSplit = rotSplit; tp.disp = rotDisp + newDisp;
+                tp.D = rotSplit; tp.V = rotDisp + newDisp;
                 RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;
                 tr.TMin=0.001; tr.TMax=10000.0;
                 TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, tr, tp);
@@ -145,8 +145,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         float3 refl = reflectDir(WorldRayDirection(), dn);
         Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
             p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation, p.rng);
-        rp.lastSplit = p.lastSplit-2.0*dot(p.lastSplit,dn)*dn;
-        rp.disp      = p.disp-2.0*dot(p.disp,dn)*dn;
+        rp.D = p.D-2.0*dot(p.D,dn)*dn;
+        rp.V      = p.V-2.0*dot(p.V,dn)*dn;
         RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
         rr.TMin=0.001; rr.TMax=10000.0;
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);

@@ -6,7 +6,6 @@ import common.bindings;
 import geometry.normals;
 import math.sampling;
 import math.spectral_math;
-import math.legendre_decay;
 import math.color;
 import rt.payload;
 import rt.direct_light;
@@ -86,7 +85,7 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
         max(0u, uint(params.materialCount)-1u))];
     int matType = int(mat.params.z);
 
-    p.lastSplit += p.disp * p.hitT;
+    p.D += p.V * p.hitT;
 
     if (p.bounce >= 3) {
         float linTp = exp(p.throughput - 0.5*p.decayC2);

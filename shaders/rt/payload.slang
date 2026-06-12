@@ -1,15 +1,14 @@
 // RT pipeline Payload + PushConstants shared across all RT shader modules
 import common.types;
 import common.bindings;
-import math.legendre_decay;
 
 struct Payload {
     float3 color;
     float  hitT;
     float3 normal;
     int    lamStart, lamEnd;
-    float3 lastSplit;
-    float3 disp;
+    float3 D;        // dispersion offset vector
+    float3 V;        // dispersion velocity (per-unit-distance growth)
     float  throughput;
     float  decayC1, decayC2;
     int    bounce, generation;
@@ -37,7 +36,7 @@ void initPayload(out Payload p, int ls, int le, float tp, float c1, float c2,
 {
     p.color = float3(0.0); p.normal = float3(0,0,1);
     p.lamStart = ls; p.lamEnd = le;
-    p.lastSplit = float3(0); p.disp = float3(0);
+    p.D = float3(0); p.V = float3(0);
     p.throughput = tp; p.decayC1 = c1; p.decayC2 = c2;
     p.bounce = bounce; p.generation = gen; p.rng = rng;
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) p.spectral[b] = 0.0;
@@ -50,43 +49,67 @@ void mergeChild(inout Payload parent, Payload child, float3 weight)
         parent.spectral[b] += child.spectral[b];
 }
 
-// Binary spectral split: creates two child rays offset perpendicular to baseDir,
-// reprojects decay coefficients for each half-wavelength sub-interval.
-// Caller is responsible for checking split conditions (mag > forceSplitWidth, etc.)
+// Generalized n-way spectral split per SplitMethodDesign.md.
+// D is the dispersion offset, V the per-unit-distance growth rate.
+// Split count: n = 2^k where k = ceil(log2(2|D_perp| / forceSplitWidth)).
+// Legendre coefficients reprojected via closed-form shift+scale (S, Q progression).
+// Wavelength intervals allocated with Bresenham integer partition.
 void traceSpectralSplit(inout Payload p,
                          float3 childOrigin, float3 baseDir,
-                         float3 splitPerp, float splitMag, float estDist,
-                         float parentTp, float parentC1, float parentC2,
-                         int childBounce, int childGen,
-                         float3 childSplit, float3 childDisp)
+                         float3 splitD, float3 splitV,
+                         float parentC0, float parentC1, float parentC2,
+                         int childBounce, int childGen)
 {
-    int midWl = (p.lamStart + p.lamEnd)/2;
-    float offsetScale = splitMag * 0.5 / estDist;
-    float3 perp = splitPerp;
-    if (length(perp) < 0.0001) perp = float3(1,0,0);
+    // d = 2 * |D| projected onto plane perpendicular to baseDir
+    float3 Dperp = splitD - dot(splitD, baseDir) * baseDir;
+    float d = 2.0 * length(Dperp);
 
-    {
-        float3 vdir = normalize(baseDir + perp * offsetScale);
-        Payload vp; initPayload(vp, p.lamStart, midWl,
-            0,0,0, childBounce, childGen, p.rng);
-        reprojectDecayLeft(parentTp, parentC1, parentC2,
-                           vp.throughput, vp.decayC1, vp.decayC2);
-        vp.lastSplit = childSplit; vp.disp = childDisp;
-        RayDesc vr; vr.Origin = childOrigin; vr.Direction = vdir;
-        vr.TMin = 0.001; vr.TMax = 10000.0;
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, vr, vp);
-        mergeChild(p, vp, float3(1.0));
-    }
-    {
-        float3 rdir = normalize(baseDir - perp * offsetScale);
-        Payload rp; initPayload(rp, midWl, p.lamEnd,
-            0,0,0, childBounce, childGen, p.rng);
-        reprojectDecayRight(parentTp, parentC1, parentC2,
-                            rp.throughput, rp.decayC1, rp.decayC2);
-        rp.lastSplit = childSplit; rp.disp = childDisp;
-        RayDesc rr; rr.Origin = childOrigin; rr.Direction = rdir;
-        rr.TMin = 0.001; rr.TMax = 10000.0;
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
-        mergeChild(p, rp, float3(1.0));
+    if (d <= params.forceSplitWidth || params.forceSplitWidth <= 0.0)
+        return;
+
+    int k = int(ceil(log2(d / params.forceSplitWidth)));
+    int n = 1 << k;
+
+    float s  = exp2(float(-k));
+    float s2 = exp2(float(-2 * k));
+
+    float3 childD = s * splitD;
+    float3 childV = s * splitV;
+
+    int L = p.lamEnd - p.lamStart;
+    int acc = 0;
+    int lamLeft = p.lamStart;
+
+    float S     = -(1.0 - s);
+    float Delta = 2.0 * s;
+    float Q     = S * S;
+
+    for (int i = 0; i < n; i++) {
+        acc += L;
+        int lamRight = p.lamStart + (acc >> k);
+
+        float3 childPos = childOrigin + S * splitD;
+        float3 childDir = normalize(baseDir + S * splitV);
+
+        float childC2 = s2 * parentC2;
+        float childC1 = s * (parentC1 + 3.0 * S * parentC2);
+        float childC0 = parentC0 + S * parentC1
+                      + (1.5 * Q - 0.5 + 0.5 * s2) * parentC2;
+
+        Payload childP;
+        initPayload(childP, lamLeft, lamRight, childC0, childC1, childC2,
+                     childBounce, childGen, p.rng);
+        childP.D = childD;
+        childP.V = childV;
+
+        RayDesc cr;
+        cr.Origin = childPos; cr.Direction = childDir;
+        cr.TMin = 0.001; cr.TMax = 10000.0;
+        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
+        mergeChild(p, childP, float3(1.0));
+
+        Q += 2.0 * S * Delta + Delta * Delta;
+        S += Delta;
+        lamLeft = lamRight;
     }
 }
