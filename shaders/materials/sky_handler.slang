@@ -51,11 +51,6 @@ public void handleSkyMiss(
         float3 skyPerp = normalize(skyDisp);
         if (length(skyPerp) < 0.0001) skyPerp = float3(1,0,0);
 
-        float splitParentMid  = float(bs.lamStart + bs.lamEnd) * 0.5;
-        float splitParentHalf = float(bs.lamEnd - bs.lamStart) * 0.5;
-        float violetMid  = float(bs.lamStart + midWl) * 0.5;
-        float violetHalf = float(midWl - bs.lamStart) * 0.5;
-
         if (stackTop < SPECTRAL_STACK_MAX - 1) {
             RayState skyV;
             skyV.direction   = normalize(rayD + skyPerp * skySepMag * 0.5 / estSkyDist);
@@ -64,10 +59,8 @@ public void handleSkyMiss(
             skyV.dispersion  = bs.disp;
             skyV.lam_start   = bs.lamStart;
             skyV.lam_end     = midWl;
-            reprojectDecay(bs.throughput, bs.decayC1, bs.decayC2,
-                           splitParentMid, splitParentHalf,
-                           violetMid, violetHalf,
-                           skyV.throughput, skyV.decay_c1, skyV.decay_c2);
+            reprojectDecayLeft(bs.throughput, bs.decayC1, bs.decayC2,
+                               skyV.throughput, skyV.decay_c1, skyV.decay_c2);
             skyV.bounce      = bounce;
             skyV.generation  = bs.generation + 1;
             rayStack[stackTop++] = skyV;
@@ -79,12 +72,8 @@ public void handleSkyMiss(
             skyR.dispersion  = bs.disp;
             skyR.lam_start   = midWl;
             skyR.lam_end     = bs.lamEnd;
-            float redMid  = float(midWl + bs.lamEnd) * 0.5;
-            float redHalf = float(bs.lamEnd - midWl) * 0.5;
-            reprojectDecay(bs.throughput, bs.decayC1, bs.decayC2,
-                           splitParentMid, splitParentHalf,
-                           redMid, redHalf,
-                           skyR.throughput, skyR.decay_c1, skyR.decay_c2);
+            reprojectDecayRight(bs.throughput, bs.decayC1, bs.decayC2,
+                                skyR.throughput, skyR.decay_c1, skyR.decay_c2);
             skyR.bounce      = bounce;
             skyR.generation  = bs.generation + 1;
             rayStack[stackTop++] = skyR;

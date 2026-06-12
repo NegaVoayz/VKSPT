@@ -112,11 +112,6 @@ public void handleDielectric(
                     bs.generation = nextGen;
                 }
             } else {
-                float splitParentMid  = float(bs.lamStart + bs.lamEnd) * 0.5;
-                float splitParentHalf = float(bs.lamEnd - bs.lamStart) * 0.5;
-                float violetMid       = float(bs.lamStart + midWl) * 0.5;
-                float violetHalf      = float(midWl - bs.lamStart) * 0.5;
-
                 RayState violet;
                 violet.origin      = pos + nrm * 0.001 + newDir * 0.01;
                 violet.direction   = newDir;
@@ -126,21 +121,15 @@ public void handleDielectric(
                 violet.geomDisp    = bs.geomD;
                 violet.lam_start   = bs.lamStart;
                 violet.lam_end     = midWl;
-                reprojectDecay(bs.throughput, bs.decayC1, bs.decayC2,
-                               splitParentMid, splitParentHalf,
-                               violetMid, violetHalf,
-                               violet.throughput, violet.decay_c1, violet.decay_c2);
+                reprojectDecayLeft(bs.throughput, bs.decayC1, bs.decayC2,
+                                   violet.throughput, violet.decay_c1, violet.decay_c2);
                 violet.bounce      = bounce + 1;
                 violet.generation  = nextGen;
 
                 if (stackTop < SPECTRAL_STACK_MAX) {
                     rayStack[stackTop++] = violet;
-                    float redMid  = float(midWl + bs.lamEnd) * 0.5;
-                    float redHalf = float(bs.lamEnd - midWl) * 0.5;
-                    reprojectDecay(bs.throughput, bs.decayC1, bs.decayC2,
-                                   splitParentMid, splitParentHalf,
-                                   redMid, redHalf,
-                                   bs.throughput, bs.decayC1, bs.decayC2);
+                    reprojectDecayRight(bs.throughput, bs.decayC1, bs.decayC2,
+                                        bs.throughput, bs.decayC1, bs.decayC2);
                     bs.lamStart   = midWl;
                     bs.generation = nextGen;
                 }
