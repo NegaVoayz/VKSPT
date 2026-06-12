@@ -1,6 +1,7 @@
 // RT pipeline Payload + PushConstants shared across all RT shader modules
 import common.types;
 import common.bindings;
+import math.sampling;
 
 struct Payload {
     float3 color;
@@ -89,19 +90,28 @@ void traceSpectralSplit(inout Payload p,
 
     float S     = -(1.0 - s);
     float Delta = 2.0 * s;
-    float Q     = S * S;
 
     for (int i = 0; i < n; i++) {
         acc += L;
-        int lamRight = p.lamStart + (acc >> k);
+        int lamRightExact = p.lamStart + (acc >> k);
+        int intervalW = lamRightExact - lamLeft;
+
+        // Jitter S and wavelength boundary to break discrete banding
+        float jitterS = (rand1(p.rng) - 0.5) * Delta * 0.4;
+        float Sj = S + jitterS;
+        float Qj = Sj * Sj;
+
+        int maxWLJitter = max(1, intervalW / 4);
+        int wlJitter = int(rand1(p.rng) * float(2 * maxWLJitter + 1)) - maxWLJitter;
+        int lamRight = clamp(lamRightExact + wlJitter, lamLeft + 1, p.lamEnd);
 
         float3 childPos = childOrigin;
-        float3 childDir = normalize(baseDir + S * splitV);
+        float3 childDir = normalize(baseDir + Sj * splitV);
 
         float childC2 = s2 * parentC2;
-        float childC1 = s * (parentC1 + 3.0 * S * parentC2);
-        float childC0 = parentC0 + S * parentC1
-                      + (1.5 * Q - 0.5 + 0.5 * s2) * parentC2;
+        float childC1 = s * (parentC1 + 3.0 * Sj * parentC2);
+        float childC0 = parentC0 + Sj * parentC1
+                      + (1.5 * Qj - 0.5 + 0.5 * s2) * parentC2;
 
         Payload childP;
         initPayload(childP, lamLeft, lamRight, childC0, childC1, childC2,
@@ -115,7 +125,6 @@ void traceSpectralSplit(inout Payload p,
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
         mergeChild(p, childP, float3(1.0));
 
-        Q += 2.0 * S * Delta + Delta * Delta;
         S += Delta;
         lamLeft = lamRight;
     }
