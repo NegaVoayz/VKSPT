@@ -28,12 +28,7 @@ public void handleLambertian(
 
     bs.colorAccum += directLin * exp(preAbsTP - 0.5 * bs.decayC2);
 
-    if (bounce >= 3) {
-        float linearTP = exp(bs.throughput - 0.5 * bs.decayC2);
-        float survive = max(linearTP, 0.1);
-        if (rand1(rng) > survive) { bs.throughput = -20.0; return; }
-        bs.throughput -= log(survive);
-    }
+    // RR moved to bounce-start in raytrace.slang (unified with termination)
 
     int scatCount = int(scatSamples);
     if (scatCount < 1) scatCount = 1;

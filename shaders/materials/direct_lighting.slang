@@ -48,10 +48,10 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
         }
 
         // Shadow ray from surface towards light
-        RayQuery<RAY_FLAG_FORCE_OPAQUE> rq0;
+        RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rq0;
         float3 sOrg = pos + nrm * 0.001 + toLight * 0.01;
         RayDesc sRay0 = { sOrg, 0.001, toLight, tMax };
-        rq0.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, sRay0);
+        rq0.TraceRayInline(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, sRay0);
         while (rq0.Proceed()) {}
 
         if (rq0.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
@@ -80,9 +80,9 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             float3 stOrg = sOrg;
             float stRemain = tMax;
             for (int p = 0; p < 4 && stRemain > 0.001; p++) {
-                RayQuery<RAY_FLAG_FORCE_OPAQUE> srq;
+                RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> srq;
                 RayDesc sr = { stOrg, 0.001, toLight, stRemain };
-                srq.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, sr);
+                srq.TraceRayInline(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, sr);
                 while (srq.Proceed()) {}
                 if (srq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) { passThrough = true; break; }
                 float sHit = srq.CommittedRayT();
@@ -101,24 +101,45 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             contrib += lcolor * (albedo * 0.31831) * (att * nDotL * spotAtt) * diffuseStrength;
         }
 
-        // ---- Spectral caustics: trace through dielectric per bucket ----
+        // ---- Spectral caustics: two-phase, branch-coherent ----
         float3 entryNrm = computeGeometricNormal(miEntry, primEntry);
         if (dot(entryNrm, toLight) >= 0.0) entryNrm = -entryNrm;
 
-        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
+        // Phase 1: filter — cheap entry-refraction check, collect valid buckets
+        const int MAX_CAUSTIC = 6;
+        int   validB[MAX_CAUSTIC];
+        float validLam[MAX_CAUSTIC];
+        float validIor[MAX_CAUSTIC];
+        float3 validInside[MAX_CAUSTIC];
+        int validCount = 0;
+
+        for (int b = 0; b < NUM_SPECTRAL_BUCKETS && validCount < MAX_CAUSTIC; b++) {
             float lam = float(LAMBDA_MIN + 40 * b + 20);
             float ior = cauchyIOR(entryMat, lam);
-            float etaEnter = 1.0 / ior;
-
             float3 insideDir;
-            if (!refractDir(toLight, entryNrm, etaEnter, insideDir)) continue;
+            if (refractDir(toLight, entryNrm, 1.0 / ior, insideDir)) {
+                validB[validCount]      = b;
+                validLam[validCount]    = lam;
+                validIor[validCount]    = ior;
+                validInside[validCount] = insideDir;
+                validCount++;
+            }
+        }
 
-            float3 entryPt = sOrg + toLight * tEntry;
-            float3 insideOrg = entryPt + insideDir * 0.05;
-            float insideTMax = tMax - tEntry - 0.05;
-            RayQuery<RAY_FLAG_FORCE_OPAQUE> rq1;
+        // Phase 2: process — ray-query heavy path, all iterations do work
+        float3 entryPt  = sOrg + toLight * tEntry;
+        float  baseTMax = tMax - tEntry - 0.05;
+        for (int vi = 0; vi < validCount; vi++) {
+            int   b         = validB[vi];
+            float lam       = validLam[vi];
+            float ior       = validIor[vi];
+            float3 insideDir = validInside[vi];
+
+            float3 insideOrg   = entryPt + insideDir * 0.05;
+            float  insideTMax  = baseTMax;
+            RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rq1;
             RayDesc insideRay = { insideOrg, 0.001, insideDir, insideTMax };
-            rq1.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, insideRay);
+            rq1.TraceRayInline(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, insideRay);
             while (rq1.Proceed()) {}
 
             if (rq1.CommittedStatus() != COMMITTED_TRIANGLE_HIT) continue;
@@ -133,17 +154,17 @@ public float3 sampleDirectLighting(float3 pos, float3 nrm, float3 albedo, uint r
             float3 finalDir;
             if (!refractDir(insideDir, exitNrm, ior, finalDir)) continue;
 
-            float3 exitPt = insideOrg + insideDir * tInside;
+            float3 exitPt  = insideOrg + insideDir * tInside;
             float3 exitOrg = exitPt + finalDir * 0.05;
-            float exitTMax = tMax - tEntry - tInside - 0.1;
+            float  exitTMax = tMax - tEntry - tInside - 0.1;
             float3 toLightFromExit = ltype == LIGHT_DIRECTIONAL ? toLight : normalize(lpos - exitOrg);
 
             bool exitBlocked = false;
             float3 esOrg = exitOrg; float esRemain = exitTMax;
             for (int ep = 0; ep < 3 && esRemain > 0.001; ep++) {
-                RayQuery<RAY_FLAG_FORCE_OPAQUE> rq2;
+                RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rq2;
                 RayDesc eRay = { esOrg, 0.001, toLightFromExit, esRemain };
-                rq2.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, eRay);
+                rq2.TraceRayInline(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, eRay);
                 while (rq2.Proceed()) {}
                 if (rq2.CommittedStatus() != COMMITTED_TRIANGLE_HIT) break;
                 float etHit = rq2.CommittedRayT();

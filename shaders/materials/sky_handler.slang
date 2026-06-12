@@ -12,6 +12,43 @@ void accumulateSpectrumSky(inout float spectral[NUM_SPECTRAL_BUCKETS],
                          float3 envLinear) {
     float lamS = lamMid - halfWidth;
     float lamE = lamMid + halfWidth;
+    float bandWidth = halfWidth * 2.0;
+
+    // Flat decay (c1≈c2≈0): D(λ)=exp(c0) everywhere — single exp for all buckets
+    if (abs(c1) < 0.001 && abs(c2) < 0.001) {
+        float D_flat = exp(c0);
+        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
+            float bS = float(LAMBDA_MIN + 40 * b);
+            float bE = bS + 40.0;
+            float oS = max(lamS, bS);
+            float oE = min(lamE, bE);
+            if (oS >= oE) continue;
+            float lamEval = (oS + oE) * 0.5;
+            float S_ev  = estimateSpectrum(lamEval, envLinear);
+            float bw    = oE - oS;
+            spectral[b] += S_ev * D_flat * bw;
+        }
+        return;
+    }
+
+    // Narrow band: D(λ) ≈ D(λ_mid) across the band — single exp
+    if (bandWidth < 120.0) {
+        float D_mid = exp(c0 - 0.5 * c2);
+        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
+            float bS = float(LAMBDA_MIN + 40 * b);
+            float bE = bS + 40.0;
+            float oS = max(lamS, bS);
+            float oE = min(lamE, bE);
+            if (oS >= oE) continue;
+            float lamEval = (oS + oE) * 0.5;
+            float S_ev  = estimateSpectrum(lamEval, envLinear);
+            float bw    = oE - oS;
+            spectral[b] += S_ev * D_mid * bw;
+        }
+        return;
+    }
+
+    // Wide band + non-flat decay: per-bucket evaluation (rare)
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
         float bS = float(LAMBDA_MIN + 40 * b);
         float bE = bS + 40.0;

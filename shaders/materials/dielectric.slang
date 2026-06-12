@@ -67,25 +67,33 @@ public void handleDielectric(
         bs.throughput += log(max(1.0 - fresnelR, 1e-10));
         // c1,c2 unchanged — Fresnel is wavelength-independent
 
-        float estDist = max(tHit, 50.0);
-        float3  predictedGeom = bs.lastGeom + bs.geomD * estDist;
-        float3  predictedSep  = bs.lastSplit + bs.disp * estDist;
-        float sepMag       = max(length(predictedGeom), length(predictedSep));
-        float pixHalfWidth = fovTan / float(sz.x);
-        float pixThresh    = estDist * pixHalfWidth * 0.5 * splitMult;
-
-        int lamRange = bs.lamEnd - bs.lamStart;
-        float alphaStart = computeAbsorption(mat, float(bs.lamStart));
-        float alphaEnd   = computeAbsorption(mat, float(bs.lamEnd));
-        float alphaVar   = abs(exp(-alphaStart * tHit) - exp(-alphaEnd * tHit));
-
+        // ---- Split decision: cheap conditions first, short-circuit ----
+        int  lamRange  = bs.lamEnd - bs.lamStart;
         bool forceWide = (int(forceSplitWidth) > 0) && (lamRange > int(forceSplitWidth));
-        bool needSplit = (sepMag > pixThresh) || forceWide;
 
-        bool spectralDriven = (length(predictedSep) > pixThresh);
-        bool geomDriven     = (length(predictedGeom) > pixThresh);
+        // Predicted dispersion (cheap MADs, needed in split body)
+        float estDist     = max(tHit, 50.0);
+        float3 predictedGeom = bs.lastGeom + bs.geomD * estDist;
+        float3 predictedSep  = bs.lastSplit + bs.disp * estDist;
 
-        if (needSplit && lamRange >= 10 && !decayIsDead(bs.throughput, bs.decayC2) && bs.generation < 8) {
+        bool shouldSplit = forceWide;
+        float geomLen = 0.0, specLen = 0.0;
+        if (!shouldSplit) {
+            // Only compute lengths (sqrt) when not already splitting
+            geomLen            = length(predictedGeom);
+            specLen            = length(predictedSep);
+            float pixHalfWidth = fovTan / float(sz.x);
+            float pixThresh    = estDist * pixHalfWidth * 0.5 * splitMult;
+            shouldSplit        = max(geomLen, specLen) > pixThresh;
+        }
+        shouldSplit = shouldSplit && lamRange >= 10
+                      && !decayIsDead(bs.throughput, bs.decayC2)
+                      && bs.generation < 8;
+
+        if (shouldSplit) {
+            bool geomDriven     = (geomLen > specLen);
+            bool spectralDriven = (!forceWide);  // forceWide ⇒ spectral split
+
             int midWl = (bs.lamStart + bs.lamEnd) / 2;
             int nextGen = bs.generation + 1;
 

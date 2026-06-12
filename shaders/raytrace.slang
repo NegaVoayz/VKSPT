@@ -77,6 +77,14 @@ void main(uint3 dispatchID : SV_DispatchThreadID) {
         for (int bounce = r.bounce; bounce < params.maxBounces; ++bounce) {
             if (decayIsDead(throughput, decayC2)) break;
 
+            // RR: merged with termination — single branch at bounce start
+            if (bounce >= 3) {
+                float linearTP = exp(throughput - 0.5 * decayC2);
+                float survive  = max(linearTP, 0.1);
+                if (rand1(rng) > survive) break;
+                throughput -= log(survive);
+            }
+
             RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
             RayDesc ray = { rayO, 0.001, rayD, 10000.0 };
             rq.TraceRayInline(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, ray);
