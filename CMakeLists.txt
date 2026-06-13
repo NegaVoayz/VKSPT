@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 4.3.1)
+cmake_policy(SET CMP0169 OLD)
 project(VKSPT
     VERSION 0.1.0
     DESCRIPTION "Adaptive Spectral Tracing Renderer"
@@ -25,7 +26,6 @@ find_package(SDL3 REQUIRED)
 # Include directories
 # -----------------------------------------------------------------------------
 set(SDK_INCLUDE "${VULKAN_SDK}/Include")
-set(THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/third-party")
 
 # GLM (header-only)
 set(GLM_INCLUDE "${SDK_INCLUDE}/glm")
@@ -34,30 +34,39 @@ set(GLM_INCLUDE "${SDK_INCLUDE}/glm")
 set(SLANG_INCLUDE "${SDK_INCLUDE}/slang")
 
 # -----------------------------------------------------------------------------
-# Third-party sources
+# Third-party dependencies (auto-fetched)
 # -----------------------------------------------------------------------------
-# tinyobjloader
-add_library(tinyobjloader STATIC
-    "${THIRD_PARTY_DIR}/tinyobjloader-1.0.6/tiny_obj_loader.cc"
-)
-target_include_directories(tinyobjloader PUBLIC
-    "${THIRD_PARTY_DIR}/tinyobjloader-1.0.6"
-)
-target_compile_definitions(tinyobjloader PRIVATE TINYOBJLOADER_IMPLEMENTATION)
+include(FetchContent)
+set(FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/_deps")
 
-# tinyxml2
-add_library(tinyxml2 STATIC
-    "${THIRD_PARTY_DIR}/tinyxml2-11.0.0/tinyxml2.cpp"
+# tinyobjloader — header + single .cc
+FetchContent_Declare(tinyobjloader
+    GIT_REPOSITORY https://github.com/tinyobjloader/tinyobjloader.git
+    GIT_TAG        e60d333
 )
-target_include_directories(tinyxml2 PUBLIC
-    "${THIRD_PARTY_DIR}/tinyxml2-11.0.0"
-)
+FetchContent_Populate(tinyobjloader)
+add_library(tinyobjloader_obj STATIC "${tinyobjloader_SOURCE_DIR}/tiny_obj_loader.cc")
+target_include_directories(tinyobjloader_obj PUBLIC "${tinyobjloader_SOURCE_DIR}")
+add_library(tinyobjloader ALIAS tinyobjloader_obj)
 
-# stb_image (header-only, provide as interface library)
+# tinyxml2 — header + single .cpp
+FetchContent_Declare(tinyxml2
+    GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+    GIT_TAG        11.0.0
+)
+FetchContent_Populate(tinyxml2)
+add_library(tinyxml2_obj STATIC "${tinyxml2_SOURCE_DIR}/tinyxml2.cpp")
+target_include_directories(tinyxml2_obj PUBLIC "${tinyxml2_SOURCE_DIR}")
+add_library(tinyxml2 ALIAS tinyxml2_obj)
+
+# stb_image (header-only, rolling release — master branch)
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+)
+FetchContent_Populate(stb)
 add_library(stb_image INTERFACE)
-target_include_directories(stb_image INTERFACE
-    "${THIRD_PARTY_DIR}/stb"
-)
+target_include_directories(stb_image INTERFACE "${stb_SOURCE_DIR}")
 
 # -----------------------------------------------------------------------------
 # Shader compilation (Slang)
