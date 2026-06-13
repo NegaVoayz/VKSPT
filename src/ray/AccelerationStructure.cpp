@@ -147,6 +147,11 @@ void AccelerationStructure::createHashBuffers()
         MAX_PHOTONS * sizeof(uint32_t),
         vk::BufferUsageFlagBits::eStorageBuffer,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+
+    m_cellPhotonData = GPUBuffer::Create(m_device,
+        HASH_TABLE_SIZE * 19 * sizeof(float),  // 19 floats per hash cell
+        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }
 
 void AccelerationStructure::createRayStatsBuffer()

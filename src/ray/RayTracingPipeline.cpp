@@ -47,6 +47,9 @@ void RayTracingPipeline::CreateHashScanPipeline(const std::string& s)
 void RayTracingPipeline::CreateHashScatterPipeline(const std::string& s)
     { m_hashScatterPipe = mkPipe(m_hashScatterSm, s); }
 
+void RayTracingPipeline::CreateHashAggregatePipeline(const std::string& s)
+    { m_hashAggregatePipe = mkPipe(m_hashAggregateSm, s); }
+
 void RayTracingPipeline::CreateStatsOverlayPipeline(const std::string& s)
     { m_statsOverlayPipe = mkPipe(m_statsOverlaySm, s); }
 

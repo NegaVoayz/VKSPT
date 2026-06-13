@@ -259,7 +259,9 @@ void gatherPhotons(float3 pos, float3 nrm,
     int3 oldMin = int3(1, 1, 1);
     int3 oldMax = int3(-1, -1, -1);
 
-    while (true) {
+    int iterCap = 0;
+    while (iterCap < 32) {
+        iterCap++;
         int3 newMin = computeCell(pos - float3(radius), cellSz);
         int3 newMax = computeCell(pos + float3(radius), cellSz);
 
@@ -276,56 +278,62 @@ void gatherPhotons(float3 pos, float3 nrm,
                     if (inOldX && inOldY && inOldZ) continue;
 
                     uint hash = computeCellHash(int3(cx, cy, cz));
-                    uint cnt = hashCellData[hash * 2 + 0];
-                    uint off = hashCellData[hash * 2 + 1];
+                    uint base = hash * 19u;
+                    float pad = cellPhotonData[base + 18];
+                    if (pad == 0.0) continue;  // empty cell
 
-                    for (uint j = 0; j < cnt; j++) {
-                        PhotonRecord ph = photonBuffer[sortedPhotonIndices[off + j]];
-                        float3 d = ph.phPos.xyz - pos;
-                        float d2 = dot(d, d);
-                        if (d2 >= r2) continue;
-                        if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+                    float3 phPos = float3(cellPhotonData[base + 0],
+                                          cellPhotonData[base + 1],
+                                          cellPhotonData[base + 2]);
+                    float3 d = phPos - pos;
+                    float d2 = dot(d, d);
+                    if (d2 >= r2) continue;
 
-                        float w = max(0.0, 1.0 - sqrt(d2) * invR);
+                    float3 phNrm = float3(cellPhotonData[base + 4],
+                                          cellPhotonData[base + 5],
+                                          cellPhotonData[base + 6]);
+                    if (dot(phNrm, nrm) < 0.2) continue;
 
-                        // Unpack all 10 spectral buckets (fp16 → float)
-                        float sb0 = float(ph.spectral0_3.x);
-                        float sb1 = float(ph.spectral0_3.y);
-                        float sb2 = float(ph.spectral0_3.z);
-                        float sb3 = float(ph.spectral0_3.w);
-                        float sb4 = float(ph.spectral4_7.x);
-                        float sb5 = float(ph.spectral4_7.y);
-                        float sb6 = float(ph.spectral4_7.z);
-                        float sb7 = float(ph.spectral4_7.w);
-                        float sb8 = float(ph.spectral8_9.x);
-                        float sb9 = float(ph.spectral8_9.y);
+                    float w = max(0.0, 1.0 - sqrt(d2) * invR);
+                    uint cellCount = uint(pad);
 
-                        // Weighted output
-                        specOut[0] += sb0 * w;
-                        specOut[1] += sb1 * w;
-                        specOut[2] += sb2 * w;
-                        specOut[3] += sb3 * w;
-                        specOut[4] += sb4 * w;
-                        specOut[5] += sb5 * w;
-                        specOut[6] += sb6 * w;
-                        specOut[7] += sb7 * w;
-                        specOut[8] += sb8 * w;
-                        specOut[9] += sb9 * w;
+                    // Read all 10 spectral buckets (already summed in aggregate)
+                    float sb0 = cellPhotonData[base + 12 + 0];
+                    float sb1 = cellPhotonData[base + 12 + 1];
+                    float sb2 = cellPhotonData[base + 12 + 2];
+                    float sb3 = cellPhotonData[base + 12 + 3];
+                    float sb4 = cellPhotonData[base + 12 + 4];
+                    float sb5 = cellPhotonData[base + 12 + 5];
+                    float sb6 = cellPhotonData[base + 12 + 6];
+                    float sb7 = cellPhotonData[base + 12 + 7];
+                    float sb8 = cellPhotonData[base + 12 + 8];
+                    float sb9 = cellPhotonData[base + 12 + 9];
 
-                        // Unweighted stats for dipole moment
-                        sumEnergy[0] += sb0;  dipole[0] += d * sb0;
-                        sumEnergy[1] += sb1;  dipole[1] += d * sb1;
-                        sumEnergy[2] += sb2;  dipole[2] += d * sb2;
-                        sumEnergy[3] += sb3;  dipole[3] += d * sb3;
-                        sumEnergy[4] += sb4;  dipole[4] += d * sb4;
-                        sumEnergy[5] += sb5;  dipole[5] += d * sb5;
-                        sumEnergy[6] += sb6;  dipole[6] += d * sb6;
-                        sumEnergy[7] += sb7;  dipole[7] += d * sb7;
-                        sumEnergy[8] += sb8;  dipole[8] += d * sb8;
-                        sumEnergy[9] += sb9;  dipole[9] += d * sb9;
+                    // Weighted output
+                    specOut[0] += sb0 * w;
+                    specOut[1] += sb1 * w;
+                    specOut[2] += sb2 * w;
+                    specOut[3] += sb3 * w;
+                    specOut[4] += sb4 * w;
+                    specOut[5] += sb5 * w;
+                    specOut[6] += sb6 * w;
+                    specOut[7] += sb7 * w;
+                    specOut[8] += sb8 * w;
+                    specOut[9] += sb9 * w;
 
-                        totalCount++;
-                    }
+                    // Unweighted stats: centroid dipole preserves first moment exactly
+                    sumEnergy[0] += sb0;  dipole[0] += d * sb0;
+                    sumEnergy[1] += sb1;  dipole[1] += d * sb1;
+                    sumEnergy[2] += sb2;  dipole[2] += d * sb2;
+                    sumEnergy[3] += sb3;  dipole[3] += d * sb3;
+                    sumEnergy[4] += sb4;  dipole[4] += d * sb4;
+                    sumEnergy[5] += sb5;  dipole[5] += d * sb5;
+                    sumEnergy[6] += sb6;  dipole[6] += d * sb6;
+                    sumEnergy[7] += sb7;  dipole[7] += d * sb7;
+                    sumEnergy[8] += sb8;  dipole[8] += d * sb8;
+                    sumEnergy[9] += sb9;  dipole[9] += d * sb9;
+
+                    totalCount += int(cellCount);
                 }
             }
         }
