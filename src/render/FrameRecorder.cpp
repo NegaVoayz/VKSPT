@@ -189,11 +189,16 @@ void FrameRecorder::dispatchTrace(
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
         int   passType;
-        float gatherRadius;
+        float minGatherRadius;
+        float maxGatherRadius;
+        float hashCellSize;
+        int   maxGatherPhotons;
+        float minEdgeScore;
+        float confidence;
         int   photonMaxBounces;
         int   photonCount;
         float fps;
-        float _padEnd[30];
+        float _padEnd[25];
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -213,7 +218,12 @@ void FrameRecorder::dispatchTrace(
     pc.numLights=static_cast<int>(as.getLightCount());
     pc.minSplitNm=20.0f;
     pc.passType = 0;  // PASS_CAMERA
-    pc.gatherRadius = m_gatherRadius;
+    pc.minGatherRadius = m_minGatherRadius;
+    pc.maxGatherRadius = m_maxGatherRadius;
+    pc.hashCellSize = m_hashCellSize;
+    pc.maxGatherPhotons = m_maxGatherPhotons;
+    pc.minEdgeScore = m_minEdgeScore;
+    pc.confidence = m_confidence;
     pc.fps = fps;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
@@ -258,11 +268,16 @@ void FrameRecorder::dispatchPhotonTrace(
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
         int   passType;
-        float gatherRadius;
+        float minGatherRadius;
+        float maxGatherRadius;
+        float hashCellSize;
+        int   maxGatherPhotons;
+        float minEdgeScore;
+        float confidence;
         int   photonMaxBounces;
         int   photonCount;
         float fps;
-        float _padEnd[30];
+        float _padEnd[25];
     } pc{};
 
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
@@ -275,7 +290,12 @@ void FrameRecorder::dispatchPhotonTrace(
     pc.numLights = static_cast<int>(as.getLightCount());
     pc.minSplitNm = 20.0f;
     pc.passType = 1;  // PASS_PHOTON
-    pc.gatherRadius = m_gatherRadius;
+    pc.minGatherRadius = m_minGatherRadius;
+    pc.maxGatherRadius = m_maxGatherRadius;
+    pc.hashCellSize = m_hashCellSize;
+    pc.maxGatherPhotons = m_maxGatherPhotons;
+    pc.minEdgeScore = m_minEdgeScore;
+    pc.confidence = m_confidence;
     pc.photonMaxBounces = m_photonMaxBounces;
     pc.photonCount = m_photonCount;
 

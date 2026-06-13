@@ -12,7 +12,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (i >= photonCounter[0]) return;
 
     PhotonRecord ph = photonBuffer[i];
-    int3 cell = computeCell(ph.phPos.xyz, params.gatherRadius);
+    int3 cell = computeCell(ph.phPos.xyz, params.hashCellSize);
     uint hash = computeCellHash(cell);
     InterlockedAdd(hashCellData[hash * 2 + 0], 1);
 }
