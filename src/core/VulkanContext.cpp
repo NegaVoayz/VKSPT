@@ -187,8 +187,17 @@ void VulkanContext::createDevice() {
     bufferAddrFeature.setBufferDeviceAddress(true);
     bufferAddrFeature.setPNext(&accelFeature);
 
+    // 16-bit storage + float16: required by PhotonRecord (half4/half2 in SSBO)
+    vk::PhysicalDeviceVulkan11Features vk11features;
+    vk11features.storageBuffer16BitAccess = VK_TRUE;
+    vk11features.setPNext(&bufferAddrFeature);
+
+    vk::PhysicalDeviceVulkan12Features vk12features;
+    vk12features.shaderFloat16 = VK_TRUE;
+    vk12features.setPNext(&vk11features);
+
     vk::PhysicalDeviceFeatures2 features2;
-    features2.setPNext(&bufferAddrFeature);
+    features2.setPNext(&vk12features);
 
     vk::DeviceCreateInfo deviceInfo(
         {},
