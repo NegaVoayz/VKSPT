@@ -24,7 +24,6 @@ static const std::vector<const char*> s_deviceExtensions = {
     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-    VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 };
 
 // Constructor
@@ -183,21 +182,40 @@ void VulkanContext::createDevice() {
     accelFeature.setAccelerationStructure(true);
     accelFeature.setPNext(&rtPipelineFeature);
 
-    vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR bufferAddrFeature;
-    bufferAddrFeature.setBufferDeviceAddress(true);
-    bufferAddrFeature.setPNext(&accelFeature);
-
     // 16-bit storage + float16: required by PhotonRecord (half4/half2 in SSBO)
+    // Query GPU support first, then enable what's available.
+    vk::PhysicalDeviceVulkan11Features query11;
+    vk::PhysicalDeviceVulkan12Features query12;
+    query11.setPNext(&query12);
+    {
+        vk::PhysicalDeviceFeatures2 qf2;
+        qf2.setPNext(&query11);
+        static_cast<vk::PhysicalDevice>(m_physicalDevice).getFeatures2(&qf2);
+    }
+    bool hasUniform16bit = query11.uniformAndStorageBuffer16BitAccess;
+    bool hasFloat16      = query12.shaderFloat16;
+    Log::info("GPU features: uniformAndStorage16bit={}  float16={}",
+        hasUniform16bit, hasFloat16);
+
+    void* pNextChain = &accelFeature;  // start of chain below features2
+
     vk::PhysicalDeviceVulkan11Features vk11features;
-    vk11features.storageBuffer16BitAccess = VK_TRUE;
-    vk11features.setPNext(&bufferAddrFeature);
+    if (hasUniform16bit) {
+        vk11features.storageBuffer16BitAccess = VK_TRUE;
+        vk11features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+        vk11features.setPNext(pNextChain);
+        pNextChain = &vk11features;
+    }
 
     vk::PhysicalDeviceVulkan12Features vk12features;
-    vk12features.shaderFloat16 = VK_TRUE;
-    vk12features.setPNext(&vk11features);
+    if (hasFloat16)
+        vk12features.shaderFloat16 = VK_TRUE;
+    vk12features.bufferDeviceAddress = VK_TRUE;   // promoted from KHR in 1.2
+    vk12features.setPNext(pNextChain);
+    pNextChain = &vk12features;
 
     vk::PhysicalDeviceFeatures2 features2;
-    features2.setPNext(&vk12features);
+    features2.setPNext(pNextChain);
 
     vk::DeviceCreateInfo deviceInfo(
         {},
