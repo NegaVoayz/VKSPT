@@ -32,11 +32,16 @@ struct PushConstants {
     float diffuseStrength; float specularStrength; int numLights;
     float minSplitNm;
     int   passType;         // PASS_CAMERA or PASS_PHOTON
-    float gatherRadius;     // photon gather search radius
+    float minGatherRadius;  // adaptive gather: start radius
+    float maxGatherRadius;  // adaptive gather: spatial cap
+    float hashCellSize;     // fixed hash grid cell size (decoupled from radius)
+    int   maxGatherPhotons; // adaptive gather: photon count cap
+    float minEdgeScore;     // minimum dipole score for edge detection
+    float confidence;       // noise threshold divisor (higher = more blur)
     int   photonMaxBounces; // max bounces for photon paths
     int   photonCount;       // emitted photons per frame
     float fps;                // CPU-side rolling average FPS
-    float _padEnd[30];        // expand push constant range to 256 bytes
+    float _padEnd[25];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 
@@ -84,6 +89,21 @@ void recLambdaWidth(int lamStart, int lamEnd) {
 void recSpread(float d) {
     int b = clamp(int(log2(max(d, 1e-6f) / 0.01f)), 0, 63);
     InterlockedAdd(rayStats[138 + b], 1);
+}
+
+// Helper: unpack a single spectral bucket from a PhotonRecord (fp16 → float)
+float getPhotonBucket(PhotonRecord ph, int b)
+{
+    if (b < 4) {
+        float4 s = float4(ph.spectral0_3);
+        return s[b];
+    } else if (b < 8) {
+        float4 s = float4(ph.spectral4_7);
+        return s[b - 4];
+    } else {
+        float2 s = float2(ph.spectral8_9);
+        return (b == 8) ? s.x : s.y;
+    }
 }
 
 // Generalized n-way spectral split per SplitMethodDesign.md.

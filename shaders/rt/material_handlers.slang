@@ -17,7 +17,7 @@ void handleCheckerboard(inout Payload p, float3 pos, float3 fNrm, inout uint rng
     float cx = floor(pos.x*0.5), cz = floor(pos.z*0.5);
     float3 alb = ((int(cx+cz)%2)==0) ? float3(0.75) : float3(0.15);
 
-    gatherPhotons(pos, fNrm, params.gatherRadius, p.spectral);
+    gatherPhotons(pos, fNrm, p.spectral);
 
     float3 sDir = cosineSampleHemisphere(fNrm, rng);
     Payload np; initPayload(np, p.lamStart, p.lamEnd,
@@ -38,7 +38,7 @@ void handleLambertian(inout Payload p, float3 pos, float3 fNrm,
     float3 alb = mat.albedo.xyz;
 
     // Illumination comes from photon gather (fills p.spectral[])
-    gatherPhotons(pos, fNrm, params.gatherRadius, p.spectral);
+    gatherPhotons(pos, fNrm, p.spectral);
 
     float3 sDir = cosineSampleHemisphere(fNrm, rng);
     Payload np; initPayload(np, p.lamStart, p.lamEnd,
@@ -234,60 +234,154 @@ void storePhoton(inout Payload p, float3 pos, float3 fNrm)
     photonBuffer[slot] = rec;
 }
 
-void gatherPhotons(float3 pos, float3 nrm, float radius,
+// Adaptive gather with shell-expansion and spectral-spatial edge detection.
+// Radius grows by hashCellSize each iteration; stops on edge detection,
+// max photon count, or max radius.  See docs/EdgeDetection.md.
+void gatherPhotons(float3 pos, float3 nrm,
                    inout float spectral[NUM_SPECTRAL_BUCKETS])
 {
-    float r2 = radius * radius;
-    float cellSz = max(radius, 0.001);
+    float cellSz = params.hashCellSize;
+    float radius = params.minGatherRadius;
 
-    // Query sphere intersects at most 3 cells per axis (cell size = radius)
-    int3 cellMin = computeCell(pos - float3(radius), cellSz);
-    int3 cellMax = computeCell(pos + float3(radius), cellSz);
+    // Unweighted per-bucket stats for dipole-moment edge detection
+    float3 dipole[10];
+    float  sumEnergy[10];
+    for (int b = 0; b < 10; b++) {
+        dipole[b] = float3(0, 0, 0);
+        sumEnergy[b] = 0.0;
+    }
 
-    // Local accumulators reduce global memory traffic
-    float specLocal[10] = {0,0,0,0,0,0,0,0,0,0};
+    // Weighted spectral output
+    float specOut[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    int totalCount = 0;
 
-    for (int cx = cellMin.x; cx <= cellMax.x; cx++) {
-        for (int cy = cellMin.y; cy <= cellMax.y; cy++) {
-            for (int cz = cellMin.z; cz <= cellMax.z; cz++) {
-                uint hash = computeCellHash(int3(cx, cy, cz));
-                uint count = hashCellData[hash * 2 + 0];
-                uint offset = hashCellData[hash * 2 + 1];
+    // Initial old bounds: empty set so first iteration processes center cell
+    int3 oldMin = int3(1, 1, 1);
+    int3 oldMax = int3(-1, -1, -1);
 
-                for (uint j = 0; j < count; j++) {
-                    PhotonRecord ph = photonBuffer[sortedPhotonIndices[offset + j]];
-                    float3 d = ph.phPos.xyz - pos;
-                    float d2 = dot(d, d);
-                    if (d2 >= r2) continue;
-                    if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+    while (true) {
+        int3 newMin = computeCell(pos - float3(radius), cellSz);
+        int3 newMax = computeCell(pos + float3(radius), cellSz);
 
-                    float w = max(0.0, 1.0 - sqrt(d2) / radius);
+        float r2 = radius * radius;
+        float invR = 1.0 / max(radius, 0.0001);
 
-                    specLocal[0] += float(ph.spectral0_3.x) * w;
-                    specLocal[1] += float(ph.spectral0_3.y) * w;
-                    specLocal[2] += float(ph.spectral0_3.z) * w;
-                    specLocal[3] += float(ph.spectral0_3.w) * w;
-                    specLocal[4] += float(ph.spectral4_7.x) * w;
-                    specLocal[5] += float(ph.spectral4_7.y) * w;
-                    specLocal[6] += float(ph.spectral4_7.z) * w;
-                    specLocal[7] += float(ph.spectral4_7.w) * w;
-                    specLocal[8] += float(ph.spectral8_9.x) * w;
-                    specLocal[9] += float(ph.spectral8_9.y) * w;
+        // Only process cells in the new shell
+        for (int cx = newMin.x; cx <= newMax.x; cx++) {
+            bool inOldX = (cx >= oldMin.x && cx <= oldMax.x);
+            for (int cy = newMin.y; cy <= newMax.y; cy++) {
+                bool inOldY = (cy >= oldMin.y && cy <= oldMax.y);
+                for (int cz = newMin.z; cz <= newMax.z; cz++) {
+                    bool inOldZ = (cz >= oldMin.z && cz <= oldMax.z);
+                    if (inOldX && inOldY && inOldZ) continue;
+
+                    uint hash = computeCellHash(int3(cx, cy, cz));
+                    uint cnt = hashCellData[hash * 2 + 0];
+                    uint off = hashCellData[hash * 2 + 1];
+
+                    for (uint j = 0; j < cnt; j++) {
+                        PhotonRecord ph = photonBuffer[sortedPhotonIndices[off + j]];
+                        float3 d = ph.phPos.xyz - pos;
+                        float d2 = dot(d, d);
+                        if (d2 >= r2) continue;
+                        if (dot(ph.phNrm.xyz, nrm) < 0.2) continue;
+
+                        float w = max(0.0, 1.0 - sqrt(d2) * invR);
+
+                        // Unpack all 10 spectral buckets (fp16 → float)
+                        float sb0 = float(ph.spectral0_3.x);
+                        float sb1 = float(ph.spectral0_3.y);
+                        float sb2 = float(ph.spectral0_3.z);
+                        float sb3 = float(ph.spectral0_3.w);
+                        float sb4 = float(ph.spectral4_7.x);
+                        float sb5 = float(ph.spectral4_7.y);
+                        float sb6 = float(ph.spectral4_7.z);
+                        float sb7 = float(ph.spectral4_7.w);
+                        float sb8 = float(ph.spectral8_9.x);
+                        float sb9 = float(ph.spectral8_9.y);
+
+                        // Weighted output
+                        specOut[0] += sb0 * w;
+                        specOut[1] += sb1 * w;
+                        specOut[2] += sb2 * w;
+                        specOut[3] += sb3 * w;
+                        specOut[4] += sb4 * w;
+                        specOut[5] += sb5 * w;
+                        specOut[6] += sb6 * w;
+                        specOut[7] += sb7 * w;
+                        specOut[8] += sb8 * w;
+                        specOut[9] += sb9 * w;
+
+                        // Unweighted stats for dipole moment
+                        sumEnergy[0] += sb0;  dipole[0] += d * sb0;
+                        sumEnergy[1] += sb1;  dipole[1] += d * sb1;
+                        sumEnergy[2] += sb2;  dipole[2] += d * sb2;
+                        sumEnergy[3] += sb3;  dipole[3] += d * sb3;
+                        sumEnergy[4] += sb4;  dipole[4] += d * sb4;
+                        sumEnergy[5] += sb5;  dipole[5] += d * sb5;
+                        sumEnergy[6] += sb6;  dipole[6] += d * sb6;
+                        sumEnergy[7] += sb7;  dipole[7] += d * sb7;
+                        sumEnergy[8] += sb8;  dipole[8] += d * sb8;
+                        sumEnergy[9] += sb9;  dipole[9] += d * sb9;
+
+                        totalCount++;
+                    }
                 }
             }
         }
+
+        // Stop checks
+        if (totalCount >= params.maxGatherPhotons) break;
+        if (radius >= params.maxGatherRadius) break;
+
+        // Per-channel dipole-moment edge detection (EdgeDetection.md)
+        if (totalCount >= 8) {
+            float maxE = 0.0;
+            for (int b = 0; b < 10; b++) maxE = max(maxE, sumEnergy[b]);
+
+            if (maxE > 1e-6) {
+                bool edge = false;
+                float scoInvR = 1.0 / max(radius, 0.0001);
+
+                for (int b = 0; b < 10; b++) {
+                    if (sumEnergy[b] < 1e-6) continue;
+
+                    float3 Dk = dipole[b] / sumEnergy[b];
+                    float score = length(Dk) * scoInvR;
+
+                    float Nk = float(totalCount) * (sumEnergy[b] / maxE);
+                    float noiseThresh = params.confidence
+                                      / sqrt(max(1.0, Nk));
+
+                    if (score > max(params.minEdgeScore, noiseThresh)) {
+                        edge = true;
+                        break;
+                    }
+                }
+
+                if (edge) break;
+            }
+        }
+
+        // Expand radius by one cell ring
+        oldMin = newMin;
+        oldMax = newMax;
+        float prevR = radius;
+        radius = min(radius + cellSz, params.maxGatherRadius);
+        if (radius <= prevR) break;
     }
 
-    spectral[0] += specLocal[0];
-    spectral[1] += specLocal[1];
-    spectral[2] += specLocal[2];
-    spectral[3] += specLocal[3];
-    spectral[4] += specLocal[4];
-    spectral[5] += specLocal[5];
-    spectral[6] += specLocal[6];
-    spectral[7] += specLocal[7];
-    spectral[8] += specLocal[8];
-    spectral[9] += specLocal[9];
+    // Write weighted output into spectral accumulator
+    spectral[0] += specOut[0];
+    spectral[1] += specOut[1];
+    spectral[2] += specOut[2];
+    spectral[3] += specOut[3];
+    spectral[4] += specOut[4];
+    spectral[5] += specOut[5];
+    spectral[6] += specOut[6];
+    spectral[7] += specOut[7];
+    spectral[8] += specOut[8];
+    spectral[9] += specOut[9];
 }
 
 void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int matType)
