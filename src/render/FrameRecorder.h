@@ -74,6 +74,9 @@ private:
     void dispatchHashScatter(vk::CommandBuffer            cb,
                              uint32_t                     f,
                              RayTracingPipeline&          pipeline);
+    void dispatchHashAggregate(vk::CommandBuffer            cb,
+                               uint32_t                     f,
+                               RayTracingPipeline&          pipeline);
     void dispatchStatsOverlay(vk::CommandBuffer    cb,
                               uint32_t             f,
                               RayTracingPipeline&  pipeline);

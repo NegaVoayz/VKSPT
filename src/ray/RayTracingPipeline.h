@@ -27,6 +27,10 @@ public:
     vk::Pipeline GetHashScanPipeline()    const { return *m_hashScanPipe; }
     vk::Pipeline GetHashScatterPipeline() const { return *m_hashScatterPipe; }
 
+    // Hash aggregate (compute — one representative photon per cell)
+    void CreateHashAggregatePipeline(const std::string& spv);
+    vk::Pipeline GetHashAggregatePipeline() const { return *m_hashAggregatePipe; }
+
     // Stats overlay (compute pipeline)
     void CreateStatsOverlayPipeline(const std::string& spv);
     vk::Pipeline GetStatsOverlayPipeline() const { return *m_statsOverlayPipe; }
@@ -66,6 +70,8 @@ private:
     vk::raii::Pipeline     m_hashScanPipe = nullptr;
     vk::raii::ShaderModule m_hashScatterSm = nullptr;
     vk::raii::Pipeline     m_hashScatterPipe = nullptr;
+    vk::raii::ShaderModule m_hashAggregateSm = nullptr;
+    vk::raii::Pipeline     m_hashAggregatePipe = nullptr;
 
     // Stats overlay compute pipeline
     vk::raii::ShaderModule m_statsOverlaySm = nullptr;

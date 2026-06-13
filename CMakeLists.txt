@@ -121,6 +121,7 @@ compile_shader_slang(denoise_shader denoise.slang denoise.comp.spv)
 compile_shader_slang(hash_count_shader photon/hash_count.slang hash_count.comp.spv)
 compile_shader_slang(hash_scan_shader photon/hash_scan.slang hash_scan.comp.spv)
 compile_shader_slang(hash_scatter_shader photon/hash_scatter.slang hash_scatter.comp.spv)
+compile_shader_slang(hash_aggregate_shader photon/hash_aggregate.slang hash_aggregate.comp.spv)
 compile_shader_slang(stats_overlay_shader stats_overlay.slang stats_overlay.comp.spv)
 
 # RT Pipeline shader (multi-entry-point RT stages)
@@ -196,7 +197,7 @@ target_link_libraries(vkspt PRIVATE
 # Ensure shaders are compiled before the executable
 add_dependencies(vkspt denoise_shader raytrace_pipeline_shader
     hash_count_shader hash_scan_shader hash_scatter_shader
-    stats_overlay_shader)
+    hash_aggregate_shader stats_overlay_shader)
 
 # Copy shader SPIR-V to runtime output directory
 add_custom_command(TARGET vkspt POST_BUILD
@@ -215,6 +216,9 @@ add_custom_command(TARGET vkspt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/hash_scatter.comp.spv"
         "$<TARGET_FILE_DIR:vkspt>/shaders/hash_scatter.comp.spv"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SHADER_OUT_DIR}/hash_aggregate.comp.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/hash_aggregate.comp.spv"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/stats_overlay.comp.spv"
         "$<TARGET_FILE_DIR:vkspt>/shaders/stats_overlay.comp.spv"

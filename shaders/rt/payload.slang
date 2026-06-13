@@ -90,22 +90,6 @@ void recSpread(float d) {
     int b = clamp(int(log2(max(d, 1e-6f) / 0.01f)), 0, 63);
     InterlockedAdd(rayStats[138 + b], 1);
 }
-
-// Helper: unpack a single spectral bucket from a PhotonRecord (fp16 → float)
-float getPhotonBucket(PhotonRecord ph, int b)
-{
-    if (b < 4) {
-        float4 s = float4(ph.spectral0_3);
-        return s[b];
-    } else if (b < 8) {
-        float4 s = float4(ph.spectral4_7);
-        return s[b - 4];
-    } else {
-        float2 s = float2(ph.spectral8_9);
-        return (b == 8) ? s.x : s.y;
-    }
-}
-
 // Generalized n-way spectral split per SplitMethodDesign.md.
 // D is the dispersion offset, V the per-unit-distance growth rate.
 // Split count: n = 2^k where k = ceil(log2(2|D_perp| / forceSplitWidth)).

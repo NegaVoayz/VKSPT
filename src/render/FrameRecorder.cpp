@@ -112,7 +112,7 @@ void FrameRecorder::record(
     // 10. Hash scatter pass
     dispatchHashScatter(cb, f, pipeline);
 
-    // 11. Barrier: compute → RT (hash data + sorted indices visible to camera)
+    // 11. Barrier: compute → compute (hash data + sorted indices → aggregate)
     {
         std::vector<vk::BufferMemoryBarrier> bArr = {
             {vk::AccessFlagBits::eShaderWrite,
@@ -125,11 +125,26 @@ void FrameRecorder::record(
              *as.getSortedPhotonIndices().Buffer, 0, as.getSortedPhotonIndices().Size},
         };
         cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            vk::PipelineStageFlagBits::eComputeShader,
             {}, {}, bArr, {});
     }
 
-    // 12. Camera trace (hash-accelerated gather)
+    // 12. Hash aggregate pass (one representative photon per cell)
+    dispatchHashAggregate(cb, f, pipeline);
+
+    // 13. Barrier: compute → RT (cellPhotonBuffer visible to camera gather)
+    {
+        vk::BufferMemoryBarrier b(
+            vk::AccessFlagBits::eShaderWrite,
+            vk::AccessFlagBits::eShaderRead,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *as.getCellPhotonData().Buffer, 0, as.getCellPhotonData().Size);
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            {}, {}, b, {});
+    }
+
+    // 14. Camera trace (cell-aggregated photon gather)
     dispatchTrace(cb, f, as, pipeline, camera, accumFrame, fps);
     denoisePass(cb, f, pipeline);
 
@@ -352,6 +367,18 @@ void FrameRecorder::dispatchHashScatter(
         pipeline.Desc().DescriptorSet(f), nullptr);
     // photonCount × 16 (max split) / 256 threads per workgroup
     cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
+}
+
+void FrameRecorder::dispatchHashAggregate(
+    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline)
+{
+    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
+                    pipeline.GetHashAggregatePipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
+    // HASH_TABLE_SIZE / 256 threads, one per hash cell
+    cb.dispatch(1024, 1, 1);
 }
 
 void FrameRecorder::dispatchStatsOverlay(

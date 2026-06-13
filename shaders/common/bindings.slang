@@ -43,6 +43,10 @@ public [[vk::binding(8, 0)]]  RWStructuredBuffer<uint>         photonCounter;
 public [[vk::binding(9, 0)]]  RWStructuredBuffer<uint>         hashCellData;
 public [[vk::binding(10, 0)]] RWStructuredBuffer<uint>         sortedPhotonIndices;
 
+// Per-cell aggregated photon data (raw float array: 19 floats/cell)
+// Layout: pos(4) + nrm(4) + dir(4) + spec(10) + photonCount(1)
+public [[vk::binding(18, 0)]] RWStructuredBuffer<float> cellPhotonData;
+
 // Ray tracing statistics (atomic counters)
 public [[vk::binding(17, 0)]] RWStructuredBuffer<uint>         rayStats;
 

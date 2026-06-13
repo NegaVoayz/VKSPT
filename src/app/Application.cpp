@@ -81,6 +81,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     m_pipeline.CreateHashCountPipeline("shaders/hash_count.comp.spv");
     m_pipeline.CreateHashScanPipeline("shaders/hash_scan.comp.spv");
     m_pipeline.CreateHashScatterPipeline("shaders/hash_scatter.comp.spv");
+    m_pipeline.CreateHashAggregatePipeline("shaders/hash_aggregate.comp.spv");
     m_pipeline.CreateStatsOverlayPipeline("shaders/stats_overlay.comp.spv");
     m_pipeline.CreateRTPipeline("shaders/raytrace_pipeline.spv");
 
