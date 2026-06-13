@@ -27,6 +27,10 @@ public:
     vk::Pipeline GetHashScanPipeline()    const { return *m_hashScanPipe; }
     vk::Pipeline GetHashScatterPipeline() const { return *m_hashScatterPipe; }
 
+    // Stats overlay (compute pipeline)
+    void CreateStatsOverlayPipeline(const std::string& spv);
+    vk::Pipeline GetStatsOverlayPipeline() const { return *m_statsOverlayPipe; }
+
     // RT pipeline
     void CreateRTPipeline(const std::string& spv);
     vk::Pipeline GetRTPipeline() const { return *m_rtPipeline; }
@@ -62,6 +66,10 @@ private:
     vk::raii::Pipeline     m_hashScanPipe = nullptr;
     vk::raii::ShaderModule m_hashScatterSm = nullptr;
     vk::raii::Pipeline     m_hashScatterPipe = nullptr;
+
+    // Stats overlay compute pipeline
+    vk::raii::ShaderModule m_statsOverlaySm = nullptr;
+    vk::raii::Pipeline     m_statsOverlayPipe = nullptr;
 
     // RT pipeline
     vk::raii::ShaderModule               m_rtSm = nullptr;

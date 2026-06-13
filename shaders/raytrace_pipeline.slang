@@ -40,6 +40,7 @@ void RayGenMain()
         RayDesc ray;
         ray.Origin = origin; ray.Direction = camDir;
         ray.TMin = 0.001; ray.TMax = 10000.0;
+        incPrimaryRay(0);
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, ray, p);
 
         if (sp == 0) { gbufNormal = p.normal; gbufDepth = p.hitT; }

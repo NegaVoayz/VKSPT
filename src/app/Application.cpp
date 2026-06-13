@@ -81,6 +81,7 @@ Application::Application(int windowWidth, int windowHeight, const std::string& t
     m_pipeline.CreateHashCountPipeline("shaders/hash_count.comp.spv");
     m_pipeline.CreateHashScanPipeline("shaders/hash_scan.comp.spv");
     m_pipeline.CreateHashScatterPipeline("shaders/hash_scatter.comp.spv");
+    m_pipeline.CreateStatsOverlayPipeline("shaders/stats_overlay.comp.spv");
     m_pipeline.CreateRTPipeline("shaders/raytrace_pipeline.spv");
 
     Log::info("Initialization complete!");
@@ -111,6 +112,7 @@ void Application::run() {
     Log::info("  WASD = move, SPACE/SHIFT = up/down, Left Mouse = look");
 
     auto lastTime = Clock::now();
+    float avgDt = 0.0f;
 
     while (m_window.IsOpen()) {
         if (!m_window.PollEvents()) break;
@@ -121,6 +123,11 @@ void Application::run() {
         lastTime = now;
         // Clamp to avoid huge jumps on first frame or after pause
         if (dt > 0.1f) dt = 0.1f;
+
+        if (avgDt == 0.0f)
+            avgDt = dt;
+        else
+            avgDt = 0.9f * avgDt + 0.1f * dt;
 
         // ---- Update camera from input ----
         const auto& inp = m_window.GetInput();
@@ -159,7 +166,12 @@ void Application::run() {
             cam.camW[0] = cw.x; cam.camW[1] = cw.y; cam.camW[2] = cw.z;
         }
 
-        m_renderer.RenderFrame(m_as, m_pipeline, cam);
+        // F3: toggle stats overlay
+        if (inp.keyF3 && !m_f3WasDown) m_showStats = !m_showStats;
+        m_f3WasDown = inp.keyF3;
+
+        float fps = avgDt > 0.0f ? 1.0f / avgDt : 0.0f;
+        m_renderer.RenderFrame(m_as, m_pipeline, cam, m_showStats, fps);
 
         // T key: capture high-resolution screenshot (2K, 64 frames)
         if (inp.keyT) {

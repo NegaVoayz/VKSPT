@@ -66,7 +66,9 @@ Renderer::~Renderer() { m_device.waitIdle(); }
 // -----------------------------------------------------------------------------
 void Renderer::RenderFrame(const AccelerationStructure& as,
                             RayTracingPipeline& pipeline,
-                            const CameraParams& camera) {
+                            const CameraParams& camera,
+                            bool showStats,
+                            float fps) {
     uint32_t f = m_currentFrame % MAX_FRAMES_IN_FLIGHT;
 
     if (m_device.waitForFences(*m_inFlightFences[f], true, UINT64_MAX)
@@ -120,12 +122,14 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
         f, *as.getHashCellData().Buffer, as.getHashCellData().Size);
     pipeline.Desc().BindSortedPhotonIndices(
         f, *as.getSortedPhotonIndices().Buffer, as.getSortedPhotonIndices().Size);
+    pipeline.Desc().BindRayStats(
+        f, *as.getRayStats().Buffer, as.getRayStats().Size);
 
     // Record + submit
     auto& cb = m_commandBuffers[f];
     cb.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     m_recorder.record(*cb, f, imageIndex, as, pipeline, camera,
-                      m_accum.FrameCount(), m_currentFrame == 0);
+                      m_accum.FrameCount(), m_currentFrame == 0, showStats, fps);
     cb.end();
     m_recorder.submit(*cb, f, imageIndex,
                       *m_imageAvailableSem[f],

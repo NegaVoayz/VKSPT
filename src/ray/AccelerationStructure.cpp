@@ -117,6 +117,7 @@ void AccelerationStructure::buildScene(
     uploadLightBuffer(lights);
     createPhotonBuffers();
     createHashBuffers();
+    createRayStatsBuffer();
 }
 
 void AccelerationStructure::createPhotonBuffers()
@@ -145,5 +146,13 @@ void AccelerationStructure::createHashBuffers()
     m_sortedPhotonIndices = GPUBuffer::Create(m_device,
         MAX_PHOTONS * sizeof(uint32_t),
         vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+}
+
+void AccelerationStructure::createRayStatsBuffer()
+{
+    m_rayStats = GPUBuffer::Create(m_device, 1024,
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }

@@ -36,7 +36,9 @@ public:
                 RayTracingPipeline&               pipeline,
                 const CameraParams&               camera,
                 int                               accumFrameCount,
-                bool                              isFirstFrame);
+                bool                              isFirstFrame,
+                bool                              showStats = true,
+                float                             fps = 0.0f);
 
     /// Submit the recorded command buffer and present.
     void submit(vk::CommandBuffer  cb,
@@ -47,7 +49,8 @@ public:
                 vk::Fence          inFlightFence,
                 bool               isFirstFrame);
 
-    uint64_t frameCount() const { return m_frameCount; }
+    uint64_t frameCount()      const { return m_frameCount; }
+    float    lastGpuMs()       const { return m_lastGpuMs; }
 
 private:
     void transitionImages(vk::CommandBuffer cb, bool firstFrame);
@@ -56,7 +59,8 @@ private:
                        const AccelerationStructure& as,
                        RayTracingPipeline&          pipeline,
                        const CameraParams&          camera,
-                       int                          accumFrameCount);
+                       int                          accumFrameCount,
+                       float                        fps);
     void dispatchPhotonTrace(vk::CommandBuffer            cb,
                               uint32_t                     f,
                               const AccelerationStructure& as,
@@ -70,6 +74,9 @@ private:
     void dispatchHashScatter(vk::CommandBuffer            cb,
                              uint32_t                     f,
                              RayTracingPipeline&          pipeline);
+    void dispatchStatsOverlay(vk::CommandBuffer    cb,
+                              uint32_t             f,
+                              RayTracingPipeline&  pipeline);
     void denoisePass(vk::CommandBuffer    cb,
                      uint32_t             f,
                      RayTracingPipeline&  pipeline);
@@ -86,6 +93,7 @@ private:
     float     m_tsPeriod;
     bool      m_hasTS;
     uint64_t  m_frameCount = 0;
+    float     m_lastGpuMs = 0.0f;
     int m_photonCount = 131072;
     int m_photonMaxBounces = 12;
     float m_gatherRadius = 0.02f;

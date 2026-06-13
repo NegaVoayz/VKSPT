@@ -24,6 +24,7 @@ void handleCheckerboard(inout Payload p, float3 pos, float3 fNrm, inout uint rng
         p.throughput + log(dot(alb, float3(0.333))),
         p.decayC1, p.decayC2, p.bounce+1, p.generation,
         p.specularChain, p.lightRGB, rng);
+    incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+sDir*0.01; nr.Direction=sDir;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -44,6 +45,7 @@ void handleLambertian(inout Payload p, float3 pos, float3 fNrm,
         p.throughput + log(dot(alb, float3(0.333))),
         p.decayC1, p.decayC2, p.bounce+1, p.generation,
         p.specularChain, p.lightRGB, rng);
+    incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+sDir*0.01; nr.Direction=sDir;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -85,6 +87,7 @@ void handleMetal(inout Payload p, float3 pos, float3 fNrm,
     float3 Dprop = p.D + p.V * p.hitT;
     np.D = Dprop - 2.0*dot(Dprop, fNrm)*fNrm;
     np.V      = p.V      - 2.0*dot(p.V, fNrm)*fNrm;
+    incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+refl*0.01; nr.Direction=refl;
     nr.TMin=0.001; nr.TMax=10000.0;
     TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, nr, np);
@@ -140,6 +143,7 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             rp.V      = p.V-2.0*dot(p.V,dn)*dn;
             RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
             rr.TMin=0.001; rr.TMax=10000.0;
+            incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
             TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
             mergeChild(p, rp, float3(1.0));
         } else {
@@ -148,7 +152,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             float d = 2.0 * length(Dperp);
 
             if (d > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
-                p.generation < 7) {
+                p.generation < 7 &&
+                (p.throughput - 0.5 * p.decayC2) > -3.0) {
                 traceSpectralSplit(p, pos-dn*0.001, newDir,
                                    rotSplit, childV,
                                    p.throughput, p.decayC1, p.decayC2,
@@ -160,6 +165,7 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                 tp.D = rotSplit; tp.V = rotDisp + newDisp;
                 RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;
                 tr.TMin=0.001; tr.TMax=10000.0;
+                incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
                 TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, tr, tp);
                 mergeChild(p, tp, float3(1.0));
             }
@@ -175,6 +181,7 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         rp.V      = p.V-2.0*dot(p.V, dn)*dn;
         RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
         rr.TMin=0.001; rr.TMax=10000.0;
+        incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
         mergeChild(p, rp, float3(1.0));
     }

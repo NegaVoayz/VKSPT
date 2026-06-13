@@ -54,4 +54,6 @@ private:
     uint32_t m_width;
     uint32_t m_height;
     std::string m_outputName;
+    bool m_showStats = true;
+    bool m_f3WasDown = false;
 };

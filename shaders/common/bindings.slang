@@ -43,5 +43,8 @@ public [[vk::binding(8, 0)]]  RWStructuredBuffer<uint>         photonCounter;
 public [[vk::binding(9, 0)]]  RWStructuredBuffer<uint>         hashCellData;
 public [[vk::binding(10, 0)]] RWStructuredBuffer<uint>         sortedPhotonIndices;
 
+// Ray tracing statistics (atomic counters)
+public [[vk::binding(17, 0)]] RWStructuredBuffer<uint>         rayStats;
+
 public [[vk::binding(11, 0)]] Texture2D<float4> envMap;
 public [[vk::binding(11, 0)]] SamplerState      envSampler;

@@ -41,7 +41,9 @@ public:
 
     void RenderFrame(const AccelerationStructure& as,
                      RayTracingPipeline& pipeline,
-                     const CameraParams& camera = {});
+                     const CameraParams& camera = {},
+                     bool showStats = true,
+                     float fps = 0.0f);
 
     void SaveOutputPNG(const std::string& path);
 
@@ -51,6 +53,9 @@ public:
                            const CameraParams& camera,
                            uint32_t capWidth, uint32_t capHeight,
                            uint32_t capFrames);
+
+    int  getAccumCount() const { return m_accum.FrameCount(); }
+    float getLastGpuMs() const { return m_recorder.lastGpuMs(); }
 
     vk::Extent2D GetExtent() const {
         return {m_config.width, m_config.height}; }

@@ -35,7 +35,8 @@ struct PushConstants {
     float gatherRadius;     // photon gather search radius
     int   photonMaxBounces; // max bounces for photon paths
     int   photonCount;       // emitted photons per frame
-    float _padEnd[31];        // expand push constant range to 256 bytes
+    float fps;                // CPU-side rolling average FPS
+    float _padEnd[30];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 
@@ -60,6 +61,31 @@ void mergeChild(inout Payload parent, Payload child, float3 weight)
         parent.spectral[b] += child.spectral[b];
 }
 
+// ---- Stats helpers: atomic increments into rayStats buffer ----
+// Layout: [0]=totalPrimaryRays [1]=totalGeneratedRays
+//         [2..33]=raysPerGeneration[32] [34..97]=bounceHistogram[64]
+//         [98..137]=lambdaHistogram[40] [138..201]=spreadHistogram[64]
+void incPrimaryRay(int gen) {
+    InterlockedAdd(rayStats[0], 1);
+    InterlockedAdd(rayStats[2 + clamp(gen, 0, 31)], 1);
+}
+void incChildRay(int gen) {
+    InterlockedAdd(rayStats[1], 1);
+    InterlockedAdd(rayStats[2 + clamp(gen, 0, 31)], 1);
+}
+void recBounce(uint bounce) {
+    InterlockedAdd(rayStats[34 + clamp(bounce, 0u, 63u)], 1);
+}
+void recLambdaWidth(int lamStart, int lamEnd) {
+    int w = max(0, lamEnd - lamStart - 1);
+    int b = w / 10;
+    if (b < 40) InterlockedAdd(rayStats[98 + b], 1);
+}
+void recSpread(float d) {
+    int b = clamp(int(log2(max(d, 1e-6f) / 0.01f)), 0, 63);
+    InterlockedAdd(rayStats[138 + b], 1);
+}
+
 // Generalized n-way spectral split per SplitMethodDesign.md.
 // D is the dispersion offset, V the per-unit-distance growth rate.
 // Split count: n = 2^k where k = ceil(log2(2|D_perp| / forceSplitWidth)).
@@ -75,8 +101,27 @@ void traceSpectralSplit(inout Payload p,
     float3 Dperp = splitD - dot(splitD, baseDir) * baseDir;
     float d = 2.0 * length(Dperp);
 
-    if (d <= params.forceSplitWidth || params.forceSplitWidth <= 0.0)
+    if (d <= params.forceSplitWidth || params.forceSplitWidth <= 0.0) {
+        // Not enough spread to split — trace single child with full range
+        float3 childPos = childOrigin;
+        float3 childDir = normalize(baseDir);
+        Payload childP;
+        initPayload(childP, p.lamStart, p.lamEnd,
+                     parentC0, parentC1, parentC2,
+                     childBounce, childGen, p.specularChain, p.lightRGB, p.rng);
+        childP.D = splitD - dot(splitD, childDir) * childDir;
+        childP.V = splitV - dot(splitV, childDir) * childDir;
+        RayDesc cr;
+        cr.Origin = childPos; cr.Direction = childDir;
+        cr.TMin = 0.001; cr.TMax = 10000.0;
+        incChildRay(childGen); recBounce(uint(childBounce));
+        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
+        mergeChild(p, childP, float3(1.0));
         return;
+    }
+
+    recSpread(d);
+    recLambdaWidth(p.lamStart, p.lamEnd);
 
     int k = int(ceil(log2(d / params.forceSplitWidth)));
 
@@ -132,6 +177,8 @@ void traceSpectralSplit(inout Payload p,
         RayDesc cr;
         cr.Origin = childPos; cr.Direction = childDir;
         cr.TMin = 0.001; cr.TMax = 10000.0;
+        incChildRay(childGen); recBounce(uint(childBounce));
+        recLambdaWidth(lamLeft, lamRight);
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
         mergeChild(p, childP, float3(1.0));
 

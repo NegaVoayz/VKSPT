@@ -28,15 +28,16 @@ FrameRecorder::FrameRecorder(
 void FrameRecorder::record(
     vk::CommandBuffer cb, uint32_t f, uint32_t imageIndex,
     const AccelerationStructure& as, RayTracingPipeline& pipeline,
-    const CameraParams& camera, int accumFrame, bool first)
+    const CameraParams& camera, int accumFrame, bool first, bool showStats, float fps)
 {
     transitionImages(cb, first);
 
-    // 1–2. Reset photon counter + hash cell data
+    // 1–3. Reset photon counter + hash cell data + ray stats
     cb.fillBuffer(*as.getPhotonCounter().Buffer, 0, 4, 0);
     cb.fillBuffer(*as.getHashCellData().Buffer, 0, as.getHashCellData().Size, 0);
+    cb.fillBuffer(*as.getRayStats().Buffer, 0, as.getRayStats().Size, 0);
 
-    // 3. Barrier: transfer → RT|compute
+    // 4. Barrier: transfer → RT|compute
     {
         std::vector<vk::BufferMemoryBarrier> bArr = {
             {vk::AccessFlagBits::eTransferWrite,
@@ -47,6 +48,10 @@ void FrameRecorder::record(
              vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
              VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
              *as.getHashCellData().Buffer, 0, as.getHashCellData().Size},
+            {vk::AccessFlagBits::eTransferWrite,
+             vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+             *as.getRayStats().Buffer, 0, as.getRayStats().Size},
         };
         cb.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eRayTracingShaderKHR |
@@ -125,8 +130,23 @@ void FrameRecorder::record(
     }
 
     // 12. Camera trace (hash-accelerated gather)
-    dispatchTrace(cb, f, as, pipeline, camera, accumFrame);
+    dispatchTrace(cb, f, as, pipeline, camera, accumFrame, fps);
     denoisePass(cb, f, pipeline);
+
+    // Stats overlay (F3 toggle)
+    if (showStats) {
+        vk::BufferMemoryBarrier rsb(
+            vk::AccessFlagBits::eShaderWrite,
+            vk::AccessFlagBits::eShaderRead,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *as.getRayStats().Buffer, 0, as.getRayStats().Size);
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            vk::PipelineStageFlagBits::eComputeShader,
+            {}, {}, rsb, {});
+
+        dispatchStatsOverlay(cb, f, pipeline);
+    }
+
     copyOutputToSwapchain(cb, imageIndex);
 }
 
@@ -155,7 +175,7 @@ void FrameRecorder::transitionImages(vk::CommandBuffer cb, bool first)
 void FrameRecorder::dispatchTrace(
     vk::CommandBuffer cb, uint32_t f,
     const AccelerationStructure& as, RayTracingPipeline& pipeline,
-    const CameraParams& camera, int accumFrame)
+    const CameraParams& camera, int accumFrame, float fps)
 {
     struct PC {
         float camOrigin[3]; float _pad0;
@@ -172,7 +192,8 @@ void FrameRecorder::dispatchTrace(
         float gatherRadius;
         int   photonMaxBounces;
         int   photonCount;
-        float _padEnd[31];
+        float fps;
+        float _padEnd[30];
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -193,6 +214,7 @@ void FrameRecorder::dispatchTrace(
     pc.minSplitNm=20.0f;
     pc.passType = 0;  // PASS_CAMERA
     pc.gatherRadius = m_gatherRadius;
+    pc.fps = fps;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());
@@ -239,7 +261,8 @@ void FrameRecorder::dispatchPhotonTrace(
         float gatherRadius;
         int   photonMaxBounces;
         int   photonCount;
-        float _padEnd[31];
+        float fps;
+        float _padEnd[30];
     } pc{};
 
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
@@ -309,6 +332,18 @@ void FrameRecorder::dispatchHashScatter(
         pipeline.Desc().DescriptorSet(f), nullptr);
     // photonCount × 16 (max split) / 256 threads per workgroup
     cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
+}
+
+void FrameRecorder::dispatchStatsOverlay(
+    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline)
+{
+    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
+                    pipeline.GetStatsOverlayPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
+    // Small panel: 35x23 workgroups of 8x8 = 280x184 px
+    cb.dispatch(35, 23, 1);
 }
 
 void FrameRecorder::denoisePass(
@@ -411,6 +446,7 @@ void FrameRecorder::submit(
             vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
         if (res == vk::Result::eSuccess && r[0] > 0 && r[1] > r[0]) {
             float ms = float(r[1] - r[0]) * m_tsPeriod / 1e6f;
+            m_lastGpuMs = ms;
             m_frameCount++;
             if (m_frameCount % 60 == 0)
                 Log::info("[GPU] frame {} compute time: {} ms",

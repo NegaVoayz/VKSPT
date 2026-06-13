@@ -47,34 +47,43 @@ void handleSkyMiss(inout Payload p)
     if (p.bounce < 0) { p.isShadowed = 1.0; return; }
 
     float3 dir = WorldRayDirection();
-    // Effective sky distance for dispersion split: prevent over-splitting
-    // when the sky is far away relative to the dispersion spread.
-    float skyDist = 2000.0;
-    float3 skyD = p.D + p.V * skyDist;
-    float3 Dperp = skyD - dot(skyD, dir) * dir;
-    float d = 2.0 * length(Dperp);
-    int lamRange = p.lamEnd - p.lamStart;
-    int minRange = max(int(params.minSplitNm), 20);
+    float lamMid = float(p.lamStart + p.lamEnd) * 0.5;
+    float halfW  = float(p.lamEnd - p.lamStart) * 0.5;
 
-    if (d > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
-        lamRange >= minRange &&
-        !decayIsDead(p.throughput, p.decayC2) && p.generation < 7) {
+    // Angular spread at infinity from accumulated direction dispersion
+    float3 Vperp = p.V - dot(p.V, dir) * dir;
+    float d = 2.0 * length(Vperp);
 
-        traceSpectralSplit(p, WorldRayOrigin(), dir,
-                           skyD, p.V,
-                           p.throughput, p.decayC1, p.decayC2,
-                           p.bounce, p.generation+1);
-        p.hitT = 1e6; p.normal = float3(0,0,1);
-        return;
+    // N scales with spread — cheaper than dielectric split (just envMap lookups)
+    // Use a much lower threshold: 0.005 rad (~0.3°)
+    float skyThreshold = 0.005;
+    int k = clamp(int(ceil(log2(max(d, skyThreshold) / skyThreshold))), 0, 3);
+    int N = 1 << k;
+    float invN = 1.0 / float(N);
+    float subHalfW = halfW * invN;
+
+    if (!decayIsDead(p.throughput, p.decayC2) &&
+        (p.throughput - 0.5 * p.decayC2) > -3.0) {
+
+        float3 spreadDir = (d > 0.0) ? normalize(Vperp) : float3(1,0,0);
+        float halfSpread = d * 0.5;
+
+        for (int i = 0; i < N; i++) {
+            float t = (float(i) + 0.5) * invN * 2.0 - 1.0;
+            float3 sampleDir = normalize(dir + t * halfSpread * spreadDir);
+
+            float2 uv;
+            uv.x = atan2(sampleDir.z, sampleDir.x) * 0.159155 + 0.5;
+            uv.y = acos(clamp(sampleDir.y, -1.0, 1.0)) * 0.31831;
+            float3 env_t = envMap.SampleLevel(envSampler, uv, 0).xyz;
+
+            float lam_t = lamMid + t * halfW;
+            float decay_t = evalDecay(p.throughput, p.decayC1, p.decayC2, t);
+
+            accumulateSpectrumSky(p.spectral, lam_t, subHalfW,
+                                  log(max(decay_t, 1e-10)), 0.0, 0.0, env_t);
+        }
     }
 
-    float lamMid = float(p.lamStart+p.lamEnd)*0.5;
-    float halfW  = float(p.lamEnd-p.lamStart)*0.5;
-    float2 uv;
-    uv.x = atan2(dir.z, dir.x)*0.159155+0.5;
-    uv.y = acos(clamp(dir.y, -1.0, 1.0))*0.31831;
-    float3 envLinear = envMap.SampleLevel(envSampler, uv, 0).xyz;
-    accumulateSpectrumSky(p.spectral, lamMid, halfW,
-                          p.throughput, p.decayC1, p.decayC2, envLinear);
     p.hitT = 1e6; p.normal = float3(0,0,1);
 }

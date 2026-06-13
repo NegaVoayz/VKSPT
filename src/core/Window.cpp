@@ -77,6 +77,7 @@ bool Window::PollEvents() {
             if (event.key.key == SDLK_LSHIFT) m_input.keyQ = true;
             if (event.key.key == SDLK_SPACE)  m_input.keyE = true;
             if (event.key.key == SDLK_T)      m_input.keyT = true;
+            if (event.key.key == SDLK_F3)     m_input.keyF3 = true;
             break;
 
         case SDL_EVENT_KEY_UP:
@@ -87,6 +88,7 @@ bool Window::PollEvents() {
             if (event.key.key == SDLK_LSHIFT) m_input.keyQ = false;
             if (event.key.key == SDLK_SPACE)  m_input.keyE = false;
             if (event.key.key == SDLK_T)      m_input.keyT = false;
+            if (event.key.key == SDLK_F3)     m_input.keyF3 = false;
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -116,6 +118,10 @@ bool Window::PollEvents() {
         }
     }
     return m_open;
+}
+
+void Window::SetTitle(const std::string& title) {
+    SDL_SetWindowTitle(m_window, title.c_str());
 }
 
 void Window::SetRelativeMouse(bool enabled) {

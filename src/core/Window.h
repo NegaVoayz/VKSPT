@@ -13,6 +13,7 @@ struct InputState {
     bool keyW = false, keyA = false, keyS = false, keyD = false;
     bool keyQ = false, keyE = false;  // keyQ=LSHIFT(down), keyE=SPACE(up)
     bool keyT = false;                // screenshot trigger
+    bool keyF3 = false;              // stats overlay toggle
     bool mouseLeft  = false;
     float mouseDX = 0.0f, mouseDY = 0.0f;  // delta since last frame
     bool quitRequested = false;
@@ -49,6 +50,9 @@ public:
 
     /// Get framebuffer size in pixels (may differ from window size on HiDPI).
     std::pair<int, int> GetFramebufferSize() const;
+
+    /// Update the window title (used for runtime stats overlay).
+    void SetTitle(const std::string& title);
 
     /// Toggle relative mouse mode (cursor hidden + locked for FPS look).
     void SetRelativeMouse(bool enabled);
