@@ -63,6 +63,9 @@ assets/output-*.png
 *.ppm
 *.hdr
 
+# Third-party libraries
+third-party/
+
 # Claude Code
 CLAUDE.md
 .claude/

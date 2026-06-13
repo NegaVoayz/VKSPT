@@ -151,7 +151,12 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             float3 Dperp = Dcheck - dot(Dcheck, newDir) * newDir;
             float d = 2.0 * length(Dperp);
 
-            if (d > params.forceSplitWidth && params.forceSplitWidth > 0.0 &&
+            // Also check the unpropagated spread that traceSpectralSplit uses
+            float3 splitDperp = rotSplit - dot(rotSplit, newDir) * newDir;
+            float splitD = 2.0 * length(splitDperp);
+
+            if (d > params.forceSplitWidth && splitD > params.forceSplitWidth &&
+                params.forceSplitWidth > 0.0 &&
                 p.generation < 7 &&
                 (p.throughput - 0.5 * p.decayC2) > -3.0) {
                 traceSpectralSplit(p, pos-dn*0.001, newDir,
