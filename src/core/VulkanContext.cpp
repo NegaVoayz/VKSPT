@@ -43,8 +43,8 @@ VulkanContext::~VulkanContext() {
 void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtensions) {
     // Application info
     vk::ApplicationInfo appInfo(
-        "VKRT", VK_MAKE_VERSION(0, 1, 0),
-        "VKRT Engine", VK_MAKE_VERSION(0, 1, 0),
+        "VKSPT", VK_MAKE_VERSION(0, 1, 0),
+        "VKSPT Engine", VK_MAKE_VERSION(0, 1, 0),
         VK_API_VERSION_1_4
     );
 

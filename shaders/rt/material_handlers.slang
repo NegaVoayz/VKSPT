@@ -117,10 +117,22 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         float r0 = (ior_mid-1.0)/(ior_mid+1.0); r0 *= r0;
         float fresnelR = r0 + (1.0-r0)*pow(1.0-cosTheta, 5.0);
 
-        if (fresnelR > 0.001 && !decayIsDead(p.throughput+log(fresnelR), p.decayC2)) {
+        if (decayIsDead(p.throughput, p.decayC2))
+            return;
+
+        // MC importance sampling: pick reflect or refract via Fresnel probability
+        bool traceReflection;
+        if (fresnelR > 0.999)
+            traceReflection = true;
+        else if (fresnelR < 0.001)
+            traceReflection = false;
+        else
+            traceReflection = rand1(p.rng) < fresnelR;
+
+        if (traceReflection) {
             float3 refl = reflectDir(WorldRayDirection(), dn);
             Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
-                p.throughput+log(max(fresnelR,1e-10)),
+                p.throughput,
                 p.decayC1, p.decayC2, p.bounce+1, p.generation,
                 p.specularChain, p.lightRGB, p.rng);
             float3 DpropRefl = p.D + p.V * p.hitT;
@@ -130,10 +142,7 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             rr.TMin=0.001; rr.TMax=10000.0;
             TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
             mergeChild(p, rp, float3(1.0));
-        }
-
-        float refrTp = p.throughput + log(max(1.0-fresnelR, 1e-10));
-        if (!decayIsDead(refrTp, p.decayC2)) {
+        } else {
             float3 childV = rotDisp + newDisp;
             float3 Dperp = Dcheck - dot(Dcheck, newDir) * newDir;
             float d = 2.0 * length(Dperp);
@@ -142,11 +151,11 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                 p.generation < 7) {
                 traceSpectralSplit(p, pos-dn*0.001, newDir,
                                    rotSplit, childV,
-                                   refrTp, p.decayC1, p.decayC2,
+                                   p.throughput, p.decayC1, p.decayC2,
                                    p.bounce+1, p.generation+1);
             } else {
                 Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
-                    refrTp, p.decayC1, p.decayC2, p.bounce+1, p.generation,
+                    p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
                     p.specularChain, p.lightRGB, p.rng);
                 tp.D = rotSplit; tp.V = rotDisp + newDisp;
                 RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;

@@ -17,7 +17,7 @@ int main() {
             "vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(getProc);
 
-        Application app(1280, 720, "VKRT — Spectral Ray Tracer (Phase 1)");
+        Application app(1280, 720, "VKSPT — Spectral Ray Tracer (Phase 1)");
         app.run();
         return 0;
     }

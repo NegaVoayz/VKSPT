@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.3.1)
-project(VKRT
+project(VKSPT
     VERSION 0.1.0
     DESCRIPTION "Adaptive Spectral Tracing Renderer"
     LANGUAGES CXX
@@ -138,7 +138,7 @@ add_custom_target(raytrace_pipeline_shader DEPENDS "${RT_PIPELINE_OUT}")
 # -----------------------------------------------------------------------------
 # Main executable
 # -----------------------------------------------------------------------------
-add_executable(vkrt
+add_executable(vkspt
     src/app/main.cpp
     src/app/Application.cpp
     src/app/SceneBuilder.cpp
@@ -166,16 +166,16 @@ add_executable(vkrt
 )
 
 # Enable dynamic dispatch (required for VK_KHR_ray_tracing_pipeline functions)
-target_compile_definitions(vkrt PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+target_compile_definitions(vkspt PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 
-target_include_directories(vkrt PRIVATE
+target_include_directories(vkspt PRIVATE
     src
     ${Vulkan_INCLUDE_DIRS}
     ${GLM_INCLUDE}
     ${SLANG_INCLUDE}
 )
 
-target_link_libraries(vkrt PRIVATE
+target_link_libraries(vkspt PRIVATE
     Vulkan::Vulkan
     SDL3::SDL3-static
     tinyobjloader
@@ -184,26 +184,26 @@ target_link_libraries(vkrt PRIVATE
 )
 
 # Ensure shaders are compiled before the executable
-add_dependencies(vkrt denoise_shader raytrace_pipeline_shader
+add_dependencies(vkspt denoise_shader raytrace_pipeline_shader
     hash_count_shader hash_scan_shader hash_scatter_shader)
 
 # Copy shader SPIR-V to runtime output directory
-add_custom_command(TARGET vkrt POST_BUILD
+add_custom_command(TARGET vkspt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/denoise.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/denoise.comp.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/denoise.comp.spv"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/raytrace_pipeline.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/raytrace_pipeline.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/raytrace_pipeline.spv"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/hash_count.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_count.comp.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/hash_count.comp.spv"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/hash_scan.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_scan.comp.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/hash_scan.comp.spv"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${SHADER_OUT_DIR}/hash_scatter.comp.spv"
-        "$<TARGET_FILE_DIR:vkrt>/shaders/hash_scatter.comp.spv"
+        "$<TARGET_FILE_DIR:vkspt>/shaders/hash_scatter.comp.spv"
     COMMENT "Copying shaders to output directory"
 )
 
