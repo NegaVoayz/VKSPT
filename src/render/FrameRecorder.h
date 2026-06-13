@@ -96,9 +96,9 @@ private:
     float     m_lastGpuMs = 0.0f;
     int m_photonCount = 131072;
     int m_photonMaxBounces = 12;
-    float m_minGatherRadius  = 0.005f;
-    float m_maxGatherRadius  = 0.08f;
-    float m_hashCellSize     = 0.005f;
+    float m_minGatherRadius  = 0.01f;
+    float m_maxGatherRadius  = 0.1f;
+    float m_hashCellSize     = 0.02f;
     int   m_maxGatherPhotons = 200;
     float m_minEdgeScore     = 0.15f;
     float m_confidence       = 1.5f;
