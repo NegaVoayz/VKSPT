@@ -39,6 +39,7 @@ void AccelerationStructure::uploadLightBuffer(
     std::memset(m, 0, size_t(sz));
     size_t n = std::min(lights.size(), size_t(maxLights));
     m_lightCount = uint32_t(n);
+    m_lightsCPU.assign(lights.begin(), lights.begin() + n);
     std::memcpy(m, lights.data(), n * sizeof(GpuLight));
     m_lightBuf.Memory.unmapMemory();
 }
@@ -149,7 +150,12 @@ void AccelerationStructure::createHashBuffers()
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 
     m_cellPhotonData = GPUBuffer::Create(m_device,
-        HASH_TABLE_SIZE * 19 * sizeof(float),  // 19 floats per hash cell
+        HASH_TABLE_SIZE * 23 * sizeof(float),  // 23 floats per hash cell
+        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+
+    m_gatheredCellData = GPUBuffer::Create(m_device,
+        HASH_TABLE_SIZE * 10 * sizeof(float),  // 10 spectral floats per cell
         vk::BufferUsageFlagBits::eStorageBuffer,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }

@@ -1,11 +1,11 @@
 // Hash grid dispatch 4: aggregate all photons per cell into one representative.
 // Uses raw RWStructuredBuffer<float> (binding 18) to avoid PhotonRecord half-type
-// crash.  Layout per cell (19 floats): pos(4) + nrm(4) + dir(4) + spec(10) + pad(1).
-// Pad value encodes photon count.
+// crash.  Layout per cell (23 floats): pos(4) + nrm(4) + dir(4) + spec(10) + cnt(1).
+// Count at base+22.
 import common.types;
 import common.bindings;
 
-static const uint FLOATS_PER_CELL = 19;
+static const uint FLOATS_PER_CELL = 23;
 
 [shader("compute")]
 [numthreads(256, 1, 1)]
@@ -75,5 +75,5 @@ void main(uint3 tid : SV_DispatchThreadID)
     for (int b = 0; b < 10; b++)
         cellPhotonData[base + 12 + b] = specSum[b];
 
-    cellPhotonData[base + 18] = float(cnt);  // original photon count
+    cellPhotonData[base + 22] = float(cnt);  // original photon count
 }

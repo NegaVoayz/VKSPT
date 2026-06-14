@@ -27,5 +27,5 @@ public float evalDecay(float c0, float c1, float c2, float x) {
     return exp(c0 + c1 * x + c2 * (3.0 * x * x - 1.0) * 0.5);
 }
 
-// Termination: linear throughput at λ_mid (x=0) below 0.005
-public bool decayIsDead(float c0, float c2) { return (c0 - 0.5 * c2) < -5.298317; }  // ln(0.005)
+// Termination: linear throughput at λ_mid (x=0) below 1e-6
+public bool decayIsDead(float c0, float c2) { return (c0 - 0.5 * c2) < -13.81551; }  // ln(1e-6)

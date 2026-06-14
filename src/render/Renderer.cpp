@@ -124,6 +124,8 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
         f, *as.getSortedPhotonIndices().Buffer, as.getSortedPhotonIndices().Size);
     pipeline.Desc().BindCellPhotonData(
         f, *as.getCellPhotonData().Buffer, as.getCellPhotonData().Size);
+    pipeline.Desc().BindGatheredCellData(
+        f, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
     pipeline.Desc().BindRayStats(
         f, *as.getRayStats().Buffer, as.getRayStats().Size);
 

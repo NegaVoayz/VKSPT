@@ -43,9 +43,13 @@ public [[vk::binding(8, 0)]]  RWStructuredBuffer<uint>         photonCounter;
 public [[vk::binding(9, 0)]]  RWStructuredBuffer<uint>         hashCellData;
 public [[vk::binding(10, 0)]] RWStructuredBuffer<uint>         sortedPhotonIndices;
 
-// Per-cell aggregated photon data (raw float array: 19 floats/cell)
-// Layout: pos(4) + nrm(4) + dir(4) + spec(10) + photonCount(1)
+// Per-cell aggregated photon data (raw float array: 23 floats/cell)
+// Layout: pos(4) + nrm(4) + dir(4) + spec(10) + photonCount(1 at base+22)
 public [[vk::binding(18, 0)]] RWStructuredBuffer<float> cellPhotonData;
+
+// Per-cell pre-gathered spectral output (hash_gather compute → camera RT)
+// Layout: 10 floats/cell = spectral buckets 0..9 (already distance-weighted)
+public [[vk::binding(19, 0)]] RWStructuredBuffer<float> gatheredCellData;
 
 // Ray tracing statistics (atomic counters)
 public [[vk::binding(17, 0)]] RWStructuredBuffer<uint>         rayStats;
