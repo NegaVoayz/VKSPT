@@ -246,14 +246,14 @@ void gatherPhotons(float3 pos, float3 nrm,
     uint hash = computeCellHash(cell);
     uint base = hash * 10u;
 
-    // Fast path: read pre-gathered result
+    // Fast path: read pre-gathered result (stored as uint for atomic writes)
     float sum = 0.0;
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-        sum += gatheredCellData[base + b];
+        sum += asfloat(gatheredCellData[base + b]);
 
     if (sum > 0.0) {
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            spectral[b] += gatheredCellData[base + b];
+            spectral[b] += asfloat(gatheredCellData[base + b]);
         return;
     }
 
@@ -269,10 +269,10 @@ void gatherPhotons(float3 pos, float3 nrm,
                     uint nBase = nHash * 10u;
                     float nSum = 0.0;
                     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-                        nSum += gatheredCellData[nBase + b];
+                        nSum += asfloat(gatheredCellData[nBase + b]);
                     if (nSum > 0.0) {
                         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-                            spectral[b] += gatheredCellData[nBase + b];
+                            spectral[b] += asfloat(gatheredCellData[nBase + b]);
                         return;
                     }
                 }

@@ -49,7 +49,7 @@ public [[vk::binding(18, 0)]] RWStructuredBuffer<float> cellPhotonData;
 
 // Per-cell pre-gathered spectral output (hash_gather compute → camera RT)
 // Layout: 10 floats/cell = spectral buckets 0..9 (already distance-weighted)
-public [[vk::binding(19, 0)]] RWStructuredBuffer<float> gatheredCellData;
+public [[vk::binding(19, 0)]] RWStructuredBuffer<uint>  gatheredCellData;  // uint for CAS-loop atomic float adds
 
 // Ray tracing statistics (atomic counters)
 public [[vk::binding(17, 0)]] RWStructuredBuffer<uint>         rayStats;
