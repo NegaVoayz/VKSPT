@@ -156,7 +156,8 @@ void AccelerationStructure::createHashBuffers()
 
     m_gatheredCellData = GPUBuffer::Create(m_device,
         HASH_TABLE_SIZE * 10 * sizeof(float),  // 10 spectral floats per cell
-        vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }
 

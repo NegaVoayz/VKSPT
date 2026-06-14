@@ -55,7 +55,7 @@ void DescriptorManager::createLayout() {
 // ---- Pool ----
 void DescriptorManager::createPool() {
     using DT = vk::DescriptorType;
-    constexpr auto N = MAX_FRAMES_IN_FLIGHT;
+    constexpr auto N = MAX_FRAMES_IN_FLIGHT + 1;  // +1 for photon set
     std::vector<vk::DescriptorPoolSize> sizes = {
         {DT::eAccelerationStructureKHR, N},
         {DT::eStorageImage,             N * 3},
@@ -68,8 +68,8 @@ void DescriptorManager::createPool() {
 }
 
 void DescriptorManager::allocateSets() {
-    m_sets.reserve(MAX_FRAMES_IN_FLIGHT);
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    m_sets.reserve(MAX_FRAMES_IN_FLIGHT + 1);
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT + 1; ++i) {
         vk::DescriptorSetAllocateInfo ai(*m_pool, *m_layout);
         auto sets = vk::raii::DescriptorSets(m_device, ai);
         m_sets.emplace_back(std::move(sets[0]));

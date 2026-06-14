@@ -141,6 +141,14 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
                       *m_inFlightFences[f],
                       m_currentFrame == 0);
 
+    // Async progressive photon batches (render first, photon after)
+    if (m_currentFrame == 0)
+        m_recorder.setupPhotons(as, pipeline,
+            m_output.View(), m_denoiser.NormalView(),
+            m_denoiser.DepthView(),
+            *m_accum.Buffer().Buffer, m_accum.BufSize());
+    m_recorder.trySubmitPhotonBatch(as, pipeline);
+
     m_currentFrame++;
 }
 

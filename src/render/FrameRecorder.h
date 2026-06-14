@@ -49,6 +49,23 @@ public:
                 vk::Fence          inFlightFence,
                 bool               isFirstFrame);
 
+    /// Initialize photon batch state and bind all descriptors.
+    /// Must be called once before trySubmitPhotonBatch().
+    void setupPhotons(const AccelerationStructure& as,
+                      RayTracingPipeline& pipeline,
+                      vk::ImageView              outputView,
+                      vk::ImageView              normalView,
+                      vk::ImageView              depthView,
+                      vk::Buffer                 accumBuffer,
+                      vk::DeviceSize             accumSize);
+
+    /// If the previous batch fence is signaled and more lights remain,
+    /// record and submit the next photon batch asynchronously.
+    void trySubmitPhotonBatch(const AccelerationStructure& as,
+                              RayTracingPipeline& pipeline);
+
+    bool isPhotonDone() const { return m_photonDone; }
+
     uint64_t frameCount()      const { return m_frameCount; }
     float    lastGpuMs()       const { return m_lastGpuMs; }
 
@@ -89,6 +106,12 @@ private:
     void dispatchHashGather(vk::CommandBuffer            cb,
                             uint32_t                     f,
                             RayTracingPipeline&          pipeline);
+    void recordPhotonBatch(vk::CommandBuffer            cb,
+                            const AccelerationStructure& as,
+                            RayTracingPipeline&          pipeline,
+                            int                          lightIndex,
+                            int                          photonsPerBatch,
+                            int                          totalBatches);
     void dispatchStatsOverlay(vk::CommandBuffer    cb,
                               uint32_t             f,
                               RayTracingPipeline&  pipeline);
@@ -109,6 +132,21 @@ private:
     bool      m_hasTS;
     uint64_t  m_frameCount = 0;
     float     m_lastGpuMs = 0.0f;
+
+    // ---- Async photon batch state ----
+    vk::raii::CommandPool   m_photonCmdPool = nullptr;
+    vk::raii::CommandBuffer m_photonCmdBuf  = nullptr;
+    vk::raii::Fence         m_photonFence;
+    vk::ImageView  m_photonOutView  = nullptr;
+    vk::ImageView  m_photonNrmView  = nullptr;
+    vk::ImageView  m_photonDepView  = nullptr;
+    vk::Buffer     m_photonAccumBuf = nullptr;
+    vk::DeviceSize m_photonAccumSz  = 0;
+    int  m_nextLightIndex   = 0;
+    int  m_activeLightCount = 0;
+    int  m_perLight         = 0;
+    bool m_photonDone       = true;
+
     int m_photonCount      = 524288;
     int m_photonMaxBounces = 12;
     float m_minGatherRadius  = 0.01f;
