@@ -1,10 +1,23 @@
-// Hash grid dispatch 5: per-cell spectral gather with count-based spread radius.
-// Each neighbor's photon count determines its spread radius: r = maxR / sqrt(N).
-// More photons → smaller radius → sharper reconstruction (higher confidence).
-// Gaussian kernel exp(-d²/(2σ²)) with σ = r/2 — finite integral ∝ r², natural 2D falloff.
-// Gather (pull) architecture: each target cell pulls from neighbors within the
-// neighbor's spread radius — one write per thread, no within-batch atomics.
-// Cross-batch accumulation via CAS-loop atomic float add.
+// Hash grid dispatch 5: per-cell spectral gather with irradiance/spectrum separation.
+//
+// Each cell's output = irradiance × smoothed_spectrum:
+//   I_t   = Σ_b specSum_t[b]                        — target irradiance (kept sharp)
+//   S_j   = specSum_j[b] / Φ_j                       — neighbor normalized spectrum
+//   w_j   = Φ_j × exp(-d²/(2σ²))                     — energy-weighted spatial Gaussian
+//   Ŝ     = Σ(w_j × S_j) / Σ w_j                     — smoothed spectrum
+//   output = I_t × Ŝ                                 — recombine: sharp brightness × smooth color
+//
+// Equivalent single-pass form (Φ_j cancels in w_j × S_j):
+//   num[b] = Σ_j G(d) × specSum_j[b]
+//   denom  = Σ_j Φ_j × G(d)
+//   output[b] = I_t × num[b] / denom / (π·cellSz²)
+// π·cellSz² = cell cross-section — converts specSum → irradiance density (fixed norm)
+//
+// Irradiance I_t is NOT smoothed — luminance edges stay sharp.
+// Normal check (dot < 0.2) prevents cross-geometry-edge color bleed.
+// Outlier kill: cells with cnt < minGatherRadius are suppressed — camera trace
+//   fallback finds the nearest reliable neighbor at render time.
+// Cross-batch accumulation via CAS-loop atomic float add on gatheredCellData.
 //
 // Reads  cellPhotonData (23 floats/cell from hash_aggregate)
 // Writes gatheredCellData (10 uint/cell — atomic-accumulated, asfloat on read)
@@ -43,6 +56,10 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     if (cnt == 0) return;
 
+    // Outlier suppression: cells with too few photons have unreliable spectra.
+    // Skip writing gatheredCellData — camera trace fallback finds nearest reliable cell.
+    if (cnt < uint(params.minGatherRadius)) return;
+
     float3 centerPos = float3(cellPhotonData[inBase + 0],
                               cellPhotonData[inBase + 1],
                               cellPhotonData[inBase + 2]);
@@ -50,14 +67,23 @@ void main(uint3 tid : SV_DispatchThreadID)
                               cellPhotonData[inBase + 5],
                               cellPhotonData[inBase + 6]);
 
-    float specOut[10] = {0,0,0,0,0,0,0,0,0,0};
+    // Target irradiance: sum of all spectral buckets (kept sharp, not smoothed)
+    float I_t = 0.0;
+    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
+        I_t += cellPhotonData[inBase + 12 + b];
+    if (I_t <= 0.0) return;
 
-    float cellSz = params.hashCellSize;
-    float maxR   = params.maxGatherRadius;
-    float minR   = params.minGatherRadius;
+    float cellSz  = params.hashCellSize;
+    float searchR = params.maxGatherRadius;
+    float sigma   = searchR / 2.0;                // broad σ: heavy neighbor weighting
+    float invTwoSigma2 = 1.0 / (2.0 * sigma * sigma + 1e-10);
 
-    int3 cMin = computeCell(centerPos - maxR, cellSz);
-    int3 cMax = computeCell(centerPos + maxR, cellSz);
+    float num[NUM_SPECTRAL_BUCKETS];
+    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) num[b] = 0.0;
+    float denom = 0.0;
+
+    int3 cMin = computeCell(centerPos - searchR, cellSz);
+    int3 cMax = computeCell(centerPos + searchR, cellSz);
 
     for (int cx = cMin.x; cx <= cMax.x; cx++) {
     for (int cy = cMin.y; cy <= cMax.y; cy++) {
@@ -67,36 +93,41 @@ void main(uint3 tid : SV_DispatchThreadID)
         float nCnt = cellPhotonData[nBase + 22];
         if (nCnt == 0.0) continue;
 
-        // Neighbor's spread radius from its photon count
-        float rNbr  = clamp(maxR / sqrt(nCnt), minR, maxR);
-        float rNbr2 = rNbr * rNbr;
-
         float3 nPos = float3(cellPhotonData[nBase + 0],
                              cellPhotonData[nBase + 1],
                              cellPhotonData[nBase + 2]);
         float3 d = nPos - centerPos;
         float d2 = dot(d, d);
-        if (d2 >= rNbr2) continue;
+
+        // Spatial Gaussian weight
+        float G = exp(-d2 * invTwoSigma2);
 
         float3 nNrm = float3(cellPhotonData[nBase + 4],
                              cellPhotonData[nBase + 5],
                              cellPhotonData[nBase + 6]);
         if (dot(nNrm, centerNrm) < 0.2) continue;
 
-        // Gaussian kernel: exp(-d²/(2σ²)) with σ = r/2, truncated at r.
-        // Truncated integral: 2πσ²·(1 - exp(-2)) = 0.43233·π·r²
-        // Preserves r² scaling (same as old linear kernel) — no dynamic range compression.
-        float invTwoSigma2 = 2.0 / (rNbr2 + 1e-10);  // 1/(2σ²) = 2/r²
-        float w    = exp(-d2 * invTwoSigma2);
-        float norm = 0.43233 * PI * rNbr2;
-        float wn   = w / max(norm, 1e-10);
+        // Φ_j = Σ_b specSum_j[b] (reliability weight), accumulate num in single pass
+        float Phi_j = 0.0;
+        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) {
+            float spec = cellPhotonData[nBase + 12 + b];
+            Phi_j += spec;
+            num[b] += G * spec;
+        }
+        if (Phi_j <= 0.0) continue;
 
-        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            specOut[b] += cellPhotonData[nBase + 12 + b] * wn;
+        denom += Phi_j * G;   // energy-weighted spatial weight
     }}}
 
     // Self-cell is included in neighbor loop: nHash==hash, d=0, normal self-match.
 
+    if (denom <= 0.0) return;
+
+    // Kernel area π·cellSz² converts specSum → spectral irradiance density.
+    // Fixed to cell cross-section — independent of sigma so brightness stays
+    // constant when tuning smoothing radius.
+    float kernelArea = PI * cellSz * cellSz;
+    float invDenom = 1.0 / (denom * kernelArea + 1e-10);
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-        atomicAddFloat(outBase + b, specOut[b]);
+        atomicAddFloat(outBase + b, I_t * num[b] * invDenom);
 }

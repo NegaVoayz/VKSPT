@@ -123,7 +123,7 @@ void AccelerationStructure::buildScene(
 
 void AccelerationStructure::createPhotonBuffers()
 {
-    constexpr uint32_t kPhotonRecSize = 72;  // PhotonRecord is 72 bytes
+    constexpr uint32_t kPhotonRecSize = 88;  // PhotonRecord: 3×float4 + 2×float4 + float2
 
     m_photonBuf = GPUBuffer::Create(m_device,
         MAX_PHOTONS * kPhotonRecSize,
@@ -155,7 +155,7 @@ void AccelerationStructure::createHashBuffers()
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 
     m_gatheredCellData = GPUBuffer::Create(m_device,
-        HASH_TABLE_SIZE * 10 * sizeof(float),  // 10 spectral floats per cell
+        HASH_TABLE_SIZE * 10 * sizeof(float) + 12,  // +12B debug: 3 uint tail for overflow flag/mask/value
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);

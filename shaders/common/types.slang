@@ -41,9 +41,8 @@ public struct PhotonRecord {
     public float4 phPos;            // xyz = hit position, w = unused
     public float4 phNrm;            // xyz = surface normal, w = unused
     public float4 phDir;            // xyz = photon arrival direction, w = unused
-    public half4  spectral0_3;      // fp16 spectral buckets 0-3
-    public half4  spectral4_7;      // fp16 spectral buckets 4-7
-    public half2  spectral8_9;      // fp16 spectral buckets 8-9
-    public uint   pad;              // alignment
+    public float4 spectral0_3;      // fp32 spectral buckets 0-3
+    public float4 spectral4_7;      // fp32 spectral buckets 4-7
+    public float2 spectral8_9;      // fp32 spectral buckets 8-9
 };
-// Total: 72 bytes
+// Total: 88 bytes

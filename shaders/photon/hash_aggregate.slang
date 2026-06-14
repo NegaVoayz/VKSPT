@@ -39,16 +39,16 @@ void main(uint3 tid : SV_DispatchThreadID)
         nrmSum += ph.phNrm.xyz;
         dirSum += ph.phDir.xyz;
 
-        specSum[0] += float(ph.spectral0_3.x);
-        specSum[1] += float(ph.spectral0_3.y);
-        specSum[2] += float(ph.spectral0_3.z);
-        specSum[3] += float(ph.spectral0_3.w);
-        specSum[4] += float(ph.spectral4_7.x);
-        specSum[5] += float(ph.spectral4_7.y);
-        specSum[6] += float(ph.spectral4_7.z);
-        specSum[7] += float(ph.spectral4_7.w);
-        specSum[8] += float(ph.spectral8_9.x);
-        specSum[9] += float(ph.spectral8_9.y);
+        specSum[0] += ph.spectral0_3.x;
+        specSum[1] += ph.spectral0_3.y;
+        specSum[2] += ph.spectral0_3.z;
+        specSum[3] += ph.spectral0_3.w;
+        specSum[4] += ph.spectral4_7.x;
+        specSum[5] += ph.spectral4_7.y;
+        specSum[6] += ph.spectral4_7.z;
+        specSum[7] += ph.spectral4_7.w;
+        specSum[8] += ph.spectral8_9.x;
+        specSum[9] += ph.spectral8_9.y;
     }
 
     float invN = 1.0 / float(cnt);

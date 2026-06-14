@@ -142,7 +142,7 @@
     <PointLight2>
         <Position x="2.0" y="-2.0" z="-7.0"/>
         <Color r="1.0" g="1.0" b="1.0"/>
-        <Args intensity="10.0" maxDistance="50.0"/>
+        <Args intensity="20.0" maxDistance="50.0"/>
     </PointLight2>
 
     <SpotLight>

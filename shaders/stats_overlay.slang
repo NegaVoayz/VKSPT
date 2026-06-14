@@ -292,4 +292,28 @@ void main(uint3 tid : SV_DispatchThreadID)
         len2 += formatUint(uint(max(0.0f, params.fps)), str2, len2);
         drawString(4u, 104u, str2, len2, float4(0.8, 0.8, 0.8, 0.9));
     }
+
+    // ---- Line 7: Half overflow debug (persistent in gatheredCellData tail) ----
+    {
+        uint gBase = 262144u * 10u;
+        uint ovFlag  = gatheredCellData[gBase + 0];
+        uint ovMask  = gatheredCellData[gBase + 1];
+        float ovVal  = asfloat(gatheredCellData[gBase + 2]);
+
+        uint str3[64];
+        uint len3 = 0;
+        if (ovFlag != 0u) {
+            str3[len3++] = 79u; str3[len3++] = 86u; str3[len3++] = 70u; // "OVF"
+            str3[len3++] = 33u; str3[len3++] = 32u; // "! "
+            str3[len3++] = 77u; str3[len3++] = 58u; // "M:"
+            len3 += formatUint(ovMask, str3, len3);
+            str3[len3++] = 32u; str3[len3++] = 86u; str3[len3++] = 58u; // " V:"
+            len3 += formatUint(asuint(ovVal), str3, len3);
+            drawString(4u, 116u, str3, len3, float4(1.0, 0.2, 0.1, 0.95));
+        } else {
+            str3[len3++] = 79u; str3[len3++] = 86u; str3[len3++] = 70u; // "OVF"
+            str3[len3++] = 58u; str3[len3++] = 32u; str3[len3++] = 48u; // ": 0"
+            drawString(4u, 116u, str3, len3, float4(0.3, 0.8, 0.3, 0.9));
+        }
+    }
 }

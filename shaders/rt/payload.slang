@@ -32,8 +32,8 @@ struct PushConstants {
     float diffuseStrength; float specularStrength; int numLights;
     float minSplitNm;
     int   passType;         // PASS_CAMERA or PASS_PHOTON
-    float minGatherRadius;  // count-based spread: clamp floor
-    float maxGatherRadius;  // count-based spread: C = r(N=1), neighbor search bound
+    float minGatherRadius;  // min photon count: cells below this are suppressed (outlier kill)
+    float maxGatherRadius;  // spatial search radius for spectral smoothing (I/S separation)
     float hashCellSize;     // epsilon for kernel regularization
     int   photonMaxBounces; // max bounces for photon paths
     int   photonCount;       // emitted photons per frame (total across batches)

@@ -227,58 +227,50 @@ void storePhoton(inout Payload p, float3 pos, float3 fNrm)
         specBucket[b] = S * D * (oE - oS);
     }
 
-    rec.spectral0_3 = half4(half(specBucket[0]), half(specBucket[1]), half(specBucket[2]), half(specBucket[3]));
-    rec.spectral4_7 = half4(half(specBucket[4]), half(specBucket[5]), half(specBucket[6]), half(specBucket[7]));
-    rec.spectral8_9 = half2(half(specBucket[8]), half(specBucket[9]));
-    rec.pad = 0u;
+    rec.spectral0_3 = float4(specBucket[0], specBucket[1], specBucket[2], specBucket[3]);
+    rec.spectral4_7 = float4(specBucket[4], specBucket[5], specBucket[6], specBucket[7]);
+    rec.spectral8_9 = float2(specBucket[8], specBucket[9]);
     photonBuffer[slot] = rec;
 }
 
-// O(1) cell-lookup gather.  Shell-expansion + edge detection has been
-// precomputed per hash cell by hash_gather.comp into gatheredCellData.
-// All cells expand to maxGatherRadius (no per-cell edge detection), so
-// adjacent cells share ~95% of their gather region — guaranteeing even
-// color distribution in uniform areas.
+// 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
+// Constant cost, no ring expansion. Normal check handled by hash_gather.
 void gatherPhotons(float3 pos, float3 nrm,
                    inout float spectral[NUM_SPECTRAL_BUCKETS])
 {
     int3 cell = computeCell(pos, params.hashCellSize);
-    uint hash = computeCellHash(cell);
-    uint base = hash * 10u;
 
-    // Fast path: read pre-gathered result (stored as uint for atomic writes)
-    float sum = 0.0;
-    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-        sum += asfloat(gatheredCellData[base + b]);
+    float specAccum[NUM_SPECTRAL_BUCKETS];
+    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) specAccum[b] = 0.0;
+    float totalWeight = 0.0;
 
-    if (sum > 0.0) {
+    int3 neighbors[7] = {
+        int3( 0, 0, 0),
+        int3( 1, 0, 0), int3(-1, 0, 0),
+        int3( 0, 1, 0), int3( 0,-1, 0),
+        int3( 0, 0, 1), int3( 0, 0,-1),
+    };
+
+    for (int i = 0; i < 7; i++) {
+        uint nHash = computeCellHash(cell + neighbors[i]);
+        uint nBase = nHash * 10u;
+
+        float nSum = 0.0;
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            spectral[b] += asfloat(gatheredCellData[base + b]);
-        return;
+            nSum += asfloat(gatheredCellData[nBase + b]);
+
+        if (nSum <= 0.0) continue;
+
+        totalWeight += 1.0;
+        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
+            specAccum[b] += asfloat(gatheredCellData[nBase + b]);
     }
 
-    // Empty cell fallback: find nearest non-empty neighbor
-    float cellSz = params.hashCellSize;
-    int maxRings = int(ceil(params.maxGatherRadius / cellSz));
-    for (int ring = 1; ring <= maxRings; ring++) {
-        for (int dx = -ring; dx <= ring; dx++) {
-            for (int dy = -ring; dy <= ring; dy++) {
-                for (int dz = -ring; dz <= ring; dz++) {
-                    if (max(max(abs(dx), abs(dy)), abs(dz)) != ring) continue;
-                    uint nHash = computeCellHash(cell + int3(dx, dy, dz));
-                    uint nBase = nHash * 10u;
-                    float nSum = 0.0;
-                    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-                        nSum += asfloat(gatheredCellData[nBase + b]);
-                    if (nSum > 0.0) {
-                        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-                            spectral[b] += asfloat(gatheredCellData[nBase + b]);
-                        return;
-                    }
-                }
-            }
-        }
-    }
+    if (totalWeight <= 0.0) return;
+
+    float invW = 1.0 / totalWeight;
+    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
+        spectral[b] += specAccum[b] * invW;
 }
 
 void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int matType)

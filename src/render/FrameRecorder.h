@@ -149,7 +149,7 @@ private:
 
     int m_photonCount      = 524288;
     int m_photonMaxBounces = 12;
-    float m_minGatherRadius  = 0.01f;
-    float m_maxGatherRadius  = 0.2f;
+    float m_minGatherRadius  = 8.0f;   // min photon count: suppress cells below this
+    float m_maxGatherRadius  = 0.12f;  // spatial search radius = 6× cellSize
     float m_hashCellSize     = 0.02f;
 };
