@@ -1,7 +1,7 @@
 // Hash grid dispatch 5: per-cell spectral gather with count-based spread radius.
 // Each neighbor's photon count determines its spread radius: r = maxR / sqrt(N).
 // More photons → smaller radius → sharper reconstruction (higher confidence).
-// Uses 1/(d²+ε²) kernel with r² decay for natural energy spreading on 2D surfaces.
+// Gaussian kernel exp(-d²/(2σ²)) with σ = r/2 — finite integral ∝ r², natural 2D falloff.
 // Gather (pull) architecture: each target cell pulls from neighbors within the
 // neighbor's spread radius — one write per thread, no within-batch atomics.
 // Cross-batch accumulation via CAS-loop atomic float add.
@@ -55,8 +55,6 @@ void main(uint3 tid : SV_DispatchThreadID)
     float cellSz = params.hashCellSize;
     float maxR   = params.maxGatherRadius;
     float minR   = params.minGatherRadius;
-    float eps    = cellSz;
-    float eps2   = eps * eps;
 
     int3 cMin = computeCell(centerPos - maxR, cellSz);
     int3 cMax = computeCell(centerPos + maxR, cellSz);
@@ -85,10 +83,12 @@ void main(uint3 tid : SV_DispatchThreadID)
                              cellPhotonData[nBase + 6]);
         if (dot(nNrm, centerNrm) < 0.2) continue;
 
-        // Normalized 1/(d²+ε²) kernel
-        // Integral over disk radius rNbr: π·ln((rNbr²+ε²)/ε²)
-        float w    = 1.0 / (d2 + eps2);
-        float norm = PI * log((rNbr2 + eps2) / eps2);
+        // Gaussian kernel: exp(-d²/(2σ²)) with σ = r/2, truncated at r.
+        // Truncated integral: 2πσ²·(1 - exp(-2)) = 0.43233·π·r²
+        // Preserves r² scaling (same as old linear kernel) — no dynamic range compression.
+        float invTwoSigma2 = 2.0 / (rNbr2 + 1e-10);  // 1/(2σ²) = 2/r²
+        float w    = exp(-d2 * invTwoSigma2);
+        float norm = 0.43233 * PI * rNbr2;
         float wn   = w / max(norm, 1e-10);
 
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
