@@ -74,13 +74,15 @@ private:
                                    int                           totalBatches);
     void dispatchHashCount(vk::CommandBuffer            cb,
                            uint32_t                     f,
-                           RayTracingPipeline&          pipeline);
+                           RayTracingPipeline&          pipeline,
+                           int                          photonCount);
     void dispatchHashScan(vk::CommandBuffer            cb,
                           uint32_t                     f,
                           RayTracingPipeline&          pipeline);
     void dispatchHashScatter(vk::CommandBuffer            cb,
                              uint32_t                     f,
-                             RayTracingPipeline&          pipeline);
+                             RayTracingPipeline&          pipeline,
+                             int                          photonCount);
     void dispatchHashAggregate(vk::CommandBuffer            cb,
                                uint32_t                     f,
                                RayTracingPipeline&          pipeline);
@@ -112,8 +114,4 @@ private:
     float m_minGatherRadius  = 0.01f;
     float m_maxGatherRadius  = 0.2f;
     float m_hashCellSize     = 0.02f;
-    int   m_maxGatherPhotons = 200;
-    float m_minEdgeScore        = 0.30f;
-    float m_confidence          = 1.5f;
-    int   m_minGatherPhotons = 64;
 };

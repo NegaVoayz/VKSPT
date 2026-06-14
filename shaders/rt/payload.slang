@@ -32,21 +32,17 @@ struct PushConstants {
     float diffuseStrength; float specularStrength; int numLights;
     float minSplitNm;
     int   passType;         // PASS_CAMERA or PASS_PHOTON
-    float minGatherRadius;  // adaptive gather: start radius
-    float maxGatherRadius;  // adaptive gather: spatial cap
-    float hashCellSize;     // fixed hash grid cell size (decoupled from radius)
-    int   maxGatherPhotons; // adaptive gather: photon count cap
-    float minEdgeScore;     // minimum dipole score for edge detection
-    float confidence;       // noise threshold divisor (higher = more blur)
-    int   minGatherPhotons;  // min photons before edge detection activates
+    float minGatherRadius;  // count-based spread: clamp floor
+    float maxGatherRadius;  // count-based spread: C = r(N=1), neighbor search bound
+    float hashCellSize;     // epsilon for kernel regularization
     int   photonMaxBounces; // max bounces for photon paths
     int   photonCount;       // emitted photons per frame (total across batches)
     float fps;                // CPU-side rolling average FPS
     int   batchIndex;         // which batch (0..batchCount-1) = light index
     int   batchCount;         // total batches = number of lights
-    float lightIntensityPC;   // light intensity for this batch (redundant, for safety)
+    float lightIntensityPC;   // light intensity for this batch
     float lightColorPC[3];    // light RGB for this batch
-    float _padEnd[18];        // expand push constant range to 256 bytes
+    float _padEnd[22];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 

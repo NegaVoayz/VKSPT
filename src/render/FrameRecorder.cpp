@@ -32,26 +32,22 @@ void FrameRecorder::record(
 {
     transitionImages(cb, first);
 
-    // 1–3. Reset photon counter + hash cell data + ray stats
-    cb.fillBuffer(*as.getPhotonCounter().Buffer, 0, 4, 0);
-    cb.fillBuffer(*as.getHashCellData().Buffer, 0, as.getHashCellData().Size, 0);
+    // Reset ray stats
     cb.fillBuffer(*as.getRayStats().Buffer, 0, as.getRayStats().Size, 0);
+    // Zero gatheredCellData once before per-batch accumulation
+    cb.fillBuffer(*as.getGatheredCellData().Buffer, 0, as.getGatheredCellData().Size, 0);
 
-    // 4. Barrier: transfer → RT|compute
+    // Barrier: transfer → RT|compute (rayStats, gatheredCellData)
     {
         std::vector<vk::BufferMemoryBarrier> bArr = {
-            {vk::AccessFlagBits::eTransferWrite,
-             vk::AccessFlagBits::eShaderWrite,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getPhotonCounter().Buffer, 0, 4},
-            {vk::AccessFlagBits::eTransferWrite,
-             vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getHashCellData().Buffer, 0, as.getHashCellData().Size},
             {vk::AccessFlagBits::eTransferWrite,
              vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
              VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
              *as.getRayStats().Buffer, 0, as.getRayStats().Size},
+            {vk::AccessFlagBits::eTransferWrite,
+             vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+             *as.getGatheredCellData().Buffer, 0, as.getGatheredCellData().Size},
         };
         cb.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eRayTracingShaderKHR |
@@ -59,7 +55,7 @@ void FrameRecorder::record(
             {}, {}, bArr, {});
     }
 
-    // 4. Photon trace (batched by light source — skip ambient type 3)
+    // Per-batch: trace → hash pipeline → gather (atomic accumulate)
     const auto& cpuLights = as.getLightsCPU();
     int totalLights = static_cast<int>(as.getLightCount());
     int activeLights = 0;
@@ -72,6 +68,28 @@ void FrameRecorder::record(
     for (int i = 0; i < totalLights; i++) {
         if (static_cast<int>(cpuLights[i].pos_type[3]) == 3 ||
             cpuLights[i].color_intensity[3] <= 0.0f) continue;
+
+        // Reset per-batch buffers
+        cb.fillBuffer(*as.getPhotonCounter().Buffer, 0, 4, 0);
+        cb.fillBuffer(*as.getHashCellData().Buffer, 0, as.getHashCellData().Size, 0);
+        {
+            std::vector<vk::BufferMemoryBarrier> bArr = {
+                {vk::AccessFlagBits::eTransferWrite,
+                 vk::AccessFlagBits::eShaderWrite,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getPhotonCounter().Buffer, 0, 4},
+                {vk::AccessFlagBits::eTransferWrite,
+                 vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getHashCellData().Buffer, 0, as.getHashCellData().Size},
+            };
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eRayTracingShaderKHR |
+                    vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, bArr, {});
+        }
+
+        // Trace photons for this batch
         dispatchPhotonTraceBatch(cb, f, as, pipeline, i, perLight, activeLights);
         if (++dispatched < activeLights) {
             std::vector<vk::BufferMemoryBarrier> bArr = {
@@ -88,94 +106,94 @@ void FrameRecorder::record(
                 vk::PipelineStageFlagBits::eRayTracingShaderKHR,
                 {}, {}, bArr, {});
         }
+
+        // Barrier: RT → compute (photon buffer + counter → hash build)
+        {
+            std::vector<vk::BufferMemoryBarrier> bArr = {
+                {vk::AccessFlagBits::eShaderWrite,
+                 vk::AccessFlagBits::eShaderRead,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getPhotonBuffer().Buffer, 0, as.getPhotonBuffer().Size},
+                {vk::AccessFlagBits::eShaderWrite,
+                 vk::AccessFlagBits::eShaderRead,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getPhotonCounter().Buffer, 0, 4},
+            };
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+                vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, bArr, {});
+        }
+
+        // Hash count (also zeros gatheredCellData if batch 0)
+        dispatchHashCount(cb, f, pipeline, perLight);
+
+        // Barrier: compute → compute (hashCellData → scan)
+        {
+            vk::BufferMemoryBarrier b(
+                vk::AccessFlagBits::eShaderWrite,
+                vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                *as.getHashCellData().Buffer, 0, as.getHashCellData().Size);
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, b, {});
+        }
+
+        // Hash scan
+        dispatchHashScan(cb, f, pipeline);
+
+        // Barrier: compute → compute (hashCellData offsets → scatter)
+        {
+            vk::BufferMemoryBarrier b(
+                vk::AccessFlagBits::eShaderWrite,
+                vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                *as.getHashCellData().Buffer, 0, as.getHashCellData().Size);
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, b, {});
+        }
+
+        // Hash scatter
+        dispatchHashScatter(cb, f, pipeline, perLight);
+
+        // Barrier: compute → compute (hash data + sorted indices → aggregate)
+        {
+            std::vector<vk::BufferMemoryBarrier> bArr = {
+                {vk::AccessFlagBits::eShaderWrite,
+                 vk::AccessFlagBits::eShaderRead,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getHashCellData().Buffer, 0, as.getHashCellData().Size},
+                {vk::AccessFlagBits::eShaderWrite,
+                 vk::AccessFlagBits::eShaderRead,
+                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                 *as.getSortedPhotonIndices().Buffer, 0, as.getSortedPhotonIndices().Size},
+            };
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, bArr, {});
+        }
+
+        // Hash aggregate
+        dispatchHashAggregate(cb, f, pipeline);
+
+        // Barrier: compute → compute (cellPhotonData → hash_gather)
+        {
+            vk::BufferMemoryBarrier b(
+                vk::AccessFlagBits::eShaderWrite,
+                vk::AccessFlagBits::eShaderRead,
+                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+                *as.getCellPhotonData().Buffer, 0, as.getCellPhotonData().Size);
+            cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                vk::PipelineStageFlagBits::eComputeShader,
+                {}, {}, b, {});
+        }
+
+        // Hash gather (atomic-accumulate into gatheredCellData)
+        dispatchHashGather(cb, f, pipeline);
     }
 
-    // 5. Barrier: RT → compute (photon buffer + counter visible to hash build)
-    {
-        std::vector<vk::BufferMemoryBarrier> bArr = {
-            {vk::AccessFlagBits::eShaderWrite,
-             vk::AccessFlagBits::eShaderRead,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getPhotonBuffer().Buffer, 0, as.getPhotonBuffer().Size},
-            {vk::AccessFlagBits::eShaderWrite,
-             vk::AccessFlagBits::eShaderRead,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getPhotonCounter().Buffer, 0, 4},
-        };
-        cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, bArr, {});
-    }
-
-    // 6. Hash count pass
-    dispatchHashCount(cb, f, pipeline);
-
-    // 7. Barrier: compute → compute (hashCellData counts visible to scan)
-    {
-        vk::BufferMemoryBarrier b(
-            vk::AccessFlagBits::eShaderWrite,
-            vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-            *as.getHashCellData().Buffer, 0, as.getHashCellData().Size);
-        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, b, {});
-    }
-
-    // 8. Hash scan pass (exclusive prefix sum)
-    dispatchHashScan(cb, f, pipeline);
-
-    // 9. Barrier: compute → compute (hashCellData offsets visible to scatter)
-    {
-        vk::BufferMemoryBarrier b(
-            vk::AccessFlagBits::eShaderWrite,
-            vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-            *as.getHashCellData().Buffer, 0, as.getHashCellData().Size);
-        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, b, {});
-    }
-
-    // 10. Hash scatter pass
-    dispatchHashScatter(cb, f, pipeline);
-
-    // 11. Barrier: compute → compute (hash data + sorted indices → aggregate)
-    {
-        std::vector<vk::BufferMemoryBarrier> bArr = {
-            {vk::AccessFlagBits::eShaderWrite,
-             vk::AccessFlagBits::eShaderRead,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getHashCellData().Buffer, 0, as.getHashCellData().Size},
-            {vk::AccessFlagBits::eShaderWrite,
-             vk::AccessFlagBits::eShaderRead,
-             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-             *as.getSortedPhotonIndices().Buffer, 0, as.getSortedPhotonIndices().Size},
-        };
-        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, bArr, {});
-    }
-
-    // 12. Hash aggregate pass (one representative photon per cell)
-    dispatchHashAggregate(cb, f, pipeline);
-
-    // 13. Barrier: compute → compute (cellPhotonData visible to hash_gather)
-    {
-        vk::BufferMemoryBarrier b(
-            vk::AccessFlagBits::eShaderWrite,
-            vk::AccessFlagBits::eShaderRead,
-            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-            *as.getCellPhotonData().Buffer, 0, as.getCellPhotonData().Size);
-        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-            vk::PipelineStageFlagBits::eComputeShader,
-            {}, {}, b, {});
-    }
-
-    // 14. Hash gather pass (per-cell shell-expansion → gatheredCellData)
-    dispatchHashGather(cb, f, pipeline);
-
-    // 15. Barrier: compute → RT (gatheredCellData visible to camera)
+    // Barrier: compute → RT (gatheredCellData visible to camera)
     {
         vk::BufferMemoryBarrier b(
             vk::AccessFlagBits::eShaderWrite,
@@ -187,7 +205,7 @@ void FrameRecorder::record(
             {}, {}, b, {});
     }
 
-    // 16. Camera trace (O(1) cell-lookup into gatheredCellData)
+    // Camera trace (O(1) cell-lookup into gatheredCellData)
     dispatchTrace(cb, f, as, pipeline, camera, accumFrame, fps);
     denoisePass(cb, f, pipeline);
 
@@ -250,10 +268,6 @@ void FrameRecorder::dispatchTrace(
         float minGatherRadius;
         float maxGatherRadius;
         float hashCellSize;
-        int   maxGatherPhotons;
-        float minEdgeScore;
-        float confidence;
-        int   minGatherPhotons;
         int   photonMaxBounces;
         int   photonCount;
         float fps;
@@ -261,7 +275,7 @@ void FrameRecorder::dispatchTrace(
         int   batchCount;
         float lightIntensityPC;
         float lightColorPC[3];
-        float _padEnd[18];
+        float _padEnd[22];
     } pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
@@ -284,10 +298,6 @@ void FrameRecorder::dispatchTrace(
     pc.minGatherRadius = m_minGatherRadius;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
-    pc.maxGatherPhotons = m_maxGatherPhotons;
-    pc.minEdgeScore = m_minEdgeScore;
-    pc.confidence = m_confidence;
-    pc.minGatherPhotons = m_minGatherPhotons;
     pc.photonCount = m_photonCount;
     pc.photonMaxBounces = m_photonMaxBounces;
     pc.batchIndex = 0;
@@ -341,10 +351,6 @@ void FrameRecorder::dispatchPhotonTrace(
         float minGatherRadius;
         float maxGatherRadius;
         float hashCellSize;
-        int   maxGatherPhotons;
-        float minEdgeScore;
-        float confidence;
-        int   minGatherPhotons;
         int   photonMaxBounces;
         int   photonCount;
         float fps;
@@ -352,7 +358,7 @@ void FrameRecorder::dispatchPhotonTrace(
         int   batchCount;
         float lightIntensityPC;
         float lightColorPC[3];
-        float _padEnd[18];
+        float _padEnd[22];
     } pc{};
 
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
@@ -368,10 +374,6 @@ void FrameRecorder::dispatchPhotonTrace(
     pc.minGatherRadius = m_minGatherRadius;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
-    pc.maxGatherPhotons = m_maxGatherPhotons;
-    pc.minEdgeScore = m_minEdgeScore;
-    pc.confidence = m_confidence;
-    pc.minGatherPhotons = m_minGatherPhotons;
     pc.photonMaxBounces = m_photonMaxBounces;
     pc.photonCount = m_photonCount;
     pc.batchIndex = 0;
@@ -419,10 +421,6 @@ void FrameRecorder::dispatchPhotonTraceBatch(
         float minGatherRadius;
         float maxGatherRadius;
         float hashCellSize;
-        int   maxGatherPhotons;
-        float minEdgeScore;
-        float confidence;
-        int   minGatherPhotons;
         int   photonMaxBounces;
         int   photonCount;
         float fps;
@@ -430,7 +428,7 @@ void FrameRecorder::dispatchPhotonTraceBatch(
         int   batchCount;
         float lightIntensityPC;
         float lightColorPC[3];
-        float _padEnd[18];
+        float _padEnd[22];
     } pc{};
 
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
@@ -446,10 +444,6 @@ void FrameRecorder::dispatchPhotonTraceBatch(
     pc.minGatherRadius = m_minGatherRadius;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
-    pc.maxGatherPhotons = m_maxGatherPhotons;
-    pc.minEdgeScore = m_minEdgeScore;
-    pc.confidence = m_confidence;
-    pc.minGatherPhotons = m_minGatherPhotons;
     pc.photonMaxBounces = m_photonMaxBounces;
     pc.photonCount = photonsPerBatch;
     pc.batchIndex = batchIndex;
@@ -481,15 +475,15 @@ void FrameRecorder::dispatchPhotonTraceBatch(
 }
 
 void FrameRecorder::dispatchHashCount(
-    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline)
+    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline,
+    int photonCount)
 {
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
                     pipeline.GetHashCountPipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(f), nullptr);
-    // photonCount × 16 (max split) / 256 threads per workgroup
-    cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
+    cb.dispatch(uint32_t(photonCount) * 16 / 256, 1, 1);
 }
 
 void FrameRecorder::dispatchHashScan(
@@ -504,15 +498,15 @@ void FrameRecorder::dispatchHashScan(
 }
 
 void FrameRecorder::dispatchHashScatter(
-    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline)
+    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline,
+    int photonCount)
 {
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
                     pipeline.GetHashScatterPipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(f), nullptr);
-    // photonCount × 16 (max split) / 256 threads per workgroup
-    cb.dispatch(uint32_t(m_photonCount) * 16 / 256, 1, 1);
+    cb.dispatch(uint32_t(photonCount) * 16 / 256, 1, 1);
 }
 
 void FrameRecorder::dispatchHashAggregate(
