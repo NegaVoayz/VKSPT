@@ -69,27 +69,27 @@ void RayGenMain()
 void PhotonRayGenMain()
 {
     uint photonIdx = DispatchRaysIndex().x;
-    uint totalPhotons = uint(max(1, params.photonCount));
+    uint batchPhotons = uint(max(1, params.photonCount));
 
-    if (photonIdx >= totalPhotons) return;
+    if (photonIdx >= batchPhotons) return;
 
-    uint seed = wangHash(photonIdx ^ uint(params.frameIndex) * 134775813u);
-
-    // Equal photon count per light — each light's photons carry only that light's power
-    int numLights = max(1, params.numLights);
-    int li = photonIdx % numLights;
+    // Each batch is dedicated to one light source.
+    // Light config comes from push constants (bypasses lights buffer for reliability).
+    int li = clamp(params.batchIndex, 0, max(0, params.numLights - 1));
     GpuLight l = lights.items[li];
-    float3 lightRGB = l.colorIntensity.xyz;
-    float lightIntensity = l.colorIntensity.w;
+    float3 lightRGB = float3(params.lightColorPC[0], params.lightColorPC[1], params.lightColorPC[2]);
+    float lightIntensity = params.lightIntensityPC;
+
+    uint seed = wangHash(photonIdx ^ (uint(params.frameIndex) + uint(li) * 31337u) * 134775813u);
 
     // Sample position and direction on the selected light
     float3 origin, direction;
     sampleLightSource(l, origin, direction, seed);
 
-    // Photon power: light's intensity split equally among its photon share
-    uint photonsPerLight = totalPhotons / uint(numLights);
-
-    float c0 = log(max(lightIntensity, 1e-10) / float(max(photonsPerLight, 1u))) + 7.0f;
+    // Photon power scaled by emission solid angle — point lights (4π) get
+    // more energy per photon than spots (cone) to compensate for wider spread.
+    float solidAngle = lightSolidAngle(l);
+    float c0 = log(max(lightIntensity, 1e-10) * solidAngle / float(max(batchPhotons, 1u)));
     float c1 = 0.0;
     float c2 = 0.0;
 

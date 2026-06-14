@@ -73,7 +73,7 @@
         <Args filename="checkerboard.obj" display="1" normalinterpolation="0"/>
         <Scale x="1.0" y="1.0" z="1.0"/>
         <Rotation x="0.0" y="0.0" z="0.0"/>
-        <Translation x="0.0" y="1.8" z="-10.0"/>
+        <Translation x="0.0" y="1.5" z="-10.0"/>
         <Material type="checkerboard">
             <Albedo r="0.8" g="0.8" b="0.8"/>
             <Roughness value="10.0"/>
@@ -140,22 +140,22 @@
     </FudanLogo>
 
     <PointLight2>
-        <Position x="-4.0" y="4.0" z="4.0"/>
+        <Position x="2.0" y="-2.0" z="-7.0"/>
         <Color r="1.0" g="1.0" b="1.0"/>
-        <Args intensity="5.0" maxDistance="50.0"/>
+        <Args intensity="20.0" maxDistance="50.0"/>
     </PointLight2>
 
     <SpotLight>
         <Position x="2.0" y="-2.0" z="-7.0"/>
         <Direction x="-1.0" y="-0.5" z="0.0"/>
-        <Args innerAngle="2.5" outerAngle="5.5" intensity="1.5" maxDistance="50.0"/>
+        <Args innerAngle="2.5" outerAngle="5.5" intensity="20.0" maxDistance="50.0"/>
         <Color r="1.0" g="1.0" b="1.0"/>
     </SpotLight>
 
     <DirectionalLight>
         <Direction x="-0.5" y="-1.0" z="-0.5"/>
         <Color r="1.0" g="0.95" b="0.9"/>
-        <Intensity value="00.0"/>
+        <Intensity value="1.0"/>
     </DirectionalLight>
 
     <AmbientAgrs>

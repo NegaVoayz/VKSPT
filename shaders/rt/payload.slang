@@ -38,10 +38,15 @@ struct PushConstants {
     int   maxGatherPhotons; // adaptive gather: photon count cap
     float minEdgeScore;     // minimum dipole score for edge detection
     float confidence;       // noise threshold divisor (higher = more blur)
+    int   minGatherPhotons;  // min photons before edge detection activates
     int   photonMaxBounces; // max bounces for photon paths
-    int   photonCount;       // emitted photons per frame
+    int   photonCount;       // emitted photons per frame (total across batches)
     float fps;                // CPU-side rolling average FPS
-    float _padEnd[25];        // expand push constant range to 256 bytes
+    int   batchIndex;         // which batch (0..batchCount-1) = light index
+    int   batchCount;         // total batches = number of lights
+    float lightIntensityPC;   // light intensity for this batch (redundant, for safety)
+    float lightColorPC[3];    // light RGB for this batch
+    float _padEnd[18];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 

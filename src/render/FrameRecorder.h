@@ -65,6 +65,13 @@ private:
                               uint32_t                     f,
                               const AccelerationStructure& as,
                               RayTracingPipeline&          pipeline);
+    void dispatchPhotonTraceBatch(vk::CommandBuffer            cb,
+                                   uint32_t                     f,
+                                   const AccelerationStructure& as,
+                                   RayTracingPipeline&          pipeline,
+                                   int                           batchIndex,
+                                   int                           photonsPerBatch,
+                                   int                           totalBatches);
     void dispatchHashCount(vk::CommandBuffer            cb,
                            uint32_t                     f,
                            RayTracingPipeline&          pipeline);
@@ -77,6 +84,9 @@ private:
     void dispatchHashAggregate(vk::CommandBuffer            cb,
                                uint32_t                     f,
                                RayTracingPipeline&          pipeline);
+    void dispatchHashGather(vk::CommandBuffer            cb,
+                            uint32_t                     f,
+                            RayTracingPipeline&          pipeline);
     void dispatchStatsOverlay(vk::CommandBuffer    cb,
                               uint32_t             f,
                               RayTracingPipeline&  pipeline);
@@ -97,12 +107,13 @@ private:
     bool      m_hasTS;
     uint64_t  m_frameCount = 0;
     float     m_lastGpuMs = 0.0f;
-    int m_photonCount = 131072;
+    int m_photonCount      = 524288;
     int m_photonMaxBounces = 12;
     float m_minGatherRadius  = 0.01f;
-    float m_maxGatherRadius  = 0.1f;
+    float m_maxGatherRadius  = 0.2f;
     float m_hashCellSize     = 0.02f;
     int   m_maxGatherPhotons = 200;
-    float m_minEdgeScore     = 0.15f;
-    float m_confidence       = 1.5f;
+    float m_minEdgeScore        = 0.30f;
+    float m_confidence          = 1.5f;
+    int   m_minGatherPhotons = 64;
 };

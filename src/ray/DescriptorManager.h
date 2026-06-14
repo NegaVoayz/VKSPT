@@ -35,6 +35,7 @@ public:
     void BindHashCellData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void BindSortedPhotonIndices(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void BindCellPhotonData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
+    void BindGatheredCellData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void BindRayStats(uint32_t fi, vk::Buffer b, vk::DeviceSize sz);
     void createLayout();
     void createPool();

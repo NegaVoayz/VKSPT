@@ -28,6 +28,19 @@ int selectLightByIntensity(int numLights, inout uint rng)
     return n - 1;
 }
 
+// Emission solid angle (steradians) — used to normalize per-photon energy
+// so point lights (4π) and spots (cone) produce equal brightness at same intensity.
+float lightSolidAngle(GpuLight l)
+{
+    int lt = int(l.posType.w);
+    if (lt == LIGHT_POINT)
+        return 12.56637061;  // 4π
+    else if (lt == LIGHT_SPOT)
+        return 6.283185307 * (1.0 - cos(l.outerRange.x * 3.14159265 / 180.0));
+    else
+        return 1.0;
+}
+
 // Sample origin and direction on a light source.
 void sampleLightSource(GpuLight l, out float3 origin, out float3 dir, inout uint rng)
 {
