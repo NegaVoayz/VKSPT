@@ -85,11 +85,8 @@ void PhotonRayGenMain()
     // Sample position and direction on the selected light
     float3 origin, direction;
     sampleLightSource(l, origin, direction, seed);
-
-    // Photon power scaled by emission solid angle — point lights (4π) get
-    // more energy per photon than spots (cone) to compensate for wider spread.
-    float solidAngle = lightSolidAngle(l);
-    float c0 = log(max(lightIntensity, 1e-10) * solidAngle / float(max(batchPhotons, 1u)));
+    
+    float c0 = log(max(lightIntensity, 1e-10) / float(max(batchPhotons, 1u)));
     float c1 = 0.0;
     float c2 = 0.0;
 

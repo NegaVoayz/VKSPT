@@ -234,11 +234,14 @@ void storePhoton(inout Payload p, float3 pos, float3 fNrm)
 }
 
 // 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
-// Constant cost, no ring expansion. Normal check handled by hash_gather.
+// 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
+// Hash-collision guard: stored centerPos must belong to the queried spatial cell.
+// gatheredCellData: 13 uint/cell = 10 spectral + 3 position (asfloat).
 void gatherPhotons(float3 pos, float3 nrm,
                    inout float spectral[NUM_SPECTRAL_BUCKETS])
 {
-    int3 cell = computeCell(pos, params.hashCellSize);
+    float cellSz = params.hashCellSize;
+    int3 cell = computeCell(pos, cellSz);
 
     float specAccum[NUM_SPECTRAL_BUCKETS];
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) specAccum[b] = 0.0;
@@ -252,8 +255,15 @@ void gatherPhotons(float3 pos, float3 nrm,
     };
 
     for (int i = 0; i < 7; i++) {
-        uint nHash = computeCellHash(cell + neighbors[i]);
-        uint nBase = nHash * 10u;
+        int3 qCell = cell + neighbors[i];
+        uint nHash = computeCellHash(qCell);
+        uint nBase = nHash * 13u;
+
+        // Hash-collision guard: stored position must be in the queried cell
+        float3 phCenter = float3(asfloat(gatheredCellData[nBase + 10]),
+                                  asfloat(gatheredCellData[nBase + 11]),
+                                  asfloat(gatheredCellData[nBase + 12]));
+        if (any(computeCell(phCenter, cellSz) != qCell)) continue;
 
         float nSum = 0.0;
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)

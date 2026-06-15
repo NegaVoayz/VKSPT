@@ -10,13 +10,14 @@
 // Equivalent single-pass form (Φ_j cancels in w_j × S_j):
 //   num[b] = Σ_j G(d) × specSum_j[b]
 //   denom  = Σ_j Φ_j × G(d)
-//   output[b] = I_t × num[b] / denom / (π·cellSz²)
-// π·cellSz² = cell cross-section — converts specSum → irradiance density (fixed norm)
+//   output[b] = I_t × num[b] / denom / (0.5·π·cellSz²)
+// 0.5·π·cellSz² = half cell cross-section — compensates for fixed vs count-based norm
 //
+// Neighborhood density: G-weighted avg photon count ≥ minNeighborPhotons required.
 // Irradiance I_t is NOT smoothed — luminance edges stay sharp.
+// Outlier dampening: if I_t > 2× G-weighted neighbor average, clamped to 2×.
+//   Prevents single-cell fireflies while preserving real brightness edges.
 // Normal check (dot < 0.2) prevents cross-geometry-edge color bleed.
-// Outlier kill: cells with cnt < minGatherRadius are suppressed — camera trace
-//   fallback finds the nearest reliable neighbor at render time.
 // Cross-batch accumulation via CAS-loop atomic float add on gatheredCellData.
 //
 // Reads  cellPhotonData (23 floats/cell from hash_aggregate)
@@ -52,13 +53,9 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     uint cnt    = hashCellData[hash * 2 + 0];
     uint inBase = hash * FLOATS_PER_CELL;
-    uint outBase = hash * 10u;
+    uint outBase = hash * 13u;   // 10 spectral + 3 position (hash-collision guard)
 
     if (cnt == 0) return;
-
-    // Outlier suppression: cells with too few photons have unreliable spectra.
-    // Skip writing gatheredCellData — camera trace fallback finds nearest reliable cell.
-    if (cnt < uint(params.minGatherRadius)) return;
 
     float3 centerPos = float3(cellPhotonData[inBase + 0],
                               cellPhotonData[inBase + 1],
@@ -81,6 +78,8 @@ void main(uint3 tid : SV_DispatchThreadID)
     float num[NUM_SPECTRAL_BUCKETS];
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) num[b] = 0.0;
     float denom = 0.0;
+    float G_sum = 0.0;   // sum of spatial Gaussian weights for consistency check
+    float G_cnt = 0.0;   // sum of G × nCnt for neighborhood density
 
     int3 cMin = computeCell(centerPos - searchR, cellSz);
     int3 cMax = computeCell(centerPos + searchR, cellSz);
@@ -117,17 +116,40 @@ void main(uint3 tid : SV_DispatchThreadID)
         if (Phi_j <= 0.0) continue;
 
         denom += Phi_j * G;   // energy-weighted spatial weight
+        G_sum += G;            // spatial weight for outlier detection
+        G_cnt += G * nCnt;     // weighted photon count for neighborhood density
     }}}
 
     // Self-cell is included in neighbor loop: nHash==hash, d=0, normal self-match.
 
     if (denom <= 0.0) return;
 
+    // ---- Neighborhood density: G-weighted average neighbor photon count ----
+    float nbrAvgCnt = G_cnt / max(G_sum, 1e-10);
+    if (nbrAvgCnt < params.minNeighborPhotons) return;  // 邻域太稀疏 → 放弃
+
+    // ---- Isolated-cell kill: neighbors have no photons → current cell is noise ----
+    float neighborDenom = denom - I_t;  // denom减去自己的贡献(I_t × G(0)=I_t)
+    if (neighborDenom < I_t * 0.5) return;  // 邻域有效能量 < 自身的50% → 放弃
+
+    // ---- Local consistency: dampen irradiance outliers ----
+    // If I_t >> neighbor average, pull it down to avoid single-cell fireflies.
+    // G-weighted mean neighbor energy: denom / G_sum = Σ(Φ_j×G) / Σ G
+    static const float OUTLIER_MAX_RATIO = 2.0;
+    float I_nbr_avg = denom / max(G_sum, 1e-10);
+    if (I_t > I_nbr_avg * OUTLIER_MAX_RATIO)
+        I_t = I_nbr_avg * OUTLIER_MAX_RATIO;
+
     // Kernel area π·cellSz² converts specSum → spectral irradiance density.
     // Fixed to cell cross-section — independent of sigma so brightness stays
     // constant when tuning smoothing radius.
-    float kernelArea = PI * cellSz * cellSz;
+    float kernelArea = 0.5 * PI * cellSz * cellSz;
     float invDenom = 1.0 / (denom * kernelArea + 1e-10);
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
         atomicAddFloat(outBase + b, I_t * num[b] * invDenom);
+
+    // Store cell center for hash-collision guard in camera trace
+    gatheredCellData[outBase + 10] = asuint(centerPos.x);
+    gatheredCellData[outBase + 11] = asuint(centerPos.y);
+    gatheredCellData[outBase + 12] = asuint(centerPos.z);
 }

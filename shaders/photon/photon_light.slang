@@ -7,27 +7,6 @@ import math.spectral_math;
 import math.sampling;
 import rt.payload;
 
-// Weighted random light selection by intensity.
-int selectLightByIntensity(int numLights, inout uint rng)
-{
-    float totalIntensity = 0.0;
-    float intensities[8];
-    int n = min(numLights, 8);
-    for (int i = 0; i < n; i++) {
-        intensities[i] = lights.items[i].colorIntensity.w;
-        totalIntensity += intensities[i];
-    }
-    if (totalIntensity <= 0.0) return 0;
-
-    float r = rand1(rng) * totalIntensity;
-    float accum = 0.0;
-    for (int j = 0; j < n; j++) {
-        accum += intensities[j];
-        if (r <= accum) return j;
-    }
-    return n - 1;
-}
-
 // Emission solid angle (steradians) — used to normalize per-photon energy
 // so point lights (4π) and spots (cone) produce equal brightness at same intensity.
 float lightSolidAngle(GpuLight l)

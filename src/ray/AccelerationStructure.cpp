@@ -155,7 +155,7 @@ void AccelerationStructure::createHashBuffers()
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 
     m_gatheredCellData = GPUBuffer::Create(m_device,
-        HASH_TABLE_SIZE * 10 * sizeof(float) + 12,  // +12B debug: 3 uint tail for overflow flag/mask/value
+        HASH_TABLE_SIZE * 13 * sizeof(float),  // 10 spectral + 3 position (hash-collision guard)
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);

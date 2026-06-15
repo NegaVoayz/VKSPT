@@ -97,12 +97,21 @@ void FrameRecorder::setupPhotons(
     // Compute active light count and per-light photons
     const auto& cpuLights = as.getLightsCPU();
     int totalLights = static_cast<int>(as.getLightCount());
+    float ptIntensity = 0.0f, spIntensity = 0.0f;
+    int   ptCount = 0, spCount = 0;
     m_activeLightCount = 0;
-    for (int i = 0; i < totalLights; i++)
-        if (static_cast<int>(cpuLights[i].pos_type[3]) != 3 &&
-            cpuLights[i].color_intensity[3] > 0.0f) m_activeLightCount++;
+    for (int i = 0; i < totalLights; i++) {
+        int lt = static_cast<int>(cpuLights[i].pos_type[3]);
+        float inten = cpuLights[i].color_intensity[3];
+        if (lt == 3 || inten <= 0.0f) continue;
+        m_activeLightCount++;
+        if (lt == 0) { ptIntensity += inten; ptCount++; }
+        if (lt == 2) { spIntensity += inten; spCount++; }
+    }
     if (m_activeLightCount == 0) m_activeLightCount = 1;
     m_perLight = m_photonCount / m_activeLightCount;
+    Log::info("[Photon] point lights: {} (total intensity {:.3f}), spot lights: {} (total intensity {:.3f}), photons/light: {}",
+              ptCount, ptIntensity, spCount, spIntensity, m_perLight);
 
     m_nextLightIndex = 0;
 
@@ -389,7 +398,7 @@ void FrameRecorder::dispatchTrace(
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
         int   passType;
-        float minGatherRadius;
+        float minNeighborPhotons;
         float maxGatherRadius;
         float hashCellSize;
         int   photonMaxBounces;
@@ -419,7 +428,7 @@ void FrameRecorder::dispatchTrace(
     pc.numLights=static_cast<int>(as.getLightCount());
     pc.minSplitNm=20.0f;
     pc.passType = 0;  // PASS_CAMERA
-    pc.minGatherRadius = m_minGatherRadius;
+    pc.minNeighborPhotons = m_minNeighborPhotons;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
     pc.photonCount = m_photonCount;
@@ -472,7 +481,7 @@ void FrameRecorder::dispatchPhotonTrace(
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
         int   passType;
-        float minGatherRadius;
+        float minNeighborPhotons;
         float maxGatherRadius;
         float hashCellSize;
         int   photonMaxBounces;
@@ -495,7 +504,7 @@ void FrameRecorder::dispatchPhotonTrace(
     pc.numLights = static_cast<int>(as.getLightCount());
     pc.minSplitNm = 20.0f;
     pc.passType = 1;  // PASS_PHOTON
-    pc.minGatherRadius = m_minGatherRadius;
+    pc.minNeighborPhotons = m_minNeighborPhotons;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
     pc.photonMaxBounces = m_photonMaxBounces;
@@ -542,7 +551,7 @@ void FrameRecorder::dispatchPhotonTraceBatch(
         float diffuseStrength, specularStrength; int numLights;
         float minSplitNm;
         int   passType;
-        float minGatherRadius;
+        float minNeighborPhotons;
         float maxGatherRadius;
         float hashCellSize;
         int   photonMaxBounces;
@@ -565,7 +574,7 @@ void FrameRecorder::dispatchPhotonTraceBatch(
     pc.numLights = static_cast<int>(as.getLightCount());
     pc.minSplitNm = 20.0f;
     pc.passType = 1;  // PASS_PHOTON
-    pc.minGatherRadius = m_minGatherRadius;
+    pc.minNeighborPhotons = m_minNeighborPhotons;
     pc.maxGatherRadius = m_maxGatherRadius;
     pc.hashCellSize = m_hashCellSize;
     pc.photonMaxBounces = m_photonMaxBounces;
