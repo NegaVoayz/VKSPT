@@ -150,6 +150,6 @@ private:
     int m_photonCount      = 524288;
     int m_photonMaxBounces = 12;
     float m_minNeighborPhotons = 1.0f;  // min G-weighted avg neighbor photon count 
-    float m_maxGatherRadius  = 0.12f;  // spatial search radius = 6× cellSize
+    float m_maxGatherRadius  = 0.20f;  // spatial search radius = 10× cellSize
     float m_hashCellSize     = 0.02f;
 };
