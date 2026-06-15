@@ -17,7 +17,6 @@ OutputImage::OutputImage(const vk::raii::Device&         device,
         vk::SharingMode::eExclusive);
     m_image = vk::raii::Image(device, imageInfo);
 
-    // Allocate device-local memory
     auto memReqs = m_image.getMemoryRequirements();
     auto memProps = physDevice.getMemoryProperties();
     uint32_t memTypeIndex = 0;

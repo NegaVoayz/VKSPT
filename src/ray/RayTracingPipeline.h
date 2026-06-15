@@ -15,11 +15,9 @@ public:
     RayTracingPipeline(RayTracingPipeline&&) = delete;
     RayTracingPipeline& operator=(RayTracingPipeline&&) = delete;
 
-    // Denoiser (compute pipeline)
     void CreateDenoisePipeline(const std::string& spv);
     vk::Pipeline GetDenoisePipeline() const { return *m_denPipe; }
 
-    // Hash grid builders (compute pipelines)
     void CreateHashCountPipeline(const std::string& spv);
     void CreateHashScanPipeline(const std::string& spv);
     void CreateHashScatterPipeline(const std::string& spv);
@@ -27,26 +25,26 @@ public:
     vk::Pipeline GetHashScanPipeline()    const { return *m_hashScanPipe; }
     vk::Pipeline GetHashScatterPipeline() const { return *m_hashScatterPipe; }
 
-    // Hash aggregate (compute — one representative photon per cell)
     void CreateHashAggregatePipeline(const std::string& spv);
     vk::Pipeline GetHashAggregatePipeline() const { return *m_hashAggregatePipe; }
 
-    // Hash gather (compute — per-cell spectral gather)
     void CreateHashGatherPipeline(const std::string& spv);
     vk::Pipeline GetHashGatherPipeline() const { return *m_hashGatherPipe; }
 
-    // Stats overlay (compute pipeline)
     void CreateStatsOverlayPipeline(const std::string& spv);
     vk::Pipeline GetStatsOverlayPipeline() const { return *m_statsOverlayPipe; }
 
-    // RT pipeline
     void CreateRTPipeline(const std::string& spv);
     vk::Pipeline GetRTPipeline() const { return *m_rtPipeline; }
     const vk::StridedDeviceAddressRegionKHR& RaygenRegion()        const { return m_raygenRegion; }
-    const vk::StridedDeviceAddressRegionKHR& PhotonRaygenRegion()  const { return m_photonRaygenRegion; }
-    const vk::StridedDeviceAddressRegionKHR& MissRegion()          const { return m_missRegion; }
-    const vk::StridedDeviceAddressRegionKHR& HitRegion()           const { return m_hitRegion; }
-    const vk::StridedDeviceAddressRegionKHR& CallableRegion()      const { return m_callableRegion; }
+    const vk::StridedDeviceAddressRegionKHR& PhotonRaygenRegion() const {
+        return m_photonRaygenRegion; }
+    const vk::StridedDeviceAddressRegionKHR& MissRegion()         const
+        { return m_missRegion; }
+    const vk::StridedDeviceAddressRegionKHR& HitRegion()          const
+        { return m_hitRegion; }
+    const vk::StridedDeviceAddressRegionKHR& CallableRegion()     const {
+        return m_callableRegion; }
 
     DescriptorManager& Desc() { return m_desc; }
     const DescriptorManager& Desc() const { return m_desc; }
@@ -63,11 +61,9 @@ private:
     uint32_t                        m_computeQf;
     DescriptorManager m_desc;
 
-    // Compute pipeline (denoiser)
     vk::raii::ShaderModule m_denSm = nullptr;
     vk::raii::Pipeline     m_denPipe = nullptr;
 
-    // Compute pipelines (hash grid builders)
     vk::raii::ShaderModule m_hashCountSm = nullptr;
     vk::raii::Pipeline     m_hashCountPipe = nullptr;
     vk::raii::ShaderModule m_hashScanSm = nullptr;
@@ -79,11 +75,9 @@ private:
     vk::raii::ShaderModule m_hashGatherSm = nullptr;
     vk::raii::Pipeline     m_hashGatherPipe = nullptr;
 
-    // Stats overlay compute pipeline
     vk::raii::ShaderModule m_statsOverlaySm = nullptr;
     vk::raii::Pipeline     m_statsOverlayPipe = nullptr;
 
-    // RT pipeline
     vk::raii::ShaderModule               m_rtSm = nullptr;
     vk::raii::Pipeline                   m_rtPipeline = nullptr;
     GPUBuffer                            m_sbtBuffer;

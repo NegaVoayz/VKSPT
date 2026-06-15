@@ -24,7 +24,6 @@ SwapchainManager::SwapchainManager(
 
     auto presentMode = pickPresentMode(modes);
 
-    // Clamp extent
     vk::Extent2D extent = caps.currentExtent;
     if (extent.width == UINT32_MAX) {
         extent.width  = std::clamp(width,
@@ -58,10 +57,8 @@ SwapchainManager::SwapchainManager(
         presentMode, true, nullptr);
     m_swapchain = vk::raii::SwapchainKHR(device, sci);
 
-    // Get images
     m_images = m_swapchain.getImages();
 
-    // Vulkan 1.4: bind swapchain image memory explicitly
     for (uint32_t i = 0; i < static_cast<uint32_t>(m_images.size()); ++i) {
         vk::BindImageMemorySwapchainInfoKHR bindSc;
         bindSc.setSwapchain(*m_swapchain);

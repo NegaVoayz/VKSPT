@@ -15,44 +15,52 @@ public:
                       const vk::raii::PhysicalDevice& physDevice,
                       uint32_t                        queueFamily);
 
-    /// Capture at capW×capH for capFrames frames, save to path.
+    /// Capture at targetWidth×targetHeight for frameCount frames, save to path.
     /// Pass main-resolution resources for descriptor restore.
     void capture(const std::string& path,
                  const AccelerationStructure& as,
                  RayTracingPipeline& pipeline,
                  const CameraParams& camera,
-                 uint32_t capW, uint32_t capH, uint32_t capFrames,
+                 uint32_t targetWidth, uint32_t targetHeight, uint32_t frameCount,
                  vk::Image mainOutput, vk::ImageView mainOutputView,
-                 vk::Buffer mainAccumBuf, vk::DeviceSize mainAccumSize,
+                 vk::Buffer mainAccumBuffer, vk::DeviceSize mainAccumSize,
                  vk::ImageView mainNormalView,
                  vk::ImageView mainDepthView);
 
 private:
     struct TempImages {
-        vk::raii::Image        img   = nullptr;
-        vk::raii::DeviceMemory mem   = nullptr;
-        vk::raii::ImageView    view  = nullptr;
-        vk::raii::Image        nrm   = nullptr;
-        vk::raii::DeviceMemory nrmMem= nullptr;
-        vk::raii::ImageView    nrmView=nullptr;
-        vk::raii::Image        dep   = nullptr;
-        vk::raii::DeviceMemory depMem= nullptr;
-        vk::raii::ImageView    depView=nullptr;
+        vk::raii::Image        image      = nullptr;
+        vk::raii::DeviceMemory memory     = nullptr;
+        vk::raii::ImageView    view       = nullptr;
+        vk::raii::Image        normal     = nullptr;
+        vk::raii::DeviceMemory normalMemory = nullptr;
+        vk::raii::ImageView    normalView = nullptr;
+        vk::raii::Image        depth     = nullptr;
+        vk::raii::DeviceMemory depthMemory = nullptr;
+        vk::raii::ImageView    depthView = nullptr;
     };
-    void renderOneFrame(uint32_t f, uint32_t gx, uint32_t gy,
+
+    TempImages createTempImages(uint32_t width, uint32_t height);
+    void createOneTempImage(uint32_t width, uint32_t height, vk::Format format,
+                            vk::raii::Image& outImage,
+                            vk::raii::DeviceMemory& outMemory,
+                            vk::raii::ImageView& outView);
+
+    void renderOneFrame(uint32_t frameIndex, uint32_t groupCountX, uint32_t groupCountY,
                         const AccelerationStructure& as,
                         RayTracingPipeline& pipeline,
                         const CameraParams& camera,
                         const TempImages& temps);
-    void traceAndDenoise(vk::CommandBuffer cb, uint32_t f,
-                         uint32_t gx, uint32_t gy,
+
+    void traceAndDenoise(vk::CommandBuffer commandBuffer, uint32_t frameIndex,
+                         uint32_t groupCountX, uint32_t groupCountY,
                          const AccelerationStructure& as,
                          RayTracingPipeline& pipeline,
                          const CameraParams& camera,
                          const TempImages& temps);
-    TempImages createTempImages(uint32_t w, uint32_t h);
-    void readbackToPNG(const std::string& path, vk::Image img,
-                       uint32_t w, uint32_t h,
+
+    void readbackToPNG(const std::string& path, vk::Image image,
+                       uint32_t width, uint32_t height,
                        const vk::raii::Queue& queue);
 
     const vk::raii::Device&         m_device;

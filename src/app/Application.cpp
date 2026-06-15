@@ -10,13 +10,8 @@
 
 using Clock = std::chrono::high_resolution_clock;
 
-// =============================================================================
-// Camera
-// =============================================================================
-
 void Camera::computeVectors(float fovTan, float aspect,
                             glm::vec3& camU, glm::vec3& camV, glm::vec3& camW) const {
-    // Forward direction from yaw/pitch
     float cp = cos(pitch), sp = sin(pitch);
     float cy = cos(yaw),   sy = sin(yaw);
     glm::vec3 forward(sy * cp, -sp, cy * cp);
@@ -28,10 +23,6 @@ void Camera::computeVectors(float fovTan, float aspect,
     camU = right * fovTan * aspect;
     camV = up * fovTan;
 }
-
-// =============================================================================
-// Application
-// =============================================================================
 
 namespace {
     uint32_t setupPresentQueue(VulkanContext& ctx,
@@ -109,6 +100,40 @@ void Application::initScene() {
         Log::info("  Environment map disabled by config");
 }
 
+void Application::handleCameraInput(float deltaTime) {
+    const auto& inp = m_window.GetInput();
+
+    m_camera.yaw   -= inp.mouseDX * m_camera.lookSpeed;
+    m_camera.pitch += inp.mouseDY * m_camera.lookSpeed;
+    const float maxPitch = glm::pi<float>() * 0.49f;
+    m_camera.pitch = glm::clamp(m_camera.pitch, -maxPitch, maxPitch);
+
+    float cy = cos(m_camera.yaw), sy = sin(m_camera.yaw);
+    glm::vec3 forward(sy, 0.0f, cy);
+    glm::vec3 right(-cy, 0.0f, sy);
+
+    float speed = m_camera.moveSpeed * deltaTime;
+    if (inp.keyW) m_camera.position += forward * speed;
+    if (inp.keyS) m_camera.position -= forward * speed;
+    if (inp.keyD) m_camera.position += right * speed;
+    if (inp.keyA) m_camera.position -= right * speed;
+    if (inp.keyE) m_camera.position.y += speed;
+    if (inp.keyQ) m_camera.position.y -= speed;
+}
+
+CameraParams Application::buildCameraParams(float aspect, float fovTan) {
+    CameraParams cam;
+    cam.origin[0] = m_camera.position.x;
+    cam.origin[1] = m_camera.position.y;
+    cam.origin[2] = m_camera.position.z;
+    glm::vec3 cu, cv, cw;
+    m_camera.computeVectors(fovTan, aspect, cu, cv, cw);
+    cam.camU[0] = cu.x; cam.camU[1] = cu.y; cam.camU[2] = cu.z;
+    cam.camV[0] = cv.x; cam.camV[1] = cv.y; cam.camV[2] = cv.z;
+    cam.camW[0] = cw.x; cam.camW[1] = cw.y; cam.camW[2] = cw.z;
+    return cam;
+}
+
 void Application::run() {
     Log::info("Entering render loop...");
     Log::info("  WASD = move, SPACE/SHIFT = up/down, Left Mouse = look");
@@ -119,11 +144,9 @@ void Application::run() {
     while (m_window.IsOpen()) {
         if (!m_window.PollEvents()) break;
 
-        // Delta time in seconds
         auto now = Clock::now();
         float dt = std::chrono::duration<float>(now - lastTime).count();
         lastTime = now;
-        // Clamp to avoid huge jumps on first frame or after pause
         if (dt > 0.1f) dt = 0.1f;
 
         if (avgDt == 0.0f)
@@ -131,63 +154,22 @@ void Application::run() {
         else
             avgDt = 0.9f * avgDt + 0.1f * dt;
 
-        // ---- Update camera from input ----
-        const auto& inp = m_window.GetInput();
+        handleCameraInput(dt);
 
-        // Mouse look
-        m_camera.yaw   -= inp.mouseDX * m_camera.lookSpeed;
-        m_camera.pitch += inp.mouseDY * m_camera.lookSpeed;
-        const float maxPitch = glm::pi<float>() * 0.49f;
-        m_camera.pitch = glm::clamp(m_camera.pitch, -maxPitch, maxPitch);
-
-        // Horizontal movement (yaw only, ignore pitch)
-        float cy = cos(m_camera.yaw), sy = sin(m_camera.yaw);
-        glm::vec3 forward(sy, 0.0f, cy);   // horizontal projection
-        glm::vec3 right(-cy, 0.0f, sy);   // strafe right
-
-        float speed = m_camera.moveSpeed * dt;
-        if (inp.keyW) m_camera.position += forward * speed;
-        if (inp.keyS) m_camera.position -= forward * speed;
-        if (inp.keyD) m_camera.position += right * speed;
-        if (inp.keyA) m_camera.position -= right * speed;
-        if (inp.keyE) m_camera.position.y += speed;   // SPACE
-        if (inp.keyQ) m_camera.position.y -= speed;   // LSHIFT
-
-        // Compute camera vectors for rendering
         float aspect = float(m_width) / float(m_height);
         float fovTan = 0.57735f;  // 60° horizontal FOV (tan 30°)
-        CameraParams cam;
-        cam.origin[0] = m_camera.position.x;
-        cam.origin[1] = m_camera.position.y;
-        cam.origin[2] = m_camera.position.z;
-        {
-            glm::vec3 cu, cv, cw;
-            m_camera.computeVectors(fovTan, aspect, cu, cv, cw);
-            cam.camU[0] = cu.x; cam.camU[1] = cu.y; cam.camU[2] = cu.z;
-            cam.camV[0] = cv.x; cam.camV[1] = cv.y; cam.camV[2] = cv.z;
-            cam.camW[0] = cw.x; cam.camW[1] = cw.y; cam.camW[2] = cw.z;
-        }
+        CameraParams cam = buildCameraParams(aspect, fovTan);
 
-        // F3: toggle stats overlay
-        if (inp.keyF3 && !m_f3WasDown) m_showStats = !m_showStats;
-        m_f3WasDown = inp.keyF3;
+        if (m_window.GetInput().keyF3 && !m_f3WasDown) m_showStats = !m_showStats;
+        m_f3WasDown = m_window.GetInput().keyF3;
 
         float fps = avgDt > 0.0f ? 1.0f / avgDt : 0.0f;
         m_renderer.RenderFrame(m_as, m_pipeline, cam, m_showStats, fps);
 
-        // T key: capture high-resolution screenshot (2K, 64 frames)
-        if (inp.keyT) {
-            float capFovTan = 0.57735f;  // 60° horizontal FOV
+        if (m_window.GetInput().keyT) {
+            float capFovTan = 0.57735f;
             float capAspect = 2560.0f / 1440.0f;
-            glm::vec3 cu, cv, cw;
-            m_camera.computeVectors(capFovTan, capAspect, cu, cv, cw);
-            CameraParams capCam;
-            capCam.origin[0] = m_camera.position.x;
-            capCam.origin[1] = m_camera.position.y;
-            capCam.origin[2] = m_camera.position.z;
-            capCam.camU[0] = cu.x; capCam.camU[1] = cu.y; capCam.camU[2] = cu.z;
-            capCam.camV[0] = cv.x; capCam.camV[1] = cv.y; capCam.camV[2] = cv.z;
-            capCam.camW[0] = cw.x; capCam.camW[1] = cw.y; capCam.camW[2] = cw.z;
+            CameraParams capCam = buildCameraParams(capAspect, capFovTan);
 
             m_renderer.CaptureScreenshot(m_outputName, m_as, m_pipeline,
                                            capCam, 2560, 1440, 64);

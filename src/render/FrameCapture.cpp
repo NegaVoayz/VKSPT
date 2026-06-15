@@ -21,13 +21,12 @@ void FrameCapture::savePNG(
     const std::vector<vk::raii::Fence>& inFlightFences,
     const vk::raii::CommandPool& cmdPool)
 {
-    // Wait for all in-flight GPU work
     std::vector<vk::Fence> fences;
     for (const auto& f : inFlightFences) fences.push_back(*f);
     m_device.waitForFences(fences, true, UINT64_MAX);
     m_device.waitIdle();
 
-    vk::DeviceSize imgSize = width * height * 4;  // RGBA8
+    vk::DeviceSize imgSize = width * height * 4;
     auto staging = GPUBuffer::Create(
         m_device, imgSize,
         vk::BufferUsageFlagBits::eTransferDst,

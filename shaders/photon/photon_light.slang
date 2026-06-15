@@ -56,7 +56,8 @@ void sampleLightSource(GpuLight l, out float3 origin, out float3 dir, inout uint
 // Uses estimateSpectrum at 3 Gauss-Legendre points on [LAMBDA_MIN, LAMBDA_MAX],
 // takes ln(), fits 2nd-order Legendre coefficients.
 // RGB → Legendre: photon starts like camera ray (c0=c1=c2=0).
-// Attenuation accumulates during transport; light spectrum applied at storage via estimateSpectrum.
+// Attenuation accumulates during transport;
+// light spectrum applied at storage via estimateSpectrum.
 void rgbSpectrumToLegendre(float3 rgb, out float c0, out float c1, out float c2)
 {
     c0 = 0.0;

@@ -56,7 +56,6 @@ void RayTracingPipeline::CreateHashGatherPipeline(const std::string& s)
 void RayTracingPipeline::CreateStatsOverlayPipeline(const std::string& s)
     { m_statsOverlayPipe = mkPipe(m_statsOverlaySm, s); }
 
-// ---- RT Pipeline + SBT ----
 void RayTracingPipeline::CreateRTPipeline(const std::string& spv)
 {
     auto code = readFile(spv);
@@ -161,11 +160,15 @@ void RayTracingPipeline::uploadSbtBuffer(const std::vector<uint8_t>& handles)
     }
 
     vk::DeviceAddress sbtAddr = m_sbtBuffer.Address;
-    m_raygenRegion        = vk::StridedDeviceAddressRegionKHR(sbtAddr + 0 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_hitRegion           = vk::StridedDeviceAddressRegionKHR(sbtAddr + 1 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_missRegion          = vk::StridedDeviceAddressRegionKHR(sbtAddr + 2 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_photonRaygenRegion  = vk::StridedDeviceAddressRegionKHR(sbtAddr + 3 * m_sbtStride, m_sbtStride, m_sbtStride);
-    m_callableRegion      = vk::StridedDeviceAddressRegionKHR(0, 0, 0);
+    auto makeRegion = [&](uint32_t i) {
+        return vk::StridedDeviceAddressRegionKHR(
+            sbtAddr + i * m_sbtStride, m_sbtStride, m_sbtStride);
+    };
+    m_raygenRegion       = makeRegion(0);
+    m_hitRegion          = makeRegion(1);
+    m_missRegion         = makeRegion(2);
+    m_photonRaygenRegion = makeRegion(3);
+    m_callableRegion     = vk::StridedDeviceAddressRegionKHR(0, 0, 0);
 
     Log::info("RT pipeline created: {} shader groups, SBT {} bytes", RT_GROUP_COUNT, sbtSize);
 }

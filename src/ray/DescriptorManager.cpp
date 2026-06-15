@@ -14,7 +14,6 @@ vk::PipelineLayout DescriptorManager::PipelineLayout() const
 vk::DescriptorSet DescriptorManager::DescriptorSet(uint32_t i) const
     { return *m_sets[i]; }
 
-// ---- Layout ----
 void DescriptorManager::createLayout() {
     using DS = vk::DescriptorSetLayoutBinding;
     using DT = vk::DescriptorType;
@@ -52,7 +51,6 @@ void DescriptorManager::createLayout() {
         m_device, {{}, *m_layout, pc});
 }
 
-// ---- Pool ----
 void DescriptorManager::createPool() {
     using DT = vk::DescriptorType;
     constexpr auto N = MAX_FRAMES_IN_FLIGHT + 1;  // +1 for photon set
@@ -76,7 +74,6 @@ void DescriptorManager::allocateSets() {
     }
 }
 
-// ---- Bind helpers ----
 static void writeBuf(const vk::raii::Device& d,
     vk::DescriptorSet ds, uint32_t b,
     vk::DescriptorType t, vk::Buffer buf, vk::DeviceSize sz)

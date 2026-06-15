@@ -31,10 +31,10 @@ Renderer::Renderer(
                  m_config.width, m_config.height,
                  m_computeQueueFamily, m_presentQueueFamily,
                  nullptr, 0.0f, false)
+    , m_photonRecorder(m_device, m_computeQueueFamily)
 {
-    // Timestamp queries
-    auto qProps = physDevice.getQueueFamilyProperties();
-    if (qProps[computeQueueFamily].timestampValidBits > 0) {
+    auto queueProperties = physDevice.getQueueFamilyProperties();
+    if (queueProperties[computeQueueFamily].timestampValidBits > 0) {
         m_timestampPool = vk::raii::QueryPool(device,
             {{}, vk::QueryType::eTimestamp,
              MAX_FRAMES_IN_FLIGHT * TIMESTAMPS_PER_FRAME});
@@ -61,35 +61,9 @@ Renderer::Renderer(
 
 Renderer::~Renderer() { m_device.waitIdle(); }
 
-// -----------------------------------------------------------------------------
-// renderFrame
-// -----------------------------------------------------------------------------
-void Renderer::RenderFrame(const AccelerationStructure& as,
-                            RayTracingPipeline& pipeline,
-                            const CameraParams& camera,
-                            bool showStats,
-                            float fps) {
-    uint32_t f = m_currentFrame % MAX_FRAMES_IN_FLIGHT;
-
-    if (m_device.waitForFences(*m_inFlightFences[f], true, UINT64_MAX)
-        != vk::Result::eSuccess)
-        throw std::runtime_error("Fence wait failed.");
-    m_device.resetFences(*m_inFlightFences[f]);
-
-    auto [result, imageIndex] = m_swapchain.Handle().acquireNextImage(
-        UINT64_MAX, *m_imageAvailableSem[f]);
-    if (result != vk::Result::eSuccess &&
-        result != vk::Result::eSuboptimalKHR)
-        throw std::runtime_error("Failed to acquire swapchain image.");
-
-    // Camera movement → reset accumulation
-    if (m_accum.detectChange(camera.origin, camera.camU,
-                             camera.camV, camera.camW) ||
-        m_accum.FrameCount() == 0)
-        m_accum.reset();
-    m_accum.IncFrameCount();
-
-    // Bind all descriptor resources
+void Renderer::bindFrameDescriptors(
+    uint32_t f, const AccelerationStructure& as, RayTracingPipeline& pipeline)
+{
     pipeline.Desc().BindTLAS(f, as.getTLAS());
     pipeline.Desc().BindOutputImage(f, m_output.View(), nullptr);
     pipeline.Desc().BindMaterialBuffer(f, *as.getMaterialBuffer().Buffer,
@@ -128,8 +102,35 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
         f, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
     pipeline.Desc().BindRayStats(
         f, *as.getRayStats().Buffer, as.getRayStats().Size);
+}
 
-    // Record + submit
+void Renderer::RenderFrame(const AccelerationStructure& as,
+                            RayTracingPipeline& pipeline,
+                            const CameraParams& camera,
+                            bool showStats,
+                            float fps)
+{
+    uint32_t f = m_currentFrame % MAX_FRAMES_IN_FLIGHT;
+
+    if (m_device.waitForFences(*m_inFlightFences[f], true, UINT64_MAX)
+        != vk::Result::eSuccess)
+        throw std::runtime_error("Fence wait failed.");
+    m_device.resetFences(*m_inFlightFences[f]);
+
+    auto [result, imageIndex] = m_swapchain.Handle().acquireNextImage(
+        UINT64_MAX, *m_imageAvailableSem[f]);
+    if (result != vk::Result::eSuccess &&
+        result != vk::Result::eSuboptimalKHR)
+        throw std::runtime_error("Failed to acquire swapchain image.");
+
+    if (m_accum.detectChange(camera.origin, camera.camU,
+                             camera.camV, camera.camW) ||
+        m_accum.FrameCount() == 0)
+        m_accum.reset();
+    m_accum.IncFrameCount();
+
+    bindFrameDescriptors(f, as, pipeline);
+
     auto& cb = m_commandBuffers[f];
     cb.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     m_recorder.record(*cb, f, imageIndex, as, pipeline, camera,
@@ -141,20 +142,16 @@ void Renderer::RenderFrame(const AccelerationStructure& as,
                       *m_inFlightFences[f],
                       m_currentFrame == 0);
 
-    // Async progressive photon batches (render first, photon after)
     if (m_currentFrame == 0)
-        m_recorder.setupPhotons(as, pipeline,
+        m_photonRecorder.setupPhotons(as, pipeline,
             m_output.View(), m_denoiser.NormalView(),
             m_denoiser.DepthView(),
             *m_accum.Buffer().Buffer, m_accum.BufSize());
-    m_recorder.trySubmitPhotonBatch(as, pipeline);
+    m_photonRecorder.trySubmitPhotonBatch(as, pipeline);
 
     m_currentFrame++;
 }
 
-// -----------------------------------------------------------------------------
-// Delegating public helpers
-// -----------------------------------------------------------------------------
 void Renderer::SaveOutputPNG(const std::string& path) {
     m_frameCapture.savePNG(path, m_output.Handle(),
         m_config.width, m_config.height,
@@ -164,10 +161,11 @@ void Renderer::SaveOutputPNG(const std::string& path) {
 void Renderer::CaptureScreenshot(
     const std::string& path, const AccelerationStructure& as,
     RayTracingPipeline& pipeline, const CameraParams& camera,
-    uint32_t capW, uint32_t capH, uint32_t capFrames)
+    uint32_t captureWidth, uint32_t captureHeight, uint32_t captureFrames)
 {
     m_screenshot.capture(
-        path, as, pipeline, camera, capW, capH, capFrames,
+        path, as, pipeline, camera,
+        captureWidth, captureHeight, captureFrames,
         m_output.Handle(), m_output.View(),
         *m_accum.Buffer().Buffer, m_accum.BufSize(),
         m_denoiser.NormalView(), m_denoiser.DepthView());

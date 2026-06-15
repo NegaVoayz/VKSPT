@@ -128,15 +128,15 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     if (denom <= 0.0) return;
 
-    // ---- Neighborhood density: G-weighted average neighbor photon count ----
+    // Neighborhood density: G-weighted average neighbor photon count
     float nbrAvgCnt = G_cnt / max(G_sum, 1e-10);
     if (nbrAvgCnt < params.minNeighborPhotons) return;  // 邻域太稀疏 → 放弃
 
-    // ---- Isolated-cell kill: neighbors have no photons → current cell is noise ----
+    // Isolated-cell kill: neighbors have no photons → current cell is noise
     float neighborDenom = denom - I_t;  // denom减去自己的贡献(I_t × G(0)=I_t)
     if (neighborDenom < I_t * 0.5) return;  // 邻域有效能量 < 自身的50% → 放弃
 
-    // ---- Local consistency: dampen irradiance outliers ----
+    // Local consistency: dampen irradiance outliers
     // If I_t >> neighbor average, pull it down to avoid single-cell fireflies.
     // G-weighted mean neighbor energy: denom / G_sum = Σ(Φ_j×G) / Σ G
     static const float OUTLIER_MAX_RATIO = 2.0;

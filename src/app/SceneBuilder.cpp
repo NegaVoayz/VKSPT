@@ -4,17 +4,13 @@
 #include <algorithm>
 #include <cmath>
 
-void SceneBuilder::build(const SceneDescription& desc,
-                          AccelerationStructure& as)
+namespace {
+
+void buildInstances(const SceneDescription& desc,
+                    AccelerationStructure& as,
+                    std::vector<AccelerationStructure::InstanceInfo>& instances,
+                    std::vector<AccelerationStructure::MaterialGPU>& materials)
 {
-    // Apply resource limits from XML
-    as.maxMaterials = desc.maxMaterials;
-    as.maxLights    = desc.maxLights;
-    as.maxInstances = desc.maxInstances;
-
-    std::vector<AccelerationStructure::InstanceInfo> instances;
-    std::vector<AccelerationStructure::MaterialGPU>  materials;
-
     for (size_t i = 0; i < desc.objects.size(); ++i) {
         const auto& obj = desc.objects[i];
         Log::info("  Loading: {}", obj.objFilename);
@@ -72,9 +68,12 @@ void SceneBuilder::build(const SceneDescription& desc,
         }
         materials.push_back(mat);
     }
+}
 
-    const uint32_t MAX_LIGHTS = as.maxLights;
-    std::vector<AccelerationStructure::GpuLight> gpuLights;
+void buildLights(const SceneDescription& desc,
+                 std::vector<AccelerationStructure::GpuLight>& gpuLights,
+                 uint32_t maxLights)
+{
     {
         AccelerationStructure::GpuLight amb;
         float as = desc.ambient.strength;
@@ -87,7 +86,7 @@ void SceneBuilder::build(const SceneDescription& desc,
         gpuLights.push_back(amb);
     }
     for (const auto& pl : desc.pointLights) {
-        if (gpuLights.size()>=MAX_LIGHTS) break;
+        if (gpuLights.size()>=maxLights) break;
         AccelerationStructure::GpuLight l{};
         l.pos_type[0]=pl.pos.x; l.pos_type[1]=pl.pos.y;
         l.pos_type[2]=pl.pos.z; l.pos_type[3]=0;
@@ -99,7 +98,7 @@ void SceneBuilder::build(const SceneDescription& desc,
         gpuLights.push_back(l);
     }
     for (const auto& sl : desc.spotLights) {
-        if (gpuLights.size()>=MAX_LIGHTS) break;
+        if (gpuLights.size()>=maxLights) break;
         AccelerationStructure::GpuLight l{};
         l.pos_type[0]=sl.pos.x; l.pos_type[1]=sl.pos.y;
         l.pos_type[2]=sl.pos.z; l.pos_type[3]=2;
@@ -113,7 +112,7 @@ void SceneBuilder::build(const SceneDescription& desc,
         gpuLights.push_back(l);
     }
     for (const auto& dl : desc.dirLights) {
-        if (gpuLights.size()>=MAX_LIGHTS) break;
+        if (gpuLights.size()>=maxLights) break;
         AccelerationStructure::GpuLight l{};
         l.pos_type[0]=dl.dir.x; l.pos_type[1]=dl.dir.y;
         l.pos_type[2]=dl.dir.z; l.pos_type[3]=1;
@@ -123,8 +122,25 @@ void SceneBuilder::build(const SceneDescription& desc,
         l.color_intensity[3]=dl.intensity;
         gpuLights.push_back(l);
     }
-    while (gpuLights.size() < MAX_LIGHTS)
+    while (gpuLights.size() < maxLights)
         gpuLights.push_back(AccelerationStructure::GpuLight{});
+}
+
+} // namespace
+
+void SceneBuilder::build(const SceneDescription& desc,
+                          AccelerationStructure& as)
+{
+    as.maxMaterials = desc.maxMaterials;
+    as.maxLights    = desc.maxLights;
+    as.maxInstances = desc.maxInstances;
+
+    std::vector<AccelerationStructure::InstanceInfo> instances;
+    std::vector<AccelerationStructure::MaterialGPU>  materials;
+    buildInstances(desc, as, instances, materials);
+
+    std::vector<AccelerationStructure::GpuLight> gpuLights;
+    buildLights(desc, gpuLights, as.maxLights);
 
     as.setDiffuseStrength(desc.diffuseStrength);
     as.setSpecularStrength(desc.specularStrength);

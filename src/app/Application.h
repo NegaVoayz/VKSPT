@@ -3,6 +3,7 @@
 #include "ray/AccelerationStructure.h"
 #include "ray/RayTracingPipeline.h"
 #include "render/Renderer.h"
+#include "render/CameraParams.h"
 #include "core/VulkanContext.h"
 #include "core/Window.h"
 
@@ -42,6 +43,8 @@ public:
 
 private:
     void initScene();
+    void handleCameraInput(float deltaTime);
+    CameraParams buildCameraParams(float aspect, float fovTan);
 
     Window                  m_window;
     VulkanContext            m_ctx;

@@ -14,6 +14,32 @@
 /// Also handles submission and timestamp readback.
 class FrameRecorder {
 public:
+    /// Push constant layout matching shaders/rt/payload.slang PushConstants.
+    struct TracePushConstant {
+        float camOrigin[3]; float pad0;
+        float camU[3];      float pad1;
+        float camV[3];      float pad2;
+        float camW[3];      float pad3;
+        int   samplesPerPixel, maxBounces, materialCount;
+        float fovTan, splitMult, forceSplitWidth;
+        int   scatterSamples; float mergeThreshold;
+        int   frameIndex;
+        float diffuseStrength, specularStrength; int numLights;
+        float minSplitNm;
+        int   passType;
+        float minNeighborPhotons;
+        float maxGatherRadius;
+        float hashCellSize;
+        int   photonMaxBounces;
+        int   photonCount;
+        float fps;
+        int   batchIndex;
+        int   batchCount;
+        float lightIntensityPC;
+        float lightColorPC[3];
+        float padEnd[22];
+    };
+
     FrameRecorder(const vk::raii::Device&        device,
                   const vk::raii::SwapchainKHR&  swapchain,
                   const std::vector<vk::Image>&   swapchainImages,
@@ -22,17 +48,17 @@ public:
                   vk::Image                      depthImage,
                   uint32_t                       width,
                   uint32_t                       height,
-                  uint32_t                       computeQf,
-                  uint32_t                       presentQf,
+                  uint32_t                       computeQueueFamily,
+                  uint32_t                       presentQueueFamily,
                   const vk::raii::QueryPool*     timestampPool,
                   float                          timestampPeriod,
                   bool                           hasTimestamps);
 
     /// Record trace + denoise + swapchain-copy into the command buffer.
-    void record(vk::CommandBuffer                 cb,
-                uint32_t                          frameIdx,
+    void record(vk::CommandBuffer                 commandBuffer,
+                uint32_t                          frameIndex,
                 uint32_t                          imageIndex,
-                const AccelerationStructure&      as,
+                const AccelerationStructure&      accelerationStructure,
                 RayTracingPipeline&               pipeline,
                 const CameraParams&               camera,
                 int                               accumFrameCount,
@@ -41,115 +67,48 @@ public:
                 float                             fps = 0.0f);
 
     /// Submit the recorded command buffer and present.
-    void submit(vk::CommandBuffer  cb,
-                uint32_t           frameIdx,
+    void submit(vk::CommandBuffer  commandBuffer,
+                uint32_t           frameIndex,
                 uint32_t           imageIndex,
                 vk::Semaphore      imageAvailable,
                 vk::Semaphore      renderFinished,
                 vk::Fence          inFlightFence,
                 bool               isFirstFrame);
 
-    /// Initialize photon batch state and bind all descriptors.
-    /// Must be called once before trySubmitPhotonBatch().
-    void setupPhotons(const AccelerationStructure& as,
-                      RayTracingPipeline& pipeline,
-                      vk::ImageView              outputView,
-                      vk::ImageView              normalView,
-                      vk::ImageView              depthView,
-                      vk::Buffer                 accumBuffer,
-                      vk::DeviceSize             accumSize);
-
-    /// If the previous batch fence is signaled and more lights remain,
-    /// record and submit the next photon batch asynchronously.
-    void trySubmitPhotonBatch(const AccelerationStructure& as,
-                              RayTracingPipeline& pipeline);
-
-    bool isPhotonDone() const { return m_photonDone; }
-
     uint64_t frameCount()      const { return m_frameCount; }
-    float    lastGpuMs()       const { return m_lastGpuMs; }
+    float    lastGpuMilliseconds() const { return m_lastGpuMilliseconds; }
 
 private:
-    void transitionImages(vk::CommandBuffer cb, bool firstFrame);
-    void dispatchTrace(vk::CommandBuffer            cb,
-                       uint32_t                     f,
-                       const AccelerationStructure& as,
+    void transitionImages(vk::CommandBuffer commandBuffer, bool firstFrame);
+
+    void dispatchTrace(vk::CommandBuffer            commandBuffer,
+                       uint32_t                     frameIndex,
+                       const AccelerationStructure& accelerationStructure,
                        RayTracingPipeline&          pipeline,
                        const CameraParams&          camera,
                        int                          accumFrameCount,
                        float                        fps);
-    void dispatchPhotonTrace(vk::CommandBuffer            cb,
-                              uint32_t                     f,
-                              const AccelerationStructure& as,
-                              RayTracingPipeline&          pipeline);
-    void dispatchPhotonTraceBatch(vk::CommandBuffer            cb,
-                                   uint32_t                     f,
-                                   const AccelerationStructure& as,
-                                   RayTracingPipeline&          pipeline,
-                                   int                           batchIndex,
-                                   int                           photonsPerBatch,
-                                   int                           totalBatches);
-    void dispatchHashCount(vk::CommandBuffer            cb,
-                           uint32_t                     f,
-                           RayTracingPipeline&          pipeline,
-                           int                          photonCount);
-    void dispatchHashScan(vk::CommandBuffer            cb,
-                          uint32_t                     f,
-                          RayTracingPipeline&          pipeline);
-    void dispatchHashScatter(vk::CommandBuffer            cb,
-                             uint32_t                     f,
-                             RayTracingPipeline&          pipeline,
-                             int                          photonCount);
-    void dispatchHashAggregate(vk::CommandBuffer            cb,
-                               uint32_t                     f,
-                               RayTracingPipeline&          pipeline);
-    void dispatchHashGather(vk::CommandBuffer            cb,
-                            uint32_t                     f,
-                            RayTracingPipeline&          pipeline);
-    void recordPhotonBatch(vk::CommandBuffer            cb,
-                            const AccelerationStructure& as,
-                            RayTracingPipeline&          pipeline,
-                            int                          lightIndex,
-                            int                          photonsPerBatch,
-                            int                          totalBatches);
-    void dispatchStatsOverlay(vk::CommandBuffer    cb,
-                              uint32_t             f,
+
+    void dispatchStatsOverlay(vk::CommandBuffer    commandBuffer,
+                              uint32_t             frameIndex,
                               RayTracingPipeline&  pipeline);
-    void denoisePass(vk::CommandBuffer    cb,
-                     uint32_t             f,
+
+    void denoisePass(vk::CommandBuffer    commandBuffer,
+                     uint32_t             frameIndex,
                      RayTracingPipeline&  pipeline);
-    void copyOutputToSwapchain(vk::CommandBuffer cb,
+
+    void copyOutputToSwapchain(vk::CommandBuffer commandBuffer,
                                uint32_t          imageIndex);
 
     const vk::raii::Device&        m_device;
     const vk::raii::SwapchainKHR&  m_swapchain;
-    const std::vector<vk::Image>&  m_swapImages;
-    vk::Image m_outImg, m_nrmImg, m_depImg;
-    uint32_t  m_w, m_h;
-    uint32_t  m_cqf, m_pqf;
-    const vk::raii::QueryPool*     m_tsPool;  // nullable — optional query pool
-    float     m_tsPeriod;
-    bool      m_hasTS;
+    const std::vector<vk::Image>&  m_swapchainImages;
+    vk::Image m_outputImage, m_normalImage, m_depthImage;
+    uint32_t  m_width, m_height;
+    uint32_t  m_computeQueueFamily, m_presentQueueFamily;
+    const vk::raii::QueryPool*     m_timestampPool;
+    float     m_timestampPeriod;
+    bool      m_hasTimestamps;
     uint64_t  m_frameCount = 0;
-    float     m_lastGpuMs = 0.0f;
-
-    // ---- Async photon batch state ----
-    vk::raii::CommandPool   m_photonCmdPool = nullptr;
-    vk::raii::CommandBuffer m_photonCmdBuf  = nullptr;
-    vk::raii::Fence         m_photonFence;
-    vk::ImageView  m_photonOutView  = nullptr;
-    vk::ImageView  m_photonNrmView  = nullptr;
-    vk::ImageView  m_photonDepView  = nullptr;
-    vk::Buffer     m_photonAccumBuf = nullptr;
-    vk::DeviceSize m_photonAccumSz  = 0;
-    int  m_nextLightIndex   = 0;
-    int  m_activeLightCount = 0;
-    int  m_perLight         = 0;
-    bool m_photonDone       = true;
-
-    int m_photonCount      = 524288;
-    int m_photonMaxBounces = 12;
-    float m_minNeighborPhotons = 1.0f;  // min G-weighted avg neighbor photon count 
-    float m_maxGatherRadius  = 0.20f;  // spatial search radius = 10× cellSize
-    float m_hashCellSize     = 0.02f;
+    float     m_lastGpuMilliseconds = 0.0f;
 };

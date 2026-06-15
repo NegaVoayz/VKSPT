@@ -8,13 +8,10 @@
 /// Parsed scene description from XML config + OBJ loading.
 /// Owns no GPU resources — just CPU-side data used to build the scene.
 struct SceneDescription {
-    // ---- Camera ----
     uint32_t    cameraWidth  = 256;
     uint32_t    cameraHeight = 192;
     std::string outputName   = "output.png";
     int         maxDepth     = 4;
-
-    // ---- Object entries (one per XML object element) ----
     enum class MaterialType { Dielectric, Metal, Lambertian, Checkerboard };
     struct MaterialData {
         MaterialType type   = MaterialType::Lambertian;
@@ -26,7 +23,7 @@ struct SceneDescription {
         glm::vec3    absorbB{ 0.0f, 0.0f, 0.0f };
     };
     struct ObjectEntry {
-        std::string objFilename;                     // e.g. "duck.obj"
+        std::string objFilename;
         bool        display           = true;
         bool        normalInterpolation = false;
         glm::vec3   scale{ 1.0f, 1.0f, 1.0f };
@@ -36,7 +33,6 @@ struct SceneDescription {
     };
     std::vector<ObjectEntry> objects;
 
-    // ---- Lights (parsed; per-light shading deferred to future phase) ----
     struct PointLight { glm::vec3 pos, color; float intensity, maxDist; };
     struct SpotLight  { glm::vec3 pos, dir, color; float inner, outer, intensity, maxDist; };
     struct DirLight   { glm::vec3 dir, color; float intensity; };
@@ -48,19 +44,15 @@ struct SceneDescription {
     Ambient                 ambient{ 0.1f, {0.1f, 0.1f, 0.1f} };
     bool                    envMapDisplay = false;
 
-    // ---- Spheres (legacy: not yet implemented) ----
     bool sphereDisplay[4] = { false };
 
-    // ---- Strength multipliers ----
     float diffuseStrength  = 0.5f;
     float specularStrength = 1.0f;
 
-    // ---- Resource limits (from XML, configurable per-scene) ----
     uint32_t maxInstances = 16;
     uint32_t maxMaterials = 16;
     uint32_t maxLights    = 8;
 
-    // ---- Misc (informational) ----
     int refractionMethod = 1;
     int rayOffsetMethod  = 1;
 };

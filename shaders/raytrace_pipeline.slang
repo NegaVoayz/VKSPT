@@ -12,6 +12,7 @@ import rt.direct_light;
 import rt.sky;
 import rt.material_handlers;
 import photon.photon_light;
+import photon.photon_hit;
 
 [shader("raygeneration")]
 void RayGenMain()
@@ -64,7 +65,6 @@ void RayGenMain()
     outputImage[int2(px)] = float4(linearToSRGB(newAcc/max(newCnt,1.0)*2.5), 1.0);
 }
 
-// ---- Photon tracing raygen ----
 [shader("raygeneration")]
 void PhotonRayGenMain()
 {
@@ -77,7 +77,8 @@ void PhotonRayGenMain()
     // Light config comes from push constants (bypasses lights buffer for reliability).
     int li = clamp(params.batchIndex, 0, max(0, params.numLights - 1));
     GpuLight l = lights.items[li];
-    float3 lightRGB = float3(params.lightColorPC[0], params.lightColorPC[1], params.lightColorPC[2]);
+    float3 lightRGB = float3(
+        params.lightColorPC[0], params.lightColorPC[1], params.lightColorPC[2]);
     float lightIntensity = params.lightIntensityPC;
 
     uint seed = wangHash(photonIdx ^ (uint(params.frameIndex) + uint(li) * 31337u) * 134775813u);
@@ -125,12 +126,12 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
         max(0u, uint(params.materialCount)-1u))];
     int matType = int(mat.params.z);
 
-    // ---- RR + bounce limit (both passes) ----
+    // RR + bounce limit (both passes)
     bool isDead = decayIsDead(p.throughput, p.decayC2);
     if (params.passType != PASS_PHOTON && isDead)
         { p.color = float3(0.0); return; }
 
-    // ---- Split check (before apply_diff) ----
+    // Split check (before apply_diff)
     // D,V are ⟂ rayDir from previous bounce; check unpropagated spread.
     // Split is purely geometric: spread > threshold means different
     // wavelength bands are at noticeably different positions and may hit
@@ -151,10 +152,10 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
         return;
     }
 
-    // ---- apply_diff: propagate D by travel distance ----
+    // apply_diff: propagate D by travel distance
     p.D = (p.D + p.V * p.hitT) - dot(p.D + p.V * p.hitT, rayDir) * rayDir;
 
-    // ---- Pass dispatch ----
+    // Pass dispatch
     if (params.passType == PASS_PHOTON) {
         handlePhotonHit(p, pos, fNrm, nrm, matType);
         return;

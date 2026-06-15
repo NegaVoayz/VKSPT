@@ -17,7 +17,8 @@ public:
     vk::Image                     ImageAt(uint32_t i) const;
     const vk::raii::ImageView&    ViewAt(uint32_t i) const { return m_views[i]; }
     const std::vector<vk::Image>& Images()       const { return m_images; }
-    uint32_t                      ImageCount()   const { return static_cast<uint32_t>(m_images.size()); }
+    uint32_t                      ImageCount()   const {
+        return static_cast<uint32_t>(m_images.size()); }
     vk::Format          Format()         const { return m_format; }
     const vk::raii::SwapchainKHR& Handle() const { return m_swapchain; }
 

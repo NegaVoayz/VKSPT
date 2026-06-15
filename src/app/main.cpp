@@ -11,13 +11,12 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 int main() {
     try {
-        // Step 1: Load vkGetInstanceProcAddr
         vk::detail::DynamicLoader dl;
         auto getProc = dl.getProcAddress<PFN_vkGetInstanceProcAddr>(
             "vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(getProc);
 
-        Application app(1280, 720, "VKSPT — Spectral Ray Tracer (Phase 1)");
+        Application app(1280, 720, "VKSPT — Spectral Ray Tracer");
         app.run();
         return 0;
     }

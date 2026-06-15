@@ -5,7 +5,6 @@
 #include <set>
 #include <stdexcept>
 
-// Debug messenger callback
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT      severity,
     VkDebugUtilsMessageTypeFlagsEXT             /*type*/,
@@ -18,29 +17,22 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
-// Device extensions for ray tracing pipeline
-static const std::vector<const char*> s_deviceExtensions = {
+static const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
 };
 
-// Constructor
 VulkanContext::VulkanContext(const std::vector<const char*>& instanceExtensions) {
     createInstance(instanceExtensions);
     pickPhysicalDevice();
     createDevice();
 }
 
-VulkanContext::~VulkanContext() {
-    // vk::raii objects auto-cleanup in reverse declaration order.
-    // Device before instance is handled automatically.
-}
+VulkanContext::~VulkanContext() = default;
 
-// Create Vulkan Instance
 void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtensions) {
-    // Application info
     vk::ApplicationInfo appInfo(
         "VKSPT", VK_MAKE_VERSION(0, 1, 0),
         "VKSPT Engine", VK_MAKE_VERSION(0, 1, 0),
@@ -66,7 +58,6 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
 
     vk::InstanceCreateInfo createInfo({}, &appInfo);
 
-    // Validation layers
     if constexpr (s_enableValidation) {
         createInfo.enabledLayerCount   = 1;
         createInfo.ppEnabledLayerNames = &s_validationLayer;
@@ -77,7 +68,6 @@ void VulkanContext::createInstance(const std::vector<const char*>& surfaceExtens
 
     m_instance = vk::raii::Instance(m_context, createInfo);
 
-    // Step 2: Init dynamic dispatcher with instance-level functions
     VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
 
     if constexpr (s_enableValidation) {
@@ -102,13 +92,8 @@ void VulkanContext::pickPhysicalDevice() {
 
     for (auto& device : devices) {
         auto props       = device.getProperties();
-        auto features    = device.getFeatures();
-        auto memProps    = device.getMemoryProperties();
+        auto isDiscrete = (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
 
-        // Prefer discrete GPU
-        bool isDiscrete = (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
-
-        // Check ray tracing pipeline support
         auto rtFeatures = device.getFeatures2<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR
@@ -117,7 +102,6 @@ void VulkanContext::pickPhysicalDevice() {
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR
         >().rayTracingPipeline;
 
-        // Check acceleration structure support
         auto asFeatures = device.getFeatures2<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceAccelerationStructureFeaturesKHR
@@ -140,19 +124,58 @@ void VulkanContext::pickPhysicalDevice() {
         }
     }
 
-    throw std::runtime_error("No GPU with ray tracing pipeline + acceleration structure support found.");
+    throw std::runtime_error(
+        "No GPU with ray tracing pipeline + acceleration structure support found.");
+}
+
+static void* buildFeatureChain(
+    const vk::raii::PhysicalDevice& physDevice,
+    vk::PhysicalDeviceVulkan11Features& vk11features,
+    vk::PhysicalDeviceVulkan12Features& vk12features)
+{
+    vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature(true);
+    vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
+    accelFeature.setAccelerationStructure(true);
+    accelFeature.setPNext(&rtPipelineFeature);
+
+    vk::PhysicalDeviceVulkan11Features query11;
+    vk::PhysicalDeviceVulkan12Features query12;
+    query11.setPNext(&query12);
+    {
+        vk::PhysicalDeviceFeatures2 qf2;
+        qf2.setPNext(&query11);
+        static_cast<vk::PhysicalDevice>(physDevice).getFeatures2(&qf2);
+    }
+    bool hasUniform16bit = query11.uniformAndStorageBuffer16BitAccess;
+    bool hasFloat16      = query12.shaderFloat16;
+    Log::info("GPU features: uniformAndStorage16bit={}  float16={}",
+        hasUniform16bit, hasFloat16);
+
+    void* pNextChain = &accelFeature;
+
+    if (hasUniform16bit) {
+        vk11features.storageBuffer16BitAccess = VK_TRUE;
+        vk11features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+        vk11features.setPNext(pNextChain);
+        pNextChain = &vk11features;
+    }
+
+    vk12features.bufferDeviceAddress = VK_TRUE;
+    if (hasFloat16)
+        vk12features.shaderFloat16 = VK_TRUE;
+    vk12features.setPNext(pNextChain);
+    pNextChain = &vk12features;
+
+    return pNextChain;
 }
 
 void VulkanContext::createDevice() {
-    // Find queue families
     auto queueProps = m_physicalDevice.getQueueFamilyProperties();
 
     for (uint32_t i = 0; i < static_cast<uint32_t>(queueProps.size()); ++i) {
         if (queueProps[i].queueFlags & vk::QueueFlagBits::eCompute) {
             m_queueFamilies.compute = i;
         }
-        // Present support is checked later with surface; for now pick a separate family if
-        // possible, or fall back to compute family.
         if (queueProps[i].queueFlags & vk::QueueFlagBits::eGraphics) {
             m_queueFamilies.present = i;
         }
@@ -177,42 +200,9 @@ void VulkanContext::createDevice() {
         queueInfos.push_back({{}, family, 1, &queuePriority});
     }
 
-    vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature(true);
-    vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
-    accelFeature.setAccelerationStructure(true);
-    accelFeature.setPNext(&rtPipelineFeature);
-
-    // 16-bit storage + float16: required by PhotonRecord (half4/half2 in SSBO)
-    // Query GPU support first, then enable what's available.
-    vk::PhysicalDeviceVulkan11Features query11;
-    vk::PhysicalDeviceVulkan12Features query12;
-    query11.setPNext(&query12);
-    {
-        vk::PhysicalDeviceFeatures2 qf2;
-        qf2.setPNext(&query11);
-        static_cast<vk::PhysicalDevice>(m_physicalDevice).getFeatures2(&qf2);
-    }
-    bool hasUniform16bit = query11.uniformAndStorageBuffer16BitAccess;
-    bool hasFloat16      = query12.shaderFloat16;
-    Log::info("GPU features: uniformAndStorage16bit={}  float16={}",
-        hasUniform16bit, hasFloat16);
-
-    void* pNextChain = &accelFeature;  // start of chain below features2
-
     vk::PhysicalDeviceVulkan11Features vk11features;
-    if (hasUniform16bit) {
-        vk11features.storageBuffer16BitAccess = VK_TRUE;
-        vk11features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
-        vk11features.setPNext(pNextChain);
-        pNextChain = &vk11features;
-    }
-
     vk::PhysicalDeviceVulkan12Features vk12features;
-    if (hasFloat16)
-        vk12features.shaderFloat16 = VK_TRUE;
-    vk12features.bufferDeviceAddress = VK_TRUE;   // promoted from KHR in 1.2
-    vk12features.setPNext(pNextChain);
-    pNextChain = &vk12features;
+    void* pNextChain = buildFeatureChain(m_physicalDevice, vk11features, vk12features);
 
     vk::PhysicalDeviceFeatures2 features2;
     features2.setPNext(pNextChain);
@@ -223,12 +213,11 @@ void VulkanContext::createDevice() {
         queueInfos.data()
     );
     deviceInfo.setPNext(&features2);
-    deviceInfo.enabledExtensionCount   = static_cast<uint32_t>(s_deviceExtensions.size());
-    deviceInfo.ppEnabledExtensionNames = s_deviceExtensions.data();
+    deviceInfo.enabledExtensionCount   = static_cast<uint32_t>(deviceExtensions.size());
+    deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     m_device = vk::raii::Device(m_physicalDevice, deviceInfo);
 
-    // Init device-level function pointers for RT pipeline (vkCmdTraceRaysKHR etc.)
     VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_device);
 
     m_computeQueue = m_device.getQueue(*m_queueFamilies.compute, 0);

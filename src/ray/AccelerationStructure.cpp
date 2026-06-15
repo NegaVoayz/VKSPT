@@ -88,7 +88,6 @@ void AccelerationStructure::buildScene(
     m_builder.buildTLAS(m_instCount, m_xfs, m_blasList,
         m_tlasBuf, m_scratch, m_instBuf, m_tlas, m_tlasAddr);
 
-    // Normal matrices
     {
         std::vector<float> nd(maxInstances * 3 * 4, 0);
         for (uint32_t i = 0; i < m_instCount; ++i) {

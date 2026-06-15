@@ -9,6 +9,7 @@
 #include "render/FrameCapture.h"
 #include "render/FrameRecorder.h"
 #include "render/OutputImage.h"
+#include "render/PhotonRecorder.h"
 #include "render/ScreenshotCapture.h"
 #include "render/SwapchainManager.h"
 
@@ -55,16 +56,18 @@ public:
                            uint32_t capFrames);
 
     int  getAccumCount() const { return m_accum.FrameCount(); }
-    float getLastGpuMs() const { return m_recorder.lastGpuMs(); }
+    float lastGpuMilliseconds() const { return m_recorder.lastGpuMilliseconds(); }
 
     vk::Extent2D GetExtent() const {
         return {m_config.width, m_config.height}; }
 
 private:
+    void bindFrameDescriptors(uint32_t frameIndex,
+                              const AccelerationStructure& as,
+                              RayTracingPipeline& pipeline);
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     static constexpr uint32_t TIMESTAMPS_PER_FRAME = 2;
 
-    // ---- References (must init before dependents) ----
     const vk::raii::Instance&       m_instance;
     const vk::raii::Device&         m_device;
     const vk::raii::PhysicalDevice& m_physDevice;
@@ -72,25 +75,23 @@ private:
     uint32_t m_computeQueueFamily = 0;
     uint32_t m_presentQueueFamily = 0;
 
-    // ---- Owned sub-objects (init in ctor body) ----
     SwapchainManager m_swapchain;
     OutputImage      m_output;
     Denoiser         m_denoiser;
     CrossFrameAccum  m_accum;
     FrameCapture     m_frameCapture;
     ScreenshotCapture m_screenshot;
-    FrameRecorder    m_recorder;
+    FrameRecorder     m_recorder;
+    PhotonRecorder    m_photonRecorder;
 
     uint32_t m_currentFrame = 0;
 
-    // ---- Command & sync ----
     vk::raii::CommandPool                m_commandPool   = nullptr;
     std::vector<vk::raii::CommandBuffer> m_commandBuffers;
     std::vector<vk::raii::Semaphore>     m_imageAvailableSem;
     std::vector<vk::raii::Semaphore>     m_renderFinishedSem;
     std::vector<vk::raii::Fence>         m_inFlightFences;
 
-    // ---- Timestamps ----
     vk::raii::QueryPool m_timestampPool   = nullptr;
     float               m_timestampPeriod = 1.0f;
     bool                m_hasTimestamps   = false;

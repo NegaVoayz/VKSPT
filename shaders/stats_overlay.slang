@@ -4,7 +4,6 @@
 import common.bindings;
 import rt.payload;
 
-// ---- 5×7 bitmap font, 40 glyphs ----
 // Encoding: glyphs[charIdx * 7 + row], lower 5 bits = pixel row (bit4=leftmost)
 static const uint kGlyphRows = 7;
 static const uint kGlyphCount = 40;
@@ -190,12 +189,10 @@ void main(uint3 tid : SV_DispatchThreadID)
     uint buf[64];
     uint len;
 
-    // ---- Read stats ----
     uint prim  = rayStats[0];
     uint child = rayStats[1];
     uint avgCh = prim > 0u ? (child * 10u + prim / 2u) / prim : 0u;  // ×10 for 1 decimal
 
-    // ---- Line 1: RAYS ----
     {
         uint str[64] = {82u,65u,89u,83u,58u,32u}; // "RAYS: "
         len = 6u;
@@ -211,7 +208,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 4u, str, len, float4(0.2, 1.0, 0.4, 0.95));
     }
 
-    // ---- Line 2: generations 0-7 ----
+    // Line2: generations 0-7 ----
     {
         uint str[64] = {71u,69u,78u,58u,32u}; // "GEN: "
         len = 5u;
@@ -222,7 +219,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 14u, str, len, float4(0.6, 0.8, 1.0, 0.9));
     }
 
-    // ---- Line 3: bounce histogram top entries ----
+    // Line3: bounce histogram top entries ----
     {
         uint str[64] = {66u,78u,67u,58u,32u}; // "BNC: "
         len = 5u;
@@ -241,7 +238,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 24u, str, len, float4(1.0, 0.8, 0.4, 0.9));
     }
 
-    // ---- Line 4: Lambda width histogram bars ----
+    // Line4: Lambda width histogram bars ----
     {
         uint str[64] = {76u,87u,58u,32u}; // "LW: "
         len = 4u;
@@ -262,7 +259,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 40u, str, len, float4(0.7, 0.7, 1.0, 0.9));
     }
 
-    // ---- Line 5: Spread histogram bars ----
+    // Line5: Spread histogram bars ----
     {
         uint str[64] = {83u,80u,58u,32u}; // "SP: "
         len = 4u;
@@ -283,7 +280,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 76u, str, len, float4(1.0, 0.6, 0.8, 0.9));
     }
 
-    // ---- Line 6: Accum count + FPS ----
+    // Line6: Accum count + FPS ----
     {
         uint str2[64] = {65u,67u,67u,58u,32u}; // "ACC: "
         uint len2 = 5u;
@@ -293,7 +290,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 104u, str2, len2, float4(0.8, 0.8, 0.8, 0.9));
     }
 
-    // ---- Line 7: Half overflow debug (persistent in gatheredCellData tail) ----
+    // Line7: Half overflow debug (persistent in gatheredCellData tail) ----
     {
         uint gBase = 262144u * 10u;
         uint ovFlag  = gatheredCellData[gBase + 0];

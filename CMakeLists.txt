@@ -92,6 +92,8 @@ set(SHADER_HEADERS
     "${SHADER_SRC_DIR}/rt/sky.slang"
     "${SHADER_SRC_DIR}/rt/material_handlers.slang"
     "${SHADER_SRC_DIR}/photon/photon_light.slang"
+    "${SHADER_SRC_DIR}/photon/photon_gather.slang"
+    "${SHADER_SRC_DIR}/photon/photon_hit.slang"
     "${SHADER_SRC_DIR}/common/hash_utils.slang"
 )
 
@@ -168,6 +170,7 @@ add_executable(vkspt
     src/render/Denoiser.cpp
     src/render/FrameCapture.cpp
     src/render/FrameRecorder.cpp
+    src/render/PhotonRecorder.cpp
     src/render/OutputImage.cpp
     src/render/Renderer.cpp
     src/render/ScreenshotCapture.cpp

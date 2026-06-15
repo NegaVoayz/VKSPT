@@ -10,8 +10,8 @@ import math.color;
 import common.hash_utils;
 import rt.payload;
 import rt.direct_light;
+import photon.photon_gather;
 
-// ---- Checkerboard ----
 void handleCheckerboard(inout Payload p, float3 pos, float3 fNrm, inout uint rng)
 {
     float cx = floor(pos.x*0.5), cz = floor(pos.z*0.5);
@@ -31,7 +31,6 @@ void handleCheckerboard(inout Payload p, float3 pos, float3 fNrm, inout uint rng
     mergeChild(p, np, alb);
 }
 
-// ---- Lambertian ----
 void handleLambertian(inout Payload p, float3 pos, float3 fNrm,
                        GpuMaterial mat, inout uint rng)
 {
@@ -52,7 +51,6 @@ void handleLambertian(inout Payload p, float3 pos, float3 fNrm,
     mergeChild(p, np, alb);
 }
 
-// ---- Metal ----
 void handleMetal(inout Payload p, float3 pos, float3 fNrm,
                   GpuMaterial mat, inout uint rng)
 {
@@ -94,7 +92,6 @@ void handleMetal(inout Payload p, float3 pos, float3 fNrm,
     mergeChild(p, np, float3(1.0));
 }
 
-// ---- Dielectric ----
 void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
 {
     bool entering = dot(nrm, WorldRayDirection()) < 0.0;
@@ -137,7 +134,6 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                 p.throughput,
                 p.decayC1, p.decayC2, p.bounce+1, p.generation,
                 p.specularChain, p.lightRGB, p.rng);
-            // p.D already propagated by apply_diff — no +V*hitT
             rp.D = p.D - 2.0*dot(p.D, dn)*dn;
             rp.V = p.V - 2.0*dot(p.V, dn)*dn;
             RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
@@ -146,7 +142,6 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
             TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
             mergeChild(p, rp, float3(1.0));
         } else {
-            // Split check moved to ClosestHitMain; here just trace single child
             Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
                 p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
                 p.specularChain, p.lightRGB, p.rng);
@@ -163,7 +158,6 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
             p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
             p.specularChain, p.lightRGB, p.rng);
-        // p.D already propagated by apply_diff — no +V*hitT
         rp.D = p.D - 2.0*dot(p.D, dn)*dn;
         rp.V = p.V - 2.0*dot(p.V, dn)*dn;
         RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
@@ -171,127 +165,5 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
         TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
         mergeChild(p, rp, float3(1.0));
-    }
-}
-
-// ---- Photon mode helpers ----
-
-void storePhoton(inout Payload p, float3 pos, float3 fNrm)
-{
-    uint slot;
-    InterlockedAdd(photonCounter[0], 1, slot);
-    if (slot >= MAX_PHOTONS) return;
-
-    PhotonRecord rec;
-    rec.phPos = float4(pos, 0.0);
-    rec.phNrm = float4(fNrm, 0.0);
-    rec.phDir = float4(normalize(WorldRayDirection()), 0.0);
-
-    // Spectral energy: Wiener spectrum × Legendre attenuation.
-    // Legendre coefficients track log-energy level + transport attenuation;
-    // spectral detail comes from estimateSpectrum (matching sky's S * D pattern).
-    float lamMid = float(p.lamStart + p.lamEnd) * 0.5;
-    float halfW  = float(p.lamEnd - p.lamStart) * 0.5;
-    float invHW  = 1.0 / max(halfW, 0.001);
-
-    float specBucket[10];
-    for (int b = 0; b < 10; b++) {
-        float bS = float(LAMBDA_MIN + 40 * b);
-        float bE = bS + 40.0;
-        float oS = max(float(p.lamStart), bS);
-        float oE = min(float(p.lamEnd), bE);
-        if (oS >= oE) { specBucket[b] = 0.0; continue; }
-
-        float lamMidB = (oS + oE) * 0.5;
-        float x = clamp((lamMidB - lamMid) * invHW, -1.0, 1.0);
-        float S = estimateSpectrum(lamMidB, p.lightRGB);
-        float D = evalDecay(p.throughput, p.decayC1, p.decayC2, x);
-        specBucket[b] = S * D * (oE - oS);
-    }
-
-    rec.spectral0_3 = float4(specBucket[0], specBucket[1], specBucket[2], specBucket[3]);
-    rec.spectral4_7 = float4(specBucket[4], specBucket[5], specBucket[6], specBucket[7]);
-    rec.spectral8_9 = float2(specBucket[8], specBucket[9]);
-    photonBuffer[slot] = rec;
-}
-
-// 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
-// 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
-// Hash-collision guard: stored centerPos must belong to the queried spatial cell.
-// gatheredCellData: 13 uint/cell = 10 spectral + 3 position (asfloat).
-void gatherPhotons(float3 pos, float3 nrm,
-                   inout float spectral[NUM_SPECTRAL_BUCKETS])
-{
-    float cellSz = params.hashCellSize;
-    int3 cell = computeCell(pos, cellSz);
-
-    float specAccum[NUM_SPECTRAL_BUCKETS];
-    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++) specAccum[b] = 0.0;
-    float totalWeight = 0.0;
-
-    int3 neighbors[7] = {
-        int3( 0, 0, 0),
-        int3( 1, 0, 0), int3(-1, 0, 0),
-        int3( 0, 1, 0), int3( 0,-1, 0),
-        int3( 0, 0, 1), int3( 0, 0,-1),
-    };
-
-    for (int i = 0; i < 7; i++) {
-        int3 qCell = cell + neighbors[i];
-        uint nHash = computeCellHash(qCell);
-        uint nBase = nHash * 13u;
-
-        // Hash-collision guard: stored position must be in the queried cell
-        float3 phCenter = float3(asfloat(gatheredCellData[nBase + 10]),
-                                  asfloat(gatheredCellData[nBase + 11]),
-                                  asfloat(gatheredCellData[nBase + 12]));
-        if (any(computeCell(phCenter, cellSz) != qCell)) continue;
-
-        float nSum = 0.0;
-        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            nSum += asfloat(gatheredCellData[nBase + b]);
-
-        if (nSum <= 0.0) continue;
-
-        totalWeight += 1.0;
-        for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            specAccum[b] += asfloat(gatheredCellData[nBase + b]);
-    }
-
-    if (totalWeight <= 0.0) return;
-
-    float invW = 1.0 / totalWeight;
-    for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-        spectral[b] += specAccum[b] * invW;
-}
-
-void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int matType)
-{
-    if (p.bounce >= params.photonMaxBounces || decayIsDead(p.throughput, p.decayC2))
-        return;
-
-    if (p.bounce >= 3) {
-        float linTp = exp(p.throughput - 0.5 * p.decayC2);
-        float survive = max(linTp, 0.1);
-        if (rand1(p.rng) > survive) return;
-        p.throughput -= log(survive);
-    }
-
-    // Split check moved to ClosestHitMain (before apply_diff).
-    // p.D is already propagated (D + V*hitT) by apply_diff.
-
-    GpuMaterial mat = materials.items[clamp(uint(matType), 0u,
-        max(0u, uint(params.materialCount) - 1u))];
-
-    if (matType == MATERIAL_DIELECTRIC) {
-        p.specularChain++;
-        handleDielectric(p, pos, nrm, mat);
-    }
-    else if (matType == MATERIAL_METAL) {
-        p.specularChain++;
-        handleMetal(p, pos, fNrm, mat, p.rng);
-    }
-    else if (matType == MATERIAL_LAMBERTIAN || matType == MATERIAL_CHECKERBOARD) {
-        storePhoton(p, pos, fNrm);
     }
 }

@@ -62,7 +62,10 @@ public float3 integrateSkySRGB(float lamMid, float halfWidth,
 public float3 wavelengthToRGB(float lam) { return spectrumSampleToSRGB(lam); }
 
 public float rgbToDomLambda(float3 rgb) {
-    if (rgb.r >= rgb.g && rgb.r >= rgb.b) return lerp(610.0, 680.0, clamp(rgb.r-max(rgb.g,rgb.b),0.0,1.0));
-    else if (rgb.g >= rgb.r && rgb.g >= rgb.b) return lerp(510.0, 555.0, clamp(rgb.g-max(rgb.r,rgb.b),0.0,1.0));
-    else return lerp(430.0, 475.0, clamp(rgb.b-max(rgb.r,rgb.g),0.0,1.0));
+    if (rgb.r >= rgb.g && rgb.r >= rgb.b)
+        return lerp(610.0, 680.0, clamp(rgb.r-max(rgb.g,rgb.b),0.0,1.0));
+    else if (rgb.g >= rgb.r && rgb.g >= rgb.b)
+        return lerp(510.0, 555.0, clamp(rgb.g-max(rgb.r,rgb.b),0.0,1.0));
+    else
+        return lerp(430.0, 475.0, clamp(rgb.b-max(rgb.r,rgb.g),0.0,1.0));
 }

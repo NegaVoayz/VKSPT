@@ -2,16 +2,6 @@
 
 #include <cstdint>
 
-// =============================================================================
-// CPU-side spectral tracing data structures.
-//
-// These mirror the design doc (项目设计文档) definitions and the GPU-side
-// structs in spectral_common.slang.
-//
-// Phase 2 uses Material for the material UBO.
-// SpectralRay and RayAction are reference definitions for Phase 3+.
-// =============================================================================
-
 /// Per-wavelength material properties uploaded to a GPU uniform buffer.
 /// Must match GpuMaterial in spectral_common.slang (std140, 64 bytes).
 struct alignas(16) GpuMaterialCPU {
@@ -29,7 +19,6 @@ enum class MaterialType : int32_t {
 };
 
 /// Full material definition (host-side).
-/// For Phase 2, converted to GpuMaterialCPU for the UBO.
 struct Material {
     MaterialType type = MaterialType::DIELECTRIC;
 
@@ -38,10 +27,8 @@ struct Material {
     float cauchyA[3] = {1.517f, 1.517f, 1.517f};  // BK7 glass default
     float cauchyB[3] = {0.0045f, 0.0045f, 0.0045f};
 
-    // Base IOR (used for non-dielectric or as fallback)
     float ior = 1.517f;
 
-    // Optical properties
     float albedo[3]    = {0.7f, 0.5f, 0.3f};
     float roughness    = 0.0f;
     float absorption[3] = {0.0f, 0.0f, 0.0f};

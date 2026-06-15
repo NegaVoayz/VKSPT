@@ -67,7 +67,7 @@ void mergeChild(inout Payload parent, Payload child, float3 weight)
         parent.spectral[b] += child.spectral[b];
 }
 
-// ---- Stats helpers: atomic increments into rayStats buffer ----
+// Stats helpers: atomic increments into rayStats buffer
 // Layout: [0]=totalPrimaryRays [1]=totalGeneratedRays
 //         [2..33]=raysPerGeneration[32] [34..97]=bounceHistogram[64]
 //         [98..137]=lambdaHistogram[40] [138..201]=spreadHistogram[64]
@@ -96,32 +96,43 @@ void recSpread(float d) {
 // Split count: n = 2^k where k = ceil(log2(2|D_perp| / forceSplitWidth)).
 // Legendre coefficients reprojected via closed-form shift+scale (S, Q progression).
 // Wavelength intervals allocated with Bresenham integer partition.
+
+// Fallback: not enough spread to split — trace single child with full range.
+void traceSingleChild(inout Payload p,
+                      float3 childOrigin, float3 baseDir,
+                      float3 splitD, float3 splitV,
+                      float parentC0, float parentC1, float parentC2,
+                      int childBounce, int childGen)
+{
+    float3 childPos = childOrigin;
+    float3 childDir = normalize(baseDir);
+    Payload childP;
+    initPayload(childP, p.lamStart, p.lamEnd,
+                 parentC0, parentC1, parentC2,
+                 childBounce, childGen, p.specularChain, p.lightRGB, p.rng);
+    childP.D = splitD - dot(splitD, childDir) * childDir;
+    childP.V = splitV - dot(splitV, childDir) * childDir;
+    RayDesc cr;
+    cr.Origin = childPos; cr.Direction = childDir;
+    cr.TMin = 0.001; cr.TMax = 10000.0;
+    incChildRay(childGen); recBounce(uint(childBounce));
+    TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
+    mergeChild(p, childP, float3(1.0));
+}
+
 void traceSpectralSplit(inout Payload p,
                          float3 childOrigin, float3 baseDir,
                          float3 splitD, float3 splitV,
                          float parentC0, float parentC1, float parentC2,
                          int childBounce, int childGen)
 {
-    // d = 2 * |D| projected onto plane perpendicular to baseDir
     float3 Dperp = splitD - dot(splitD, baseDir) * baseDir;
     float d = 2.0 * length(Dperp);
 
     if (d <= params.forceSplitWidth || params.forceSplitWidth <= 0.0) {
-        // Not enough spread to split — trace single child with full range
-        float3 childPos = childOrigin;
-        float3 childDir = normalize(baseDir);
-        Payload childP;
-        initPayload(childP, p.lamStart, p.lamEnd,
-                     parentC0, parentC1, parentC2,
-                     childBounce, childGen, p.specularChain, p.lightRGB, p.rng);
-        childP.D = splitD - dot(splitD, childDir) * childDir;
-        childP.V = splitV - dot(splitV, childDir) * childDir;
-        RayDesc cr;
-        cr.Origin = childPos; cr.Direction = childDir;
-        cr.TMin = 0.001; cr.TMax = 10000.0;
-        incChildRay(childGen); recBounce(uint(childBounce));
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, cr, childP);
-        mergeChild(p, childP, float3(1.0));
+        traceSingleChild(p, childOrigin, baseDir,
+                         splitD, splitV, parentC0, parentC1, parentC2,
+                         childBounce, childGen);
         return;
     }
 

@@ -26,7 +26,6 @@ Window::~Window() {
 }
 
 std::vector<const char*> Window::GetRequiredInstanceExtensions() {
-    // SDL3: use SDL_Vulkan_GetInstanceExtensions
     unsigned int count = 0;
     const char* const* exts = SDL_Vulkan_GetInstanceExtensions(&count);
     if (!exts) {
@@ -44,12 +43,10 @@ vk::raii::SurfaceKHR Window::CreateSurface(const vk::raii::Instance& instance) c
             std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError()
         );
     }
-    // Transfer ownership to the RAII wrapper
     return vk::raii::SurfaceKHR(instance, rawSurface);
 }
 
 bool Window::PollEvents() {
-    // Reset per-frame deltas (key states persist across frames)
     m_input.mouseDX = m_mouseAccumX;
     m_input.mouseDY = m_mouseAccumY;
     m_mouseAccumX = 0.0f;
@@ -106,7 +103,6 @@ bool Window::PollEvents() {
             break;
 
         case SDL_EVENT_MOUSE_MOTION:
-            // Only accumulate when left button is held
             if (m_input.mouseLeft) {
                 m_mouseAccumX += event.motion.xrel;
                 m_mouseAccumY += event.motion.yrel;

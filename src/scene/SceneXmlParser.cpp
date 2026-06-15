@@ -14,49 +14,34 @@ static const std::unordered_set<std::string> kNonObjectTags = {
     "RayOffsetMethod"
 };
 
-static float xmlFloat(tinyxml2::XMLElement* el,
-    const char* attr, float fallback = 0.0f)
-{
-    if (!el) return fallback;
-    return el->FloatAttribute(attr, fallback);
-}
+static float xmlFloat(tinyxml2::XMLElement* el, const char* attr, float fallback = 0.0f)
+{ return el ? el->FloatAttribute(attr, fallback) : fallback; }
 
-static int xmlInt(tinyxml2::XMLElement* el,
-    const char* attr, int fallback = 0)
-{
-    if (!el) return fallback;
-    return el->IntAttribute(attr, fallback);
-}
+static int xmlInt(tinyxml2::XMLElement* el, const char* attr, int fallback = 0)
+{ return el ? el->IntAttribute(attr, fallback) : fallback; }
 
-static const char* xmlStr(tinyxml2::XMLElement* el,
-    const char* attr, const char* fallback = "")
+static const char* xmlStr(tinyxml2::XMLElement* el, const char* attr, const char* fallback = "")
 {
     if (!el) return fallback;
     const char* v = el->Attribute(attr);
     return v ? v : fallback;
 }
 
-static SceneDescription::ObjectEntry parseObject(
-    tinyxml2::XMLElement* objEl)
+static SceneDescription::ObjectEntry parseObject(tinyxml2::XMLElement* objEl)
 {
     SceneDescription::ObjectEntry entry;
     if (auto* a = objEl->FirstChildElement("Args")) {
         entry.objFilename = xmlStr(a, "filename");
         entry.display = (xmlInt(a, "display", 1) != 0);
-        entry.normalInterpolation =
-            (xmlInt(a, "normalinterpolation", 0) != 0);
+        entry.normalInterpolation = (xmlInt(a, "normalinterpolation", 0) != 0);
     }
-    if (auto* s = objEl->FirstChildElement("Scale")) {
+    if (auto* s = objEl->FirstChildElement("Scale"))
         entry.scale = {xmlFloat(s,"x",1), xmlFloat(s,"y",1), xmlFloat(s,"z",1)};
-    }
-    if (auto* r = objEl->FirstChildElement("Rotation")) {
+    if (auto* r = objEl->FirstChildElement("Rotation"))
         entry.rotation = {xmlFloat(r,"x",0), xmlFloat(r,"y",0), xmlFloat(r,"z",0)};
-    }
-    if (auto* t = objEl->FirstChildElement("Translation")) {
+    if (auto* t = objEl->FirstChildElement("Translation"))
         entry.translation = {xmlFloat(t,"x",0), xmlFloat(t,"y",0), xmlFloat(t,"z",0)};
-    }
 
-    // Parse <Material type="dielectric|metal|lambertian|checkerboard">
     if (auto* matEl = objEl->FirstChildElement("Material")) {
         auto& mat = entry.material;
         const char* tstr = xmlStr(matEl, "type", "lambertian");
@@ -75,15 +60,12 @@ static SceneDescription::ObjectEntry parseObject(
             mat.dispersionB = xmlFloat(db, "value", 0.004f);
         if (auto* ro = matEl->FirstChildElement("Roughness"))
             mat.roughness = xmlFloat(ro, "value", 1.0f);
-        if (auto* al = matEl->FirstChildElement("Albedo")) {
+        if (auto* al = matEl->FirstChildElement("Albedo"))
             mat.albedo = {xmlFloat(al,"r",1), xmlFloat(al,"g",1), xmlFloat(al,"b",1)};
-        }
-        if (auto* aa = matEl->FirstChildElement("AbsorptionA")) {
+        if (auto* aa = matEl->FirstChildElement("AbsorptionA"))
             mat.absorbA = {xmlFloat(aa,"x",0), xmlFloat(aa,"y",0), xmlFloat(aa,"z",0)};
-        }
-        if (auto* ab = matEl->FirstChildElement("AbsorptionB")) {
+        if (auto* ab = matEl->FirstChildElement("AbsorptionB"))
             mat.absorbB = {xmlFloat(ab,"x",0), xmlFloat(ab,"y",0), xmlFloat(ab,"z",0)};
-        }
     }
     return entry;
 }
@@ -142,15 +124,8 @@ static void parseLights(tinyxml2::XMLElement* root, SceneDescription& desc)
     }
 }
 
-SceneDescription ParseSceneXML(const std::string& xmlPath) {
-    SceneDescription desc;
-    tinyxml2::XMLDocument doc;
-    if (doc.LoadFile(xmlPath.c_str()) != tinyxml2::XML_SUCCESS)
-        throw std::runtime_error("Failed to load XML: " + xmlPath);
-    auto* root = doc.FirstChildElement("SceneInfo");
-    if (!root)
-        throw std::runtime_error("Missing <SceneInfo> in: " + xmlPath);
-
+static void parseGlobalSettings(tinyxml2::XMLElement* root, SceneDescription& desc)
+{
     if (auto* cam = root->FirstChildElement("Camera"))
         if (auto* a = cam->FirstChildElement("Args")) {
             desc.cameraWidth  = xmlInt(a, "width", 256);
@@ -188,8 +163,19 @@ SceneDescription ParseSceneXML(const std::string& xmlPath) {
             desc.sphereDisplay[2] = (xmlInt(a,"sphere3",0) != 0);
             desc.sphereDisplay[3] = (xmlInt(a,"sphere4",0) != 0);
         }
+}
 
-    // Discover objects: any child element not in kNonObjectTags is an object
+SceneDescription ParseSceneXML(const std::string& xmlPath) {
+    SceneDescription desc;
+    tinyxml2::XMLDocument doc;
+    if (doc.LoadFile(xmlPath.c_str()) != tinyxml2::XML_SUCCESS)
+        throw std::runtime_error("Failed to load XML: " + xmlPath);
+    auto* root = doc.FirstChildElement("SceneInfo");
+    if (!root)
+        throw std::runtime_error("Missing <SceneInfo> in: " + xmlPath);
+
+    parseGlobalSettings(root, desc);
+
     for (auto* obj = root->FirstChildElement(); obj;
          obj = obj->NextSiblingElement()) {
         const char* tag = obj->Name();

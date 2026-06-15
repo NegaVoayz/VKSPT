@@ -11,46 +11,55 @@ ScreenshotCapture::ScreenshotCapture(
     const vk::raii::Device& d, const vk::raii::PhysicalDevice& p,
     uint32_t qf) : m_device(d), m_physDevice(p), m_queueFamily(qf) {}
 
-ScreenshotCapture::TempImages ScreenshotCapture::createTempImages(
-    uint32_t w, uint32_t h)
+void ScreenshotCapture::createOneTempImage(
+    uint32_t width, uint32_t height, vk::Format format,
+    vk::raii::Image& outImage,
+    vk::raii::DeviceMemory& outMemory,
+    vk::raii::ImageView& outView)
 {
-    auto create = [&](vk::Format fmt) {
-        vk::ImageCreateInfo ci({}, vk::ImageType::e2D, fmt,
-            {w, h, 1}, 1, 1, vk::SampleCountFlagBits::e1,
-            vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eStorage |
-                vk::ImageUsageFlagBits::eTransferSrc,
-            vk::SharingMode::eExclusive);
-        vk::raii::Image img(m_device, ci);
-        auto reqs = img.getMemoryRequirements();
-        auto props = m_physDevice.getMemoryProperties();
-        uint32_t mti = 0;
-        for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
-            if ((reqs.memoryTypeBits & (1u << i)) &&
-                (props.memoryTypes[i].propertyFlags &
-                 vk::MemoryPropertyFlagBits::eDeviceLocal))
-            { mti = i; break; }
-        vk::raii::DeviceMemory mem(m_device,
-            vk::MemoryAllocateInfo(reqs.size, mti));
-        img.bindMemory(*mem, 0);
-        vk::raii::ImageView view(m_device,
-            vk::ImageViewCreateInfo({}, *img,
-                vk::ImageViewType::e2D, fmt, vk::ComponentMapping{},
-                vk::ImageSubresourceRange(
-                    vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)));
-        return std::make_tuple(
-            std::move(img), std::move(mem), std::move(view));
-    };
+    vk::ImageCreateInfo ci({}, vk::ImageType::e2D, format,
+        {width, height, 1}, 1, 1, vk::SampleCountFlagBits::e1,
+        vk::ImageTiling::eOptimal,
+        vk::ImageUsageFlagBits::eStorage |
+            vk::ImageUsageFlagBits::eTransferSrc,
+        vk::SharingMode::eExclusive);
+    vk::raii::Image img(m_device, ci);
+    auto reqs = img.getMemoryRequirements();
+    auto props = m_physDevice.getMemoryProperties();
+    uint32_t mti = 0;
+    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
+        if ((reqs.memoryTypeBits & (1u << i)) &&
+            (props.memoryTypes[i].propertyFlags &
+             vk::MemoryPropertyFlagBits::eDeviceLocal))
+        { mti = i; break; }
+    vk::raii::DeviceMemory mem(m_device,
+        vk::MemoryAllocateInfo(reqs.size, mti));
+    img.bindMemory(*mem, 0);
+    vk::raii::ImageView view(m_device,
+        vk::ImageViewCreateInfo({}, *img,
+            vk::ImageViewType::e2D, format, vk::ComponentMapping{},
+            vk::ImageSubresourceRange(
+                vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)));
+    outImage = std::move(img);
+    outMemory = std::move(mem);
+    outView = std::move(view);
+}
+
+ScreenshotCapture::TempImages ScreenshotCapture::createTempImages(
+    uint32_t width, uint32_t height)
+{
     TempImages t;
-    std::tie(t.img, t.mem, t.view) = create(vk::Format::eR8G8B8A8Unorm);
-    std::tie(t.nrm, t.nrmMem, t.nrmView) =
-        create(vk::Format::eR16G16B16A16Sfloat);
-    std::tie(t.dep, t.depMem, t.depView) = create(vk::Format::eR32Sfloat);
+    createOneTempImage(width, height, vk::Format::eR8G8B8A8Unorm,
+                       t.image, t.memory, t.view);
+    createOneTempImage(width, height, vk::Format::eR16G16B16A16Sfloat,
+                       t.normal, t.normalMemory, t.normalView);
+    createOneTempImage(width, height, vk::Format::eR32Sfloat,
+                       t.depth, t.depthMemory, t.depthView);
     return t;
 }
 
 void ScreenshotCapture::renderOneFrame(
-    uint32_t f, uint32_t gx, uint32_t gy,
+    uint32_t frameIndex, uint32_t groupCountX, uint32_t groupCountY,
     const AccelerationStructure& as,
     RayTracingPipeline& pipeline, const CameraParams& camera,
     const TempImages& temps)
@@ -64,8 +73,8 @@ void ScreenshotCapture::renderOneFrame(
     auto& cb = cbs[0];
     cb.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 
-    if (f == 0) {
-        for (auto* im : {&*temps.img, &*temps.nrm, &*temps.dep}) {
+    if (frameIndex == 0) {
+        for (auto* im : {&*temps.image, &*temps.normal, &*temps.depth}) {
             vk::ImageMemoryBarrier b({},
                 vk::AccessFlagBits::eShaderWrite,
                 vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral,
@@ -79,7 +88,8 @@ void ScreenshotCapture::renderOneFrame(
         }
     }
 
-    traceAndDenoise(*cb, f, gx, gy, as, pipeline, camera, temps);
+    traceAndDenoise(*cb, frameIndex, groupCountX, groupCountY,
+                    as, pipeline, camera, temps);
 
     cb.end();
     m_device.getQueue(m_queueFamily, 0)
@@ -88,9 +98,9 @@ void ScreenshotCapture::renderOneFrame(
 }
 
 namespace { struct TracePC {
-    float camOrigin[3]; float _pad0;
-    float camU[3]; float _pad1; float camV[3]; float _pad2;
-    float camW[3]; float _pad3;
+    float camOrigin[3]; float pad0;
+    float camU[3]; float pad1; float camV[3]; float pad2;
+    float camW[3]; float pad3;
     int spp, maxBounces, matCount;
     float fovTan, splitMult, forceSplitWidth;
     int scatterSamples; float mergeThreshold;
@@ -124,13 +134,14 @@ static void buildPushConstants(
 }
 
 void ScreenshotCapture::traceAndDenoise(
-    vk::CommandBuffer cb, uint32_t f, uint32_t gx, uint32_t gy,
+    vk::CommandBuffer cb, uint32_t frameIndex,
+    uint32_t groupCountX, uint32_t groupCountY,
     const AccelerationStructure& as,
     RayTracingPipeline& pipeline, const CameraParams& camera,
     const TempImages& temps)
 {
     TracePC pc{};
-    buildPushConstants(as, camera, f, pc);
+    buildPushConstants(as, camera, frameIndex, pc);
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());
@@ -149,21 +160,20 @@ void ScreenshotCapture::traceAndDenoise(
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.MissRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
-        gx * 8, gy * 8, 1);
+        groupCountX * 8, groupCountY * 8, 1);
 
-    // Barrier: trace → denoise
     { auto sub = vk::ImageSubresourceRange(
           vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
       vk::ImageMemoryBarrier gb[3] = {
         {vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead,
          vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
-         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.nrm, sub},
+         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.normal, sub},
         {vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead,
          vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
-         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.dep, sub},
+         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.depth, sub},
         {vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead,
          vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
-         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.img, sub}};
+         VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.image, sub}};
       cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
           vk::PipelineStageFlagBits::eComputeShader, {}, {}, {}, gb); }
 
@@ -172,14 +182,13 @@ void ScreenshotCapture::traceAndDenoise(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(0), nullptr);
-    cb.dispatch(gx, gy, 1);
+    cb.dispatch(groupCountX, groupCountY, 1);
 
-    // Barrier: denoise → transfer
     { vk::ImageMemoryBarrier bar(vk::AccessFlagBits::eShaderWrite,
           vk::AccessFlagBits::eTransferRead,
           vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
           VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
-          *temps.img, vk::ImageSubresourceRange(
+          *temps.image, vk::ImageSubresourceRange(
               vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
       cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
           vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, bar); }
@@ -220,16 +229,16 @@ void ScreenshotCapture::readbackToPNG(
 void ScreenshotCapture::capture(
     const std::string& path, const AccelerationStructure& as,
     RayTracingPipeline& pipeline, const CameraParams& camera,
-    uint32_t cw, uint32_t ch, uint32_t nFrames,
-    vk::Image mainOut, vk::ImageView mainOutView,
-    vk::Buffer mainAccBuf, vk::DeviceSize mainAccSz,
-    vk::ImageView mainNrmView, vk::ImageView mainDepView)
+    uint32_t targetWidth, uint32_t targetHeight, uint32_t frameCount,
+    vk::Image mainOutput, vk::ImageView mainOutputView,
+    vk::Buffer mainAccumBuffer, vk::DeviceSize mainAccumSize,
+    vk::ImageView mainNormalView, vk::ImageView mainDepthView)
 {
-    Log::info("[Screenshot] {}x{} x{}...", cw, ch, nFrames);
-    auto temps = createTempImages(cw, ch);
+    Log::info("[Screenshot] {}x{} x{}...", targetWidth, targetHeight, frameCount);
+    auto temps = createTempImages(targetWidth, targetHeight);
     auto q = m_device.getQueue(m_queueFamily, 0);
 
-    vk::DeviceSize asz = cw * ch * 4 * sizeof(float);
+    vk::DeviceSize asz = targetWidth * targetHeight * 4 * sizeof(float);
     auto capAcc = GPUBuffer::Create(m_device, asz,
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
@@ -252,18 +261,18 @@ void ScreenshotCapture::capture(
 
     pipeline.Desc().BindOutputImage(0, *temps.view, nullptr);
     pipeline.Desc().BindAccumBuffer(0, *capAcc.Buffer, asz);
-    pipeline.Desc().BindNormalImage(0, *temps.nrmView);
-    pipeline.Desc().BindDepthImage(0, *temps.depView);
+    pipeline.Desc().BindNormalImage(0, *temps.normalView);
+    pipeline.Desc().BindDepthImage(0, *temps.depthView);
 
-    uint32_t gx = (cw+7)/8, gy = (ch+7)/8;
-    for (uint32_t f = 0; f < nFrames; ++f)
+    uint32_t gx = (targetWidth+7)/8, gy = (targetHeight+7)/8;
+    for (uint32_t f = 0; f < frameCount; ++f)
         renderOneFrame(f, gx, gy, as, pipeline, camera, temps);
 
-    readbackToPNG(path, *temps.img, cw, ch, q);
+    readbackToPNG(path, *temps.image, targetWidth, targetHeight, q);
 
-    pipeline.Desc().BindOutputImage(0, mainOutView, nullptr);
-    pipeline.Desc().BindAccumBuffer(0, mainAccBuf, mainAccSz);
-    pipeline.Desc().BindNormalImage(0, mainNrmView);
-    pipeline.Desc().BindDepthImage(0, mainDepView);
+    pipeline.Desc().BindOutputImage(0, mainOutputView, nullptr);
+    pipeline.Desc().BindAccumBuffer(0, mainAccumBuffer, mainAccumSize);
+    pipeline.Desc().BindNormalImage(0, mainNormalView);
+    pipeline.Desc().BindDepthImage(0, mainDepthView);
     Log::info("[Screenshot] Done.");
 }

@@ -1,17 +1,7 @@
-// =============================================================================
-// Phase 6.5: Light edge-avoiding spatial denoiser
-//
 // 2-scale filter (step 1, 2) with 3×3 kernel. Tight edge-stopping
 // weights preserve surface detail. Cross-frame accumulation handles
 // most of the denoising — this is just a subtle cleanup pass.
 // Sky pixels (normal ≈ 0) pass through unfiltered.
-//
-// Input:  accumData   (binding 13) — per-pixel float4 (r,g,b,sampleCount)
-//         normalImage (binding 14) — world-space normals packed [0,1]
-//         depthImage  (binding 15) — primary hit distance
-// Output: outputImage (binding 1)  — denoised RGBA8
-// =============================================================================
-
 [[vk::binding(1, 0)]]  RWTexture2D<float4> outputImage;
 [[vk::binding(13, 0)]] RWStructuredBuffer<float> accumData;
 [[vk::binding(14, 0)]] RWTexture2D<float4> normalImage;
