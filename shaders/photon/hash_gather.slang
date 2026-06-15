@@ -95,6 +95,10 @@ void main(uint3 tid : SV_DispatchThreadID)
         float3 nPos = float3(cellPhotonData[nBase + 0],
                              cellPhotonData[nBase + 1],
                              cellPhotonData[nBase + 2]);
+
+        // Hash-collision guard: stored avg position must belong to the queried cell
+        if (any(computeCell(nPos, cellSz) != int3(cx, cy, cz))) continue;
+
         float3 d = nPos - centerPos;
         float d2 = dot(d, d);
 
