@@ -84,9 +84,9 @@ void handleMetal(inout Payload p, float3 pos, float3 fNrm,
     Payload np; initPayload(np, p.lamStart, p.lamEnd, newC0, newC1, newC2,
                             p.bounce+1, p.generation,
                             p.specularChain, p.lightRGB, rng);
-    float3 Dprop = p.D + p.V * p.hitT;
-    np.D = Dprop - 2.0*dot(Dprop, fNrm)*fNrm;
-    np.V      = p.V      - 2.0*dot(p.V, fNrm)*fNrm;
+    // p.D already propagated by apply_diff in ClosestHitMain
+    np.D = p.D - 2.0*dot(p.D, fNrm)*fNrm;
+    np.V = p.V - 2.0*dot(p.V, fNrm)*fNrm;
     incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
     RayDesc nr; nr.Origin=pos+fNrm*0.001+refl*0.01; nr.Direction=refl;
     nr.TMin=0.001; nr.TMax=10000.0;
@@ -110,11 +110,10 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float3 newDir;
     if (refractDir(WorldRayDirection(), dn, eta_mid, newDir)) {
         float3 newDisp = computeDispersion(WorldRayDirection(), dn, eta_mid, deta);
-        // rotSplit, rotDisp: un-propagated state → child D,V (no shift into surface).
-        // Dcheck: propagated D for split condition only.
-        float3 rotSplit = rotateToNewFrame(p.D, WorldRayDirection(), newDir);
-        float3 rotDisp  = rotateToNewFrame(p.V, WorldRayDirection(), newDir);
-        float3 Dcheck   = rotateToNewFrame(p.D + p.V * p.hitT, WorldRayDirection(), newDir);
+        // D,V already propagated by apply_diff in ClosestHitMain
+        float3 rotD = rotateToNewFrame(p.D, WorldRayDirection(), newDir);
+        float3 rotV = rotateToNewFrame(p.V, WorldRayDirection(), newDir);
+        float3 childV = rotV + newDisp;
 
         float cosTheta = abs(dot(WorldRayDirection(), dn));
         float r0 = (ior_mid-1.0)/(ior_mid+1.0); r0 *= r0;
@@ -138,42 +137,25 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                 p.throughput,
                 p.decayC1, p.decayC2, p.bounce+1, p.generation,
                 p.specularChain, p.lightRGB, p.rng);
-            float3 DpropRefl = p.D + p.V * p.hitT;
-            rp.D = DpropRefl - 2.0*dot(DpropRefl, dn)*dn;
-            rp.V      = p.V-2.0*dot(p.V,dn)*dn;
+            // p.D already propagated by apply_diff — no +V*hitT
+            rp.D = p.D - 2.0*dot(p.D, dn)*dn;
+            rp.V = p.V - 2.0*dot(p.V, dn)*dn;
             RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
             rr.TMin=0.001; rr.TMax=10000.0;
             incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
             TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, rr, rp);
             mergeChild(p, rp, float3(1.0));
         } else {
-            float3 childV = rotDisp + newDisp;
-            float3 Dperp = Dcheck - dot(Dcheck, newDir) * newDir;
-            float d = 2.0 * length(Dperp);
-
-            // Also check the unpropagated spread that traceSpectralSplit uses
-            float3 splitDperp = rotSplit - dot(rotSplit, newDir) * newDir;
-            float splitD = 2.0 * length(splitDperp);
-
-            if (d > params.forceSplitWidth && splitD > params.forceSplitWidth &&
-                params.forceSplitWidth > 0.0 &&
-                p.generation < 7 &&
-                (p.throughput - 0.5 * p.decayC2) > -3.0) {
-                traceSpectralSplit(p, pos-dn*0.001, newDir,
-                                   rotSplit, childV,
-                                   p.throughput, p.decayC1, p.decayC2,
-                                   p.bounce+1, p.generation+1);
-            } else {
-                Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
-                    p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
-                    p.specularChain, p.lightRGB, p.rng);
-                tp.D = rotSplit; tp.V = rotDisp + newDisp;
-                RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;
-                tr.TMin=0.001; tr.TMax=10000.0;
-                incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
-                TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, tr, tp);
-                mergeChild(p, tp, float3(1.0));
-            }
+            // Split check moved to ClosestHitMain; here just trace single child
+            Payload tp; initPayload(tp, p.lamStart, p.lamEnd,
+                p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
+                p.specularChain, p.lightRGB, p.rng);
+            tp.D = rotD; tp.V = childV;
+            RayDesc tr; tr.Origin=pos-dn*0.001+newDir*0.01; tr.Direction=newDir;
+            tr.TMin=0.001; tr.TMax=10000.0;
+            incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
+            TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE, 0xFF, 0, 0, 0, tr, tp);
+            mergeChild(p, tp, float3(1.0));
         }
     } else {
         // TIR — total internal reflection
@@ -181,9 +163,9 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
         Payload rp; initPayload(rp, p.lamStart, p.lamEnd,
             p.throughput, p.decayC1, p.decayC2, p.bounce+1, p.generation,
             p.specularChain, p.lightRGB, p.rng);
-        float3 DpropTIR = p.D + p.V * p.hitT;
-        rp.D = DpropTIR - 2.0*dot(DpropTIR, dn)*dn;
-        rp.V      = p.V-2.0*dot(p.V, dn)*dn;
+        // p.D already propagated by apply_diff — no +V*hitT
+        rp.D = p.D - 2.0*dot(p.D, dn)*dn;
+        rp.V = p.V - 2.0*dot(p.V, dn)*dn;
         RayDesc rr; rr.Origin=pos+dn*0.001+refl*0.01; rr.Direction=refl;
         rr.TMin=0.001; rr.TMax=10000.0;
         incChildRay(p.generation); recBounce(uint(p.bounce) + 1u);
@@ -294,6 +276,9 @@ void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int m
         if (rand1(p.rng) > survive) return;
         p.throughput -= log(survive);
     }
+
+    // Split check moved to ClosestHitMain (before apply_diff).
+    // p.D is already propagated (D + V*hitT) by apply_diff.
 
     GpuMaterial mat = materials.items[clamp(uint(matType), 0u,
         max(0u, uint(params.materialCount) - 1u))];

@@ -421,7 +421,7 @@ void FrameRecorder::dispatchTrace(
     pc.spp=4; pc.maxBounces=24;
     pc.matCount=static_cast<int>(as.getMaterialCount());
     pc.fovTan=0.57735f; pc.splitMult=1.0f;
-    pc.forceSplitWidth=0.05f; pc.scatterSamples=1;
+    pc.forceSplitWidth=0.025f; pc.scatterSamples=1;
     pc.mergeThreshold=0.999f; pc.frameIndex=accumFrame;
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
@@ -497,7 +497,7 @@ void FrameRecorder::dispatchPhotonTrace(
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
     pc.matCount = static_cast<int>(as.getMaterialCount());
     pc.fovTan = 0.57735f; pc.splitMult = 1.0f;
-    pc.forceSplitWidth = 0.005f; pc.scatterSamples = 1;
+    pc.forceSplitWidth = 0.002f; pc.scatterSamples = 1;
     pc.mergeThreshold = 0.999f; pc.frameIndex = 0;
     pc.diffuseStrength = as.getDiffuseStrength();
     pc.specularStrength = as.getSpecularStrength();
@@ -567,7 +567,7 @@ void FrameRecorder::dispatchPhotonTraceBatch(
     pc.spp = 1; pc.maxBounces = m_photonMaxBounces;
     pc.matCount = static_cast<int>(as.getMaterialCount());
     pc.fovTan = 0.57735f; pc.splitMult = 1.0f;
-    pc.forceSplitWidth = 0.005f; pc.scatterSamples = 1;
+    pc.forceSplitWidth = 0.002f; pc.scatterSamples = 1;
     pc.mergeThreshold = 0.999f; pc.frameIndex = 0;
     pc.diffuseStrength = as.getDiffuseStrength();
     pc.specularStrength = as.getSpecularStrength();

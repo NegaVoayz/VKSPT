@@ -57,7 +57,7 @@
     <Prism>
         <Args filename="prism.obj" display="1" normalinterpolation="0"/>
         <Scale x="2" y="2" z="2"/>
-        <Rotation x="0.0" y="110.0" z="0.0"/>
+        <Rotation x="0.0" y="130.0" z="0.0"/>
         <Translation x="0.0" y="-3.0" z="-7.0"/>
         <Material type="dielectric">
             <DispersionA value="1.5"/>
