@@ -177,10 +177,18 @@ void main(uint3 tid : SV_DispatchThreadID)
     int px = int(tid.x);
     int py = int(tid.y);
 
-    // Panel background: semi-transparent dark rect
+    // Panel background: semi-transparent dark rect, full-clear on text lines
     if (px < 280 && py < 188) {
-        float4 bg = outputImage[int2(px, py)];
-        outputImage[int2(px, py)] = lerp(bg, float4(0.05, 0.05, 0.08, 1.0), 0.75);
+        bool inText = (py >= 4  && py < 11)  || (py >= 14 && py < 21)
+                   || (py >= 24 && py < 31)  || (py >= 40 && py < 47)
+                   || (py >= 76 && py < 83)  || (py >= 104 && py < 111)
+                   || (py >= 116 && py < 123);
+        if (inText)
+            outputImage[int2(px, py)] = float4(0.05, 0.05, 0.08, 1.0);
+        else {
+            float4 bg = outputImage[int2(px, py)];
+            outputImage[int2(px, py)] = lerp(bg, float4(0.05, 0.05, 0.08, 1.0), 0.75);
+        }
     }
 
     // Only thread 0 renders text
