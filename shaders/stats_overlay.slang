@@ -182,8 +182,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         // Text lines: full opaque clear (glyph height 7px + 1px margin each side)
         bool inText = (py >= 3  && py < 12)  || (py >= 13 && py < 22)
                    || (py >= 23 && py < 32)  || (py >= 39 && py < 48)
-                   || (py >= 75 && py < 84)  || (py >= 103 && py < 112)
-                   || (py >= 115 && py < 124);
+                   || (py >= 75 && py < 84)  || (py >= 103 && py < 112);
         if (inText)
             outputImage[int2(px, py)] = float4(0.05, 0.05, 0.08, 1.0);
         else {
@@ -304,15 +303,4 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 104u, str2, len2, float4(0.8, 0.8, 0.8, 0.9));
     }
 
-    // Line7: Camera position ----
-    {
-        uint str3[64] = {80u,79u,83u,58u,32u}; // "POS: "
-        uint len3 = 5u;
-        len3 += formatFloat1(params.camOrigin[0], str3, len3);
-        str3[len3++] = 32u;
-        len3 += formatFloat1(params.camOrigin[1], str3, len3);
-        str3[len3++] = 32u;
-        len3 += formatFloat1(params.camOrigin[2], str3, len3);
-        drawString(4u, 116u, str3, len3, float4(0.6, 0.8, 1.0, 0.9));
-    }
 }
