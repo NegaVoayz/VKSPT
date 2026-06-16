@@ -177,12 +177,13 @@ void main(uint3 tid : SV_DispatchThreadID)
     int px = int(tid.x);
     int py = int(tid.y);
 
-    // Panel background: semi-transparent dark rect, full-clear on text lines
-    if (px < 280 && py < 188) {
-        bool inText = (py >= 4  && py < 11)  || (py >= 14 && py < 21)
-                   || (py >= 24 && py < 31)  || (py >= 40 && py < 47)
-                   || (py >= 76 && py < 83)  || (py >= 104 && py < 111)
-                   || (py >= 116 && py < 123);
+    // Panel background: 35×23 groups × 8×8 = 280×184 px
+    if (px < 280 && py < 184) {
+        // Text lines: full opaque clear (glyph height 7px + 1px margin each side)
+        bool inText = (py >= 3  && py < 12)  || (py >= 13 && py < 22)
+                   || (py >= 23 && py < 32)  || (py >= 39 && py < 48)
+                   || (py >= 75 && py < 84)  || (py >= 103 && py < 112)
+                   || (py >= 115 && py < 124);
         if (inText)
             outputImage[int2(px, py)] = float4(0.05, 0.05, 0.08, 1.0);
         else {
