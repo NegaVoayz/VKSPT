@@ -8,6 +8,7 @@ import geometry.normals;
 import geometry.dispersion;
 import math.sampling;
 import math.spectral_math;
+import math.legendre_decay;
 import math.color;
 import common.hash_utils;
 import rt.payload;
@@ -79,6 +80,18 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
 
     float ci = -dot(WorldRayDirection(), dn);
     float sint2 = eta_mid * eta_mid * (1.0 - ci * ci);
+
+    // Volume absorption: Beer-Lambert through glass, applied when exiting.
+    // Cauchy α(λ) = A + B/λ², luminance-weighted from material absorpA/B.
+    if (!entering) {
+        float absA = dot(mat.absorpA.xyz, 1.0/3.0);
+        float absB = dot(mat.absorpB.xyz, 1.0/3.0);
+        if (absA > 0.0 || absB > 0.0)
+            applyVolumeDecay(p.throughput, p.decayC1, p.decayC2,
+                             float(p.lamStart+p.lamEnd)*0.5,
+                             float(p.lamEnd-p.lamStart)*0.5,
+                             absA, absB, p.hitT);
+    }
 
     if (sint2 >= 1.0) {
         // Total internal reflection — reflect
