@@ -21,6 +21,7 @@ struct SceneDescription {
         glm::vec3    albedo{ 1.0f, 1.0f, 1.0f };     // base color (diffuse/metal)
         float        absorbA = 0.0f;                  // Cauchy absorption A (m⁻¹): α(λ)=A+B/λ²
         float        absorbB = 0.0f;                  // Cauchy absorption B (m⁻¹·μm²)
+        float        reflectivity = 1.0f;             // Fresnel bias: 1.0=physical, >1=boost, <1=dampen
     };
     struct ObjectEntry {
         std::string objFilename;

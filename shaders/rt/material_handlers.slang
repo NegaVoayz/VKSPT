@@ -99,6 +99,8 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float fresnelR = (sint2 >= 1.0) ? 1.0
                      : (R0 + (1.0 - R0) * pow(1.0 - ci, 5.0));
 
+    fresnelR = clamp(fresnelR * mat.params.y, 0.0, 1.0);
+
     if (rand1(p.rng) < fresnelR) {
         float3 refl = reflectDir(WorldRayDirection(), dn);
         Payload np; initPayload(np, p.lamStart, p.lamEnd,

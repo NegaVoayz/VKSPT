@@ -66,6 +66,8 @@ static SceneDescription::ObjectEntry parseObject(tinyxml2::XMLElement* objEl)
             mat.absorbA = xmlFloat(aa, "value", 0.0f);
         if (auto* ab = matEl->FirstChildElement("AbsorptionB"))
             mat.absorbB = xmlFloat(ab, "value", 0.0f);
+        if (auto* rf = matEl->FirstChildElement("Reflectivity"))
+            mat.reflectivity = xmlFloat(rf, "value", 1.0f);
     }
     return entry;
 }

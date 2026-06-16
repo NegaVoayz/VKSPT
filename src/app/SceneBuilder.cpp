@@ -40,7 +40,7 @@ void buildInstances(const SceneDescription& desc,
                 mat.cauchyA[c]=m.ior; mat.cauchyB[c]=m.dispersionB;
                 mat.absorpA[c]=m.absorbA; mat.absorpB[c]=m.absorbB;
             }
-            mat.params[0]=m.ior; mat.params[1]=0; mat.params[2]=0;
+            mat.params[0]=m.ior; mat.params[1]=m.reflectivity; mat.params[2]=0;
             break;
         case SceneDescription::MaterialType::Metal:
             mat.albedo[0]=m.albedo.r; mat.albedo[1]=m.albedo.g;
