@@ -7,7 +7,7 @@ import common.hash_utils;
 import rt.payload;
 
 // 1st-order Manhattan-neighbor blend: self + 6 face-adjacent cells = 7 total.
-// gatheredCellData: 13 uint/cell = 10 spectral + 3 position (asfloat).
+// displayCellData: 13 uint/cell = 10 spectral + 3 position (asfloat).
 void gatherPhotons(float3 pos, float3 nrm,
                    inout float spectral[NUM_SPECTRAL_BUCKETS])
 {
@@ -31,20 +31,20 @@ void gatherPhotons(float3 pos, float3 nrm,
         uint nBase = nHash * 13u;
 
         // Hash-collision guard: stored position must be in the queried cell
-        float3 phCenter = float3(asfloat(gatheredCellData[nBase + 10]),
-                                  asfloat(gatheredCellData[nBase + 11]),
-                                  asfloat(gatheredCellData[nBase + 12]));
+        float3 phCenter = float3(asfloat(displayCellData[nBase + 10]),
+                                  asfloat(displayCellData[nBase + 11]),
+                                  asfloat(displayCellData[nBase + 12]));
         if (any(computeCell(phCenter, cellSz) != qCell)) continue;
 
         float nSum = 0.0;
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            nSum += asfloat(gatheredCellData[nBase + b]);
+            nSum += asfloat(displayCellData[nBase + b]);
 
         if (nSum <= 0.0) continue;
 
         totalWeight += 1.0;
         for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
-            specAccum[b] += asfloat(gatheredCellData[nBase + b]);
+            specAccum[b] += asfloat(displayCellData[nBase + b]);
     }
 
     if (totalWeight <= 0.0) return;

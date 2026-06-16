@@ -101,7 +101,7 @@
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.9" y="-1.0" z="-1.5"/>
         <Material type="lambertian">
-            <Albedo r="0.26" g="0.47" b="0.35"/>
+            <Albedo r="0.26" g="0.97" b="0.35"/>
             <Roughness value="10.0"/>
         </Material>
     </Bunny>
@@ -138,6 +138,12 @@
             <Roughness value="10.0"/>
         </Material>
     </FudanLogo>
+
+    <PointLight2>
+        <Position x="2.0" y="-2.0" z="-7.0"/>
+        <Color r="1.0" g="1.0" b="1.0"/>
+        <Args intensity="5.0" maxDistance="50.0"/>
+    </PointLight2>
 
     <SpotLight>
         <Position x="2.0" y="-2.0" z="-7.0"/>

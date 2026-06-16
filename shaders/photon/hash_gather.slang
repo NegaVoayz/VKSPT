@@ -1,8 +1,7 @@
 // Hash grid dispatch 5: per-cell spectral irradiance output.
-// Writes each cell's own averaged spectral data directly — no neighbor
-// blend, preserving per-cell spectral variation (rainbow patterns).
-// Pass-normalized: each pass's contribution is divided by passCount.
-// Cross-batch accumulation via CAS-loop atomic float add on gatheredCellData.
+// Direct per-cell data — no spatial filter. Temporal denoising is done
+// by the blend_photon EMA on displayCellData.
+// Pass-normalized via params.passCount.  CAS-loop atomic float add.
 //
 // Reads  cellPhotonData (23 floats/cell from hash_aggregate)
 // Writes gatheredCellData (13 uint/cell — 10 spectral + 3 position)
@@ -12,7 +11,6 @@ import rt.payload;
 
 static const float PI = 3.14159265;
 
-// CAS-loop float atomic add on gatheredCellData (declared as uint).
 void atomicAddFloat(uint idx, float val)
 {
     uint prev = gatheredCellData[idx];
@@ -46,7 +44,6 @@ void main(uint3 tid : SV_DispatchThreadID)
     for (int b = 0; b < NUM_SPECTRAL_BUCKETS; b++)
         atomicAddFloat(outBase + b, cellPhotonData[inBase + 12 + b] * invKA);
 
-    // Store cell center for hash-collision guard in camera trace
     gatheredCellData[outBase + 10] = asuint(cellPhotonData[inBase + 0]);
     gatheredCellData[outBase + 11] = asuint(cellPhotonData[inBase + 1]);
     gatheredCellData[outBase + 12] = asuint(cellPhotonData[inBase + 2]);
