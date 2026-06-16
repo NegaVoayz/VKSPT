@@ -88,6 +88,24 @@ void ScreenshotCapture::renderOneFrame(
         }
     }
 
+    // blendPhoton: EMA photon display data
+    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
+                    pipeline.GetBlendPhotonPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(0), nullptr);
+    cb.dispatch(2048, 1, 1);
+
+    {
+        vk::BufferMemoryBarrier b(vk::AccessFlagBits::eShaderWrite,
+            vk::AccessFlagBits::eShaderRead,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *as.getDisplayCellData().Buffer, 0, as.getDisplayCellData().Size);
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            {}, {}, b, {});
+    }
+
     traceAndDenoise(*cb, frameIndex, groupCountX, groupCountY,
                     as, pipeline, camera, temps);
 
@@ -97,22 +115,14 @@ void ScreenshotCapture::renderOneFrame(
     m_device.getQueue(m_queueFamily, 0).waitIdle();
 }
 
-namespace { struct TracePC {
-    float camOrigin[3]; float pad0;
-    float camU[3]; float pad1; float camV[3]; float pad2;
-    float camW[3]; float pad3;
-    int spp, maxBounces, matCount;
-    float fovTan, splitMult, forceSplitWidth;
-    int scatterSamples; float mergeThreshold;
-    int frameIndex;
-    float diffuseStrength, specularStrength; int numLights;
-    float minSplitNm;
-}; }
-
-static void buildPushConstants(
-    const AccelerationStructure& as, const CameraParams& camera,
-    uint32_t frameIndex, TracePC& pc)
+void ScreenshotCapture::traceAndDenoise(
+    vk::CommandBuffer cb, uint32_t frameIndex,
+    uint32_t groupCountX, uint32_t groupCountY,
+    const AccelerationStructure& as,
+    RayTracingPipeline& pipeline, const CameraParams& camera,
+    const TempImages& temps)
 {
+    FrameRecorder::TracePushConstant pc{};
     pc.camOrigin[0]=camera.origin[0]; pc.camOrigin[1]=camera.origin[1];
     pc.camOrigin[2]=camera.origin[2];
     pc.camU[0]=camera.camU[0]; pc.camU[1]=camera.camU[1];
@@ -121,46 +131,48 @@ static void buildPushConstants(
     pc.camV[2]=camera.camV[2];
     pc.camW[0]=camera.camW[0]; pc.camW[1]=camera.camW[1];
     pc.camW[2]=camera.camW[2];
-    pc.spp=4; pc.maxBounces=24;
-    pc.matCount=static_cast<int>(as.getMaterialCount());
-    pc.fovTan=0.57735f; pc.splitMult=1.0f;
-    pc.forceSplitWidth=20.0f; pc.scatterSamples=1;
+    pc.samplesPerPixel=4; pc.maxBounces=24;
+    pc.materialCount=static_cast<int>(as.getMaterialCount());
+    pc.fovTan=0.57735f; pc.splitMult=0.25f;
+    pc.forceSplitWidth=0.025f; pc.scatterSamples=1;
     pc.mergeThreshold=0.999f; pc.frameIndex=static_cast<int>(frameIndex);
     pc.diffuseStrength=as.getDiffuseStrength();
     pc.specularStrength=as.getSpecularStrength();
     pc.numLights=static_cast<int>(as.getLightCount());
     pc.minSplitNm=20.0f;
-    pc.forceSplitWidth=10.0f;
-}
-
-void ScreenshotCapture::traceAndDenoise(
-    vk::CommandBuffer cb, uint32_t frameIndex,
-    uint32_t groupCountX, uint32_t groupCountY,
-    const AccelerationStructure& as,
-    RayTracingPipeline& pipeline, const CameraParams& camera,
-    const TempImages& temps)
-{
-    TracePC pc{};
-    buildPushConstants(as, camera, frameIndex, pc);
+    pc.passType = 0;
+    pc.minNeighborPhotons = 1.0f;
+    pc.maxGatherRadius = 0.20f;
+    pc.hashCellSize = 0.02f;
+    pc.photonCount = 524288;
+    pc.photonMaxBounces = 12;
+    pc.batchIndex = 0;
+    pc.batchCount = 1;
+    pc.lightIntensityPC = 0;
+    pc.lightColorPC[0] = 0; pc.lightColorPC[1] = 0; pc.lightColorPC[2] = 0;
+    pc.passCount = 0;
+    pc.fps = 0.0f;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());
     cb.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(0), nullptr);
-    cb.pushConstants<TracePC>(pipeline.Desc().PipelineLayout(),
+    cb.pushConstants<FrameRecorder::TracePushConstant>(
+        pipeline.Desc().PipelineLayout(),
         vk::ShaderStageFlagBits::eRaygenKHR |
             vk::ShaderStageFlagBits::eClosestHitKHR |
             vk::ShaderStageFlagBits::eMissKHR |
             vk::ShaderStageFlagBits::eCompute, 0, pc);
 
+    uint32_t w = groupCountX * 8, h = groupCountY * 8;
     VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdTraceRaysKHR(
         static_cast<VkCommandBuffer>(cb),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.RaygenRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.MissRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
-        groupCountX * 8, groupCountY * 8, 1);
+        w, h, 1);
 
     { auto sub = vk::ImageSubresourceRange(
           vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
@@ -174,7 +186,7 @@ void ScreenshotCapture::traceAndDenoise(
         {vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead,
          vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral,
          VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, *temps.image, sub}};
-      cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+      cb.pipelineBarrier(vk::PipelineStageFlagBits::eRayTracingShaderKHR,
           vk::PipelineStageFlagBits::eComputeShader, {}, {}, {}, gb); }
 
     cb.bindPipeline(vk::PipelineBindPoint::eCompute,
@@ -259,10 +271,27 @@ void ScreenshotCapture::capture(
       cbs[0].end(); q.submit(vk::SubmitInfo({}, {}, *cbs[0]), nullptr);
       q.waitIdle(); }
 
+    // Bind all resources into set 0: output images + photon buffers
     pipeline.Desc().BindOutputImage(0, *temps.view, nullptr);
     pipeline.Desc().BindAccumBuffer(0, *capAcc.Buffer, asz);
     pipeline.Desc().BindNormalImage(0, *temps.normalView);
     pipeline.Desc().BindDepthImage(0, *temps.depthView);
+    pipeline.Desc().BindPhotonBuffer(
+        0, *as.getPhotonBuffer().Buffer, as.getPhotonBuffer().Size);
+    pipeline.Desc().BindPhotonCounter(
+        0, *as.getPhotonCounter().Buffer, as.getPhotonCounter().Size);
+    pipeline.Desc().BindHashCellData(
+        0, *as.getHashCellData().Buffer, as.getHashCellData().Size);
+    pipeline.Desc().BindSortedPhotonIndices(
+        0, *as.getSortedPhotonIndices().Buffer, as.getSortedPhotonIndices().Size);
+    pipeline.Desc().BindCellPhotonData(
+        0, *as.getCellPhotonData().Buffer, as.getCellPhotonData().Size);
+    pipeline.Desc().BindGatheredCellData(
+        0, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
+    pipeline.Desc().BindDisplayCellData(
+        0, *as.getDisplayCellData().Buffer, as.getDisplayCellData().Size);
+    pipeline.Desc().BindRayStats(
+        0, *as.getRayStats().Buffer, as.getRayStats().Size);
 
     uint32_t gx = (targetWidth+7)/8, gy = (targetHeight+7)/8;
     for (uint32_t f = 0; f < frameCount; ++f)
@@ -270,9 +299,11 @@ void ScreenshotCapture::capture(
 
     readbackToPNG(path, *temps.image, targetWidth, targetHeight, q);
 
+    // Restore main-resolution bindings
     pipeline.Desc().BindOutputImage(0, mainOutputView, nullptr);
     pipeline.Desc().BindAccumBuffer(0, mainAccumBuffer, mainAccumSize);
     pipeline.Desc().BindNormalImage(0, mainNormalView);
     pipeline.Desc().BindDepthImage(0, mainDepthView);
+    // Photon buffers stay bound (same buffers, same set)
     Log::info("[Screenshot] Done.");
 }

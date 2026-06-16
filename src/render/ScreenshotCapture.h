@@ -3,6 +3,7 @@
 #include "ray/AccelerationStructure.h"
 #include "ray/RayTracingPipeline.h"
 #include "render/CameraParams.h"
+#include "render/FrameRecorder.h"
 #include <vulkan/vulkan_raii.hpp>
 #include <cstdint>
 #include <string>
