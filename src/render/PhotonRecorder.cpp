@@ -305,6 +305,7 @@ void PhotonRecorder::dispatchPhotonTraceBatch(
     pc.lightColorPC[1] = lightCpu.color_intensity[1];
     pc.lightColorPC[2] = lightCpu.color_intensity[2];
     pc.passCount = m_passCount + 1;  // 1-based current pass
+    pc.gpuMilliseconds = 0.0f;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());

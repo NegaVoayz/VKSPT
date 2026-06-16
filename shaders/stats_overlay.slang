@@ -288,13 +288,18 @@ void main(uint3 tid : SV_DispatchThreadID)
         drawString(4u, 76u, str, len, float4(1.0, 0.6, 0.8, 0.9));
     }
 
-    // Line6: Accum count + FPS ----
+    // Line6: Accum count + FPS + GPU ms ----
     {
         uint str2[64] = {65u,67u,67u,58u,32u}; // "ACC: "
         uint len2 = 5u;
         len2 += formatUint(uint(max(0, params.frameIndex)), str2, len2);
-        str2[len2++] = 32u; str2[len2++] = 70u; str2[len2++] = 80u; str2[len2++] = 83u; str2[len2++] = 58u; str2[len2++] = 32u; // " FPS: "
-        len2 += formatUint(uint(max(0.0f, params.fps)), str2, len2);
+        // "  FPS: "
+        str2[len2++] = 32u; str2[len2++] = 70u; str2[len2++] = 80u; str2[len2++] = 83u; str2[len2++] = 58u; str2[len2++] = 32u;
+        len2 += formatFloat1(max(0.0f, params.fps), str2, len2);
+        // "  GPU: "
+        str2[len2++] = 32u; str2[len2++] = 71u; str2[len2++] = 80u; str2[len2++] = 85u; str2[len2++] = 58u; str2[len2++] = 32u;
+        len2 += formatFloat1(max(0.0f, params.gpuMilliseconds), str2, len2);
+        str2[len2++] = 109u; str2[len2++] = 115u; // "ms"
         drawString(4u, 104u, str2, len2, float4(0.8, 0.8, 0.8, 0.9));
     }
 

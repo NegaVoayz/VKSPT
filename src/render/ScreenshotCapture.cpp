@@ -152,6 +152,7 @@ void ScreenshotCapture::traceAndDenoise(
     pc.lightColorPC[0] = 0; pc.lightColorPC[1] = 0; pc.lightColorPC[2] = 0;
     pc.passCount = 0;
     pc.fps = 0.0f;
+    pc.gpuMilliseconds = 0.0f;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());

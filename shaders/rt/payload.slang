@@ -43,7 +43,8 @@ struct PushConstants {
     float lightIntensityPC;   // light intensity for this batch
     float lightColorPC[3];    // light RGB for this batch
     int   passCount;          // current photon pass (1-based, for normalization)
-    float _padEnd[21];        // expand push constant range to 256 bytes
+    float gpuMilliseconds;    // GPU render time of previous frame (ms)
+    float _padEnd[20];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 

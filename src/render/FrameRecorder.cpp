@@ -130,7 +130,10 @@ void FrameRecorder::dispatchTrace(
     pc.lightIntensityPC = 0;
     pc.lightColorPC[0] = 0; pc.lightColorPC[1] = 0; pc.lightColorPC[2] = 0;
     pc.passCount = 0;
-    pc.fps = fps;
+    float gpuFps = m_lastGpuMilliseconds > 0.0f
+                   ? 1000.0f / m_lastGpuMilliseconds : fps;
+    pc.fps = gpuFps;
+    pc.gpuMilliseconds = m_lastGpuMilliseconds;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());

@@ -42,6 +42,7 @@ Renderer::Renderer(
             physDevice.getProperties().limits.timestampPeriod;
         m_hasTimestamps = true;
     }
+    m_recorder.setTimestamps(&m_timestampPool, m_timestampPeriod, m_hasTimestamps);
 
     m_commandPool = vk::raii::CommandPool(m_device,
         {vk::CommandPoolCreateFlagBits::eResetCommandBuffer,

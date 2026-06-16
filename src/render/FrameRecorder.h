@@ -38,7 +38,8 @@ public:
         float lightIntensityPC;
         float lightColorPC[3];
         int   passCount;
-        float padEnd[21];
+        float gpuMilliseconds;
+        float padEnd[20];
     };
 
     FrameRecorder(const vk::raii::Device&        device,
@@ -78,6 +79,10 @@ public:
 
     uint64_t frameCount()      const { return m_frameCount; }
     float    lastGpuMilliseconds() const { return m_lastGpuMilliseconds; }
+    void     setTimestamps(const vk::raii::QueryPool* pool,
+                           float period, bool has) {
+        m_timestampPool = pool; m_timestampPeriod = period; m_hasTimestamps = has;
+    }
 
 private:
     void transitionImages(vk::CommandBuffer commandBuffer, bool firstFrame);
