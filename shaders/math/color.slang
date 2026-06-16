@@ -72,25 +72,43 @@ public float rgbToDomLambda(float3 rgb) {
 
 // --- Unified absorption operators (log-domain Legendre) ---
 
+// Surface reflectance at wavelength lam (nm) using CMF-weighted albedo.
+float albedoReflectance(float lam, float3 alb)
+{
+    float3 cmf = displayCMF(lam);
+    float sum = cmf.r + cmf.g + cmf.b;
+    if (sum > 1e-6)
+        return dot(alb, cmf) / sum;
+    return dot(alb, float3(1.0/3.0));
+}
+
 // Expand albedo RGB to log-domain Legendre via 3-point GL quadrature.
-// Gray (r==g==b) albedos skip the RGB→spectrum fit and use a flat spectrum
-// to avoid green bias from estimateSpectrum's basis functions.
+// Reflectance model: CMF-weighted albedo.  Normalized so GL-averaged
+// linear reflectance = dot(alb, 1/3) (albedo luminance).
 public void albedoLegendreExpand(float3 alb, float lamMid, float halfW,
                                   out float C0, out float C1, out float C2)
 {
-    if (alb.r == alb.g && alb.g == alb.b) {
-        C0 = log(max(alb.r, 1e-10));
-        C1 = 0.0;
-        C2 = 0.0;
-        return;
-    }
+    float albLum = dot(alb, float3(1.0/3.0));
+    if (albLum <= 0.0) { C0 = -30.0; C1 = 0.0; C2 = 0.0; return; }
+
     const float SQ3_5 = 0.77459667;
     const float W0 = 5.0/9.0, W1 = 8.0/9.0, W2 = 5.0/9.0;
-    float L[3];
+    float L[3], linVal[3];
+    float linAvg = 0.0;
     for (int k = 0; k < 3; k++) {
         float xk = (k==0)?-SQ3_5:((k==1)?0.0:SQ3_5);
-        L[k] = log(max(estimateSpectrum(lamMid+halfW*xk, alb), 1e-10));
+        float wk = (k==0)?W0:((k==1)?W1:W2);
+        linVal[k] = albedoReflectance(lamMid + halfW * xk, alb);
+        linAvg += wk * linVal[k];
     }
+    linAvg *= 0.5;  // GL integral norm
+
+    // Normalize linear values so GL average = albLum
+    float nrm = albLum / max(linAvg, 1e-10);
+    nrm = clamp(nrm, 0.1, 10.0);  // safety clamp
+    for (int k = 0; k < 3; k++)
+        L[k] = log(max(linVal[k] * nrm, 1e-10));
+
     C0 = 0.5*(W0*L[0]+W1*L[1]+W2*L[2]);
     C1 = 1.5*(W0*L[0]*(-SQ3_5)+W2*L[2]*SQ3_5);
     const float P2_0=0.4, P2_1=-0.5, P2_2=0.4;

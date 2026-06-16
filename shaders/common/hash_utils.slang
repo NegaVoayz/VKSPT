@@ -3,11 +3,13 @@ import common.types;
 
 // Morton 3D + high-bit mixing: interleave bits for spatial locality,
 // then finalize with avalanche mixing for uniform bucket distribution.
+// Offset to non-negative before uint cast — negative coords would produce
+// all-ones upper bits, breaking Morton interleave and causing hash storms.
 uint computeCellHash(int3 cell)
 {
-    uint x = uint(cell.x);
-    uint y = uint(cell.y);
-    uint z = uint(cell.z);
+    uint x = uint(cell.x + 16384);
+    uint y = uint(cell.y + 16384);
+    uint z = uint(cell.z + 16384);
 
     // Morton 3D interleave
     x = (x | (x << 16)) & 0x030000FF;
