@@ -93,8 +93,13 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
                              absA, absB, p.hitT);
     }
 
-    if (sint2 >= 1.0) {
-        // Total internal reflection — reflect
+    // Fresnel reflectance (Schlick), TIR → R=1.0
+    float R0 = (ior_mid - 1.0) / (ior_mid + 1.0);
+    R0 = R0 * R0;
+    float fresnelR = (sint2 >= 1.0) ? 1.0
+                     : (R0 + (1.0 - R0) * pow(1.0 - ci, 5.0));
+
+    if (rand1(p.rng) < fresnelR) {
         float3 refl = reflectDir(WorldRayDirection(), dn);
         Payload np; initPayload(np, p.lamStart, p.lamEnd,
             p.throughput, p.decayC1, p.decayC2,
