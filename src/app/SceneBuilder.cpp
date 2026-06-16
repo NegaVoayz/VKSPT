@@ -38,7 +38,7 @@ void buildInstances(const SceneDescription& desc,
         case SceneDescription::MaterialType::Dielectric:
             for (int c=0;c<3;++c) {
                 mat.cauchyA[c]=m.ior; mat.cauchyB[c]=m.dispersionB;
-                mat.absorpA[c]=m.absorbA[c]; mat.absorpB[c]=m.absorbB[c];
+                mat.absorpA[c]=m.absorbA; mat.absorpB[c]=m.absorbB;
             }
             mat.params[0]=m.ior; mat.params[1]=0; mat.params[2]=0;
             break;

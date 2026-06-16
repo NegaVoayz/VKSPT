@@ -82,7 +82,7 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float sint2 = eta_mid * eta_mid * (1.0 - ci * ci);
 
     // Volume absorption: Beer-Lambert through glass, applied when exiting.
-    // Cauchy α(λ) = A + B/λ², luminance-weighted from material absorpA/B.
+    // α(λ) = A + B/λ², scalar Cauchy model (xyz→luminance since same in all channels).
     if (!entering) {
         float absA = dot(mat.absorpA.xyz, 1.0/3.0);
         float absB = dot(mat.absorpB.xyz, 1.0/3.0);

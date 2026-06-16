@@ -63,9 +63,9 @@ static SceneDescription::ObjectEntry parseObject(tinyxml2::XMLElement* objEl)
         if (auto* al = matEl->FirstChildElement("Albedo"))
             mat.albedo = {xmlFloat(al,"r",1), xmlFloat(al,"g",1), xmlFloat(al,"b",1)};
         if (auto* aa = matEl->FirstChildElement("AbsorptionA"))
-            mat.absorbA = {xmlFloat(aa,"x",0), xmlFloat(aa,"y",0), xmlFloat(aa,"z",0)};
+            mat.absorbA = xmlFloat(aa, "value", 0.0f);
         if (auto* ab = matEl->FirstChildElement("AbsorptionB"))
-            mat.absorbB = {xmlFloat(ab,"x",0), xmlFloat(ab,"y",0), xmlFloat(ab,"z",0)};
+            mat.absorbB = xmlFloat(ab, "value", 0.0f);
     }
     return entry;
 }

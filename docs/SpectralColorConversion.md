@@ -258,3 +258,30 @@ while lamStart < lamEnd:
 ```
 
 对lamEnd同理反向裁剪.
+
+---
+
+## 八、玻璃体积吸收
+
+**位置**: `handleDielectric` → `material_handlers.slang`
+
+**模型**: Beer-Lambert透过率 `T(λ,d) = exp(-α(λ)·d)`, log空间加法.
+
+### 8.1 数据结构
+
+`GpuMaterial`中 `absorpA.xyz` / `absorpB.xyz` — Cauchy吸收系数(标量,存于float4各通道取均值):
+- A: 波长无关吸收 (m⁻¹)
+- B: 1/λ²系数 (m⁻¹·μm²), 短波吸收更强
+
+**α(λ) = A + B/λ²** 是完整的光谱吸收曲线, 不依赖RGB通道.
+
+### 8.2 Legendre拟合
+
+复用 `applyVolumeDecay()` (`legendre_decay.slang`):
+```
+在3个GL点 λ_k:  aVal[k] = -(A + B/λ_k²) × hitT
+→ GL求积投影 → (a₀, a₁, a₂)
+throughput += a₀; decayC1 += a₁; decayC2 += a₂
+```
+
+**触发条件**: `entering=false` (射线在玻璃内击中出射面), `absA>0||absB>0`.
