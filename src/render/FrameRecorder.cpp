@@ -112,7 +112,7 @@ void FrameRecorder::dispatchTrace(
     pc.camW[2]=camera.camW[2];
     pc.samplesPerPixel=4; pc.maxBounces=24;
     pc.materialCount=static_cast<int>(as.getMaterialCount());
-    pc.fovTan=0.57735f; pc.splitMult=1.0f;
+    pc.fovTan=0.57735f; pc.splitMult=0.25f;
     pc.forceSplitWidth=0.025f; pc.scatterSamples=1;
     pc.mergeThreshold=0.999f; pc.frameIndex=accumFrame;
     pc.diffuseStrength=as.getDiffuseStrength();
