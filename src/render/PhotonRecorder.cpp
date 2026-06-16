@@ -367,7 +367,7 @@ void PhotonRecorder::dispatchHashAggregate(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(DescriptorManager::PHOTON_SET), nullptr);
-    cb.dispatch(1024, 1, 1);
+    cb.dispatch(2048, 1, 1);   // HASH_TABLE_SIZE / 256
 }
 
 void PhotonRecorder::dispatchHashGather(
@@ -378,5 +378,5 @@ void PhotonRecorder::dispatchHashGather(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(DescriptorManager::PHOTON_SET), nullptr);
-    cb.dispatch(1024, 1, 1);
+    cb.dispatch(2048, 1, 1);   // HASH_TABLE_SIZE / 256
 }

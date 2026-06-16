@@ -56,8 +56,6 @@ void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int m
         p.throughput -= log(survive);
     }
 
-    // p.D already propagated (D + V*hitT) by apply_diff in ClosestHitMain.
-
     GpuMaterial mat = materials.items[clamp(uint(matType), 0u,
         max(0u, uint(params.materialCount) - 1u))];
 
@@ -70,6 +68,7 @@ void handlePhotonHit(inout Payload p, float3 pos, float3 fNrm, float3 nrm, int m
         handleMetal(p, pos, fNrm, mat, p.rng);
     }
     else if (matType == MATERIAL_LAMBERTIAN || matType == MATERIAL_CHECKERBOARD) {
+        // Absorption already applied in ClosestHitMain
         storePhoton(p, pos, fNrm);
     }
 }

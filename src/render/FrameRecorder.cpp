@@ -166,7 +166,7 @@ void FrameRecorder::dispatchBlendPhoton(
     cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
         pipeline.Desc().PipelineLayout(), 0,
         pipeline.Desc().DescriptorSet(f), nullptr);
-    cb.dispatch(1024, 1, 1);
+    cb.dispatch(2048, 1, 1);   // HASH_TABLE_SIZE / 256
 }
 
 void FrameRecorder::transitionImages(vk::CommandBuffer cb, bool first)

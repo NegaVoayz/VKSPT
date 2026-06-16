@@ -156,7 +156,42 @@ void ClosestHitMain(inout Payload p, in BuiltInTriangleIntersectionAttributes at
     // apply_diff: propagate D by travel distance
     p.D = (p.D + p.V * p.hitT) - dot(p.D + p.V * p.hitT, rayDir) * rayDir;
 
-    // Pass dispatch
+    // --- Unified absorption: applied once here, before material dispatch ---
+    if (matType == MATERIAL_LAMBERTIAN || matType == MATERIAL_CHECKERBOARD ||
+        matType == MATERIAL_METAL) {
+        float3 alb;
+        if (matType == MATERIAL_CHECKERBOARD) {
+            float cx = floor(pos.x*0.5), cz = floor(pos.z*0.5);
+            alb = ((int(cx+cz)%2)==0) ? float3(0.75) : float3(0.15);
+        } else {
+            alb = mat.albedo.xyz;
+        }
+
+        float lamMid = float(p.lamStart + p.lamEnd) * 0.5;
+        float halfW  = float(p.lamEnd - p.lamStart) * 0.5;
+
+        if (matType == MATERIAL_METAL) {
+            float r0 = alb.y + (alb.x+alb.z-2.0*alb.y)/6.0;
+            float r1 = (alb.x - alb.z)*0.5;
+            float r2 = (alb.x+alb.z-2.0*alb.y)/3.0;
+            float lamC = float(LAMBDA_MIN+LAMBDA_MAX)*0.5;
+            float lamH = float(LAMBDA_MAX-LAMBDA_MIN)*0.5;
+            float reflC0, reflC1, reflC2;
+            reflectanceLegendreExpand(r0, r1, r2, lamC, lamH, lamMid, halfW,
+                                       reflC0, reflC1, reflC2);
+            applyAbsorption(p.lamStart, p.lamEnd,
+                             p.throughput, p.decayC1, p.decayC2,
+                             reflC0, reflC1, reflC2);
+        } else {
+            float albC0, albC1, albC2;
+            albedoLegendreExpand(alb, lamMid, halfW, albC0, albC1, albC2);
+            applyAbsorption(p.lamStart, p.lamEnd,
+                             p.throughput, p.decayC1, p.decayC2,
+                             albC0, albC1, albC2);
+        }
+    }
+
+    // Pass dispatch (payload already has absorption applied)
     if (params.passType == PASS_PHOTON) {
         handlePhotonHit(p, pos, fNrm, nrm, matType);
         return;

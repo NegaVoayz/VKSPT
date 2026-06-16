@@ -101,7 +101,7 @@
         <Rotation x="0.0" y="0.0" z="0.0"/>
         <Translation x="0.9" y="-1.0" z="-1.5"/>
         <Material type="lambertian">
-            <Albedo r="0.26" g="0.97" b="0.35"/>
+            <Albedo r="0.95" g="0.70" b="0.25"/>
             <Roughness value="10.0"/>
         </Material>
     </Bunny>
