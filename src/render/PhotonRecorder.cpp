@@ -114,6 +114,8 @@ void PhotonRecorder::bindPhotonDescriptors(
         ps, *as.getCellPhotonData().Buffer, as.getCellPhotonData().Size);
     pipeline.Desc().BindGatheredCellData(
         ps, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
+    pipeline.Desc().BindDisplayCellData(
+        ps, *as.getDisplayCellData().Buffer, as.getDisplayCellData().Size);
     pipeline.Desc().BindRayStats(
         ps, *as.getRayStats().Buffer, as.getRayStats().Size);
     pipeline.Desc().BindOutputImage(ps, m_photonOutputView, nullptr);
@@ -131,8 +133,6 @@ void PhotonRecorder::trySubmitPhotonBatch(
     if (m_device.waitForFences(*m_photonFence, false, 0) != vk::Result::eSuccess)
         return;
 
-    m_device.resetFences(*m_photonFence);
-
     const auto& cpuLights = as.getLightsCPU();
     int totalLights = static_cast<int>(as.getLightCount());
     int batchIndex = -1;
@@ -145,7 +145,8 @@ void PhotonRecorder::trySubmitPhotonBatch(
     }
 
     if (batchIndex < 0) {
-        m_photonDone = true;
+        m_nextLightIndex = 0;
+        m_passCount++;
         return;
     }
 
@@ -162,8 +163,12 @@ void PhotonRecorder::trySubmitPhotonBatch(
         ps, *as.getCellPhotonData().Buffer, as.getCellPhotonData().Size);
     pipeline.Desc().BindGatheredCellData(
         ps, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
+    pipeline.Desc().BindDisplayCellData(
+        ps, *as.getDisplayCellData().Buffer, as.getDisplayCellData().Size);
     pipeline.Desc().BindRayStats(
         ps, *as.getRayStats().Buffer, as.getRayStats().Size);
+
+    m_device.resetFences(*m_photonFence);
 
     m_photonCommandBuffer.reset({});
     recordPhotonBatch(*m_photonCommandBuffer, as, pipeline,
@@ -173,6 +178,7 @@ void PhotonRecorder::trySubmitPhotonBatch(
         .submit(vk::SubmitInfo({}, {}, *m_photonCommandBuffer), *m_photonFence);
 
     m_nextLightIndex = batchIndex + 1;
+    Log::info("[Photon] batch {} done", batchIndex);
 }
 
 void PhotonRecorder::recordPhotonBatch(
@@ -298,6 +304,7 @@ void PhotonRecorder::dispatchPhotonTraceBatch(
     pc.lightColorPC[0] = lightCpu.color_intensity[0];
     pc.lightColorPC[1] = lightCpu.color_intensity[1];
     pc.lightColorPC[2] = lightCpu.color_intensity[2];
+    pc.passCount = m_passCount + 1;  // 1-based current pass
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
                     pipeline.GetRTPipeline());

@@ -35,9 +35,12 @@ void FrameRecorder::record(
 
     cb.fillBuffer(*as.getRayStats().Buffer, 0, as.getRayStats().Size, 0);
 
-    if (first)
+    if (first) {
         cb.fillBuffer(*as.getGatheredCellData().Buffer, 0,
                        as.getGatheredCellData().Size, 0);
+        cb.fillBuffer(*as.getDisplayCellData().Buffer, 0,
+                       as.getDisplayCellData().Size, 0);
+    }
 
     {
         std::vector<vk::BufferMemoryBarrier> bArr = {
@@ -51,11 +54,27 @@ void FrameRecorder::record(
              vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
              VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
              *as.getGatheredCellData().Buffer, 0, as.getGatheredCellData().Size});
+            bArr.push_back({vk::AccessFlagBits::eTransferWrite,
+             vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+             VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+             *as.getDisplayCellData().Buffer, 0, as.getDisplayCellData().Size});
         }
         cb.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eRayTracingShaderKHR |
                 vk::PipelineStageFlagBits::eComputeShader,
             {}, {}, bArr, {});
+    }
+
+    dispatchBlendPhoton(cb, f, pipeline);
+
+    {
+        vk::BufferMemoryBarrier b(vk::AccessFlagBits::eShaderWrite,
+            vk::AccessFlagBits::eShaderRead,
+            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+            *as.getDisplayCellData().Buffer, 0, as.getDisplayCellData().Size);
+        cb.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+            {}, {}, b, {});
     }
 
     dispatchTrace(cb, f, as, pipeline, camera, accumFrame, fps);
@@ -110,6 +129,7 @@ void FrameRecorder::dispatchTrace(
     pc.batchCount = 1;
     pc.lightIntensityPC = 0;
     pc.lightColorPC[0] = 0; pc.lightColorPC[1] = 0; pc.lightColorPC[2] = 0;
+    pc.passCount = 0;
     pc.fps = fps;
 
     cb.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR,
@@ -136,6 +156,17 @@ void FrameRecorder::dispatchTrace(
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.HitRegion()),
         reinterpret_cast<const VkStridedDeviceAddressRegionKHR*>(&pipeline.CallableRegion()),
         m_width, m_height, 1);
+}
+
+void FrameRecorder::dispatchBlendPhoton(
+    vk::CommandBuffer cb, uint32_t f, RayTracingPipeline& pipeline)
+{
+    cb.bindPipeline(vk::PipelineBindPoint::eCompute,
+                    pipeline.GetBlendPhotonPipeline());
+    cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+        pipeline.Desc().PipelineLayout(), 0,
+        pipeline.Desc().DescriptorSet(f), nullptr);
+    cb.dispatch(1024, 1, 1);
 }
 
 void FrameRecorder::transitionImages(vk::CommandBuffer cb, bool first)

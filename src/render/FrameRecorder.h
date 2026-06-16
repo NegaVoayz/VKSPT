@@ -37,7 +37,8 @@ public:
         int   batchCount;
         float lightIntensityPC;
         float lightColorPC[3];
-        float padEnd[22];
+        int   passCount;
+        float padEnd[21];
     };
 
     FrameRecorder(const vk::raii::Device&        device,
@@ -88,6 +89,10 @@ private:
                        const CameraParams&          camera,
                        int                          accumFrameCount,
                        float                        fps);
+
+    void dispatchBlendPhoton(vk::CommandBuffer    commandBuffer,
+                             uint32_t             frameIndex,
+                             RayTracingPipeline&  pipeline);
 
     void dispatchStatsOverlay(vk::CommandBuffer    commandBuffer,
                               uint32_t             frameIndex,

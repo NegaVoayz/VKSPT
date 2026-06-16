@@ -63,6 +63,7 @@ public:
     const GPUBuffer& getSortedPhotonIndices() const { return m_sortedPhotonIndices; }
     const GPUBuffer& getCellPhotonData()   const { return m_cellPhotonData; }
     const GPUBuffer& getGatheredCellData() const { return m_gatheredCellData; }
+    const GPUBuffer& getDisplayCellData()  const { return m_displayCellData; }
     const GPUBuffer& getRayStats()          const { return m_rayStats; }
     uint32_t getInstanceCount()  const { return m_instCount; }
     uint32_t getMaterialCount()  const { return m_matCount; }
@@ -99,6 +100,7 @@ private:
     GPUBuffer m_hashCellData, m_sortedPhotonIndices;
     GPUBuffer m_cellPhotonData;
     GPUBuffer m_gatheredCellData;
+    GPUBuffer m_displayCellData;
     GPUBuffer m_rayStats;
     uint32_t m_matCount = 0, m_lightCount = 0, m_instCount = 0;
     std::vector<GpuLight> m_lightsCPU;  // CPU mirror for push constants

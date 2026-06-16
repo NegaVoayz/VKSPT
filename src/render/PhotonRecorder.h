@@ -84,6 +84,7 @@ private:
     int  m_nextLightIndex   = 0;
     int  m_activeLightCount = 0;
     int  m_perLight         = 0;
+    int  m_passCount        = 0;
     bool m_photonDone       = true;
 
     int   m_photonCount        = 524288;

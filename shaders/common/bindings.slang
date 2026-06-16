@@ -51,6 +51,9 @@ public [[vk::binding(18, 0)]] RWStructuredBuffer<float> cellPhotonData;
 // Layout: 13 uints/cell = 10 spectral + 3 position (asfloat) for hash-collision guard
 public [[vk::binding(19, 0)]] RWStructuredBuffer<uint>  gatheredCellData;
 
+// EMA-smoothed display buffer: camera reads from this instead of gatheredCellData
+public [[vk::binding(20, 0)]] RWStructuredBuffer<uint>  displayCellData;
+
 // Ray tracing statistics (atomic counters)
 public [[vk::binding(17, 0)]] RWStructuredBuffer<uint>         rayStats;
 

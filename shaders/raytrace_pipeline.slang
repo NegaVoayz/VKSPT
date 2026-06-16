@@ -81,7 +81,8 @@ void PhotonRayGenMain()
         params.lightColorPC[0], params.lightColorPC[1], params.lightColorPC[2]);
     float lightIntensity = params.lightIntensityPC;
 
-    uint seed = wangHash(photonIdx ^ (uint(params.frameIndex) + uint(li) * 31337u) * 134775813u);
+    uint seed = wangHash(photonIdx ^ (uint(params.frameIndex) + uint(li) * 31337u
+        + uint(params.passCount) * 731573u) * 134775813u);
 
     // Sample position and direction on the selected light
     float3 origin, direction;

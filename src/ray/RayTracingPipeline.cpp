@@ -53,6 +53,9 @@ void RayTracingPipeline::CreateHashAggregatePipeline(const std::string& s)
 void RayTracingPipeline::CreateHashGatherPipeline(const std::string& s)
     { m_hashGatherPipe = mkPipe(m_hashGatherSm, s); }
 
+void RayTracingPipeline::CreateBlendPhotonPipeline(const std::string& s)
+    { m_blendPhotonPipe = mkPipe(m_blendPhotonSm, s); }
+
 void RayTracingPipeline::CreateStatsOverlayPipeline(const std::string& s)
     { m_statsOverlayPipe = mkPipe(m_statsOverlaySm, s); }
 

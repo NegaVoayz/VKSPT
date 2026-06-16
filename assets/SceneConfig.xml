@@ -61,7 +61,7 @@
         <Translation x="0.0" y="-3.0" z="-7.0"/>
         <Material type="dielectric">
             <DispersionA value="1.5"/>
-            <DispersionB value="0.008"/>
+            <DispersionB value="0.018"/>
             <AbsorptionA x="0.02" y="0.02" z="0.02"/>
             <AbsorptionB x="0.0" y="0.0" z="0.0"/>
             <Albedo r="0.6" g="0.7" b="0.8"/>
@@ -139,16 +139,10 @@
         </Material>
     </FudanLogo>
 
-    <PointLight2>
-        <Position x="2.0" y="-2.0" z="-7.0"/>
-        <Color r="1.0" g="1.0" b="1.0"/>
-        <Args intensity="5.0" maxDistance="50.0"/>
-    </PointLight2>
-
     <SpotLight>
         <Position x="2.0" y="-2.0" z="-7.0"/>
         <Direction x="-1.0" y="-0.5" z="0.0"/>
-        <Args innerAngle="2.5" outerAngle="5.5" intensity="5.0" maxDistance="50.0"/>
+        <Args innerAngle="2.5" outerAngle="5.5" intensity="2.0" maxDistance="50.0"/>
         <Color r="1.0" g="1.0" b="1.0"/>
     </SpotLight>
 

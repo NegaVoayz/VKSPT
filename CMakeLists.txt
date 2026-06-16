@@ -125,6 +125,7 @@ compile_shader_slang(hash_scan_shader photon/hash_scan.slang hash_scan.comp.spv)
 compile_shader_slang(hash_scatter_shader photon/hash_scatter.slang hash_scatter.comp.spv)
 compile_shader_slang(hash_aggregate_shader photon/hash_aggregate.slang hash_aggregate.comp.spv)
 compile_shader_slang(hash_gather_shader photon/hash_gather.slang hash_gather.comp.spv)
+compile_shader_slang(blend_photon_shader photon/blend_photon.slang blend_photon.comp.spv)
 compile_shader_slang(stats_overlay_shader stats_overlay.slang stats_overlay.comp.spv)
 
 # RT Pipeline shader (multi-entry-point RT stages)

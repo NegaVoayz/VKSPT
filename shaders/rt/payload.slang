@@ -42,7 +42,8 @@ struct PushConstants {
     int   batchCount;         // total batches = number of lights
     float lightIntensityPC;   // light intensity for this batch
     float lightColorPC[3];    // light RGB for this batch
-    float _padEnd[22];        // expand push constant range to 256 bytes
+    int   passCount;          // current photon pass (1-based, for normalization)
+    float _padEnd[21];        // expand push constant range to 256 bytes
 };
 [[vk::push_constant]] PushConstants params;
 

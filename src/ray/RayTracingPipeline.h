@@ -31,6 +31,9 @@ public:
     void CreateHashGatherPipeline(const std::string& spv);
     vk::Pipeline GetHashGatherPipeline() const { return *m_hashGatherPipe; }
 
+    void CreateBlendPhotonPipeline(const std::string& spv);
+    vk::Pipeline GetBlendPhotonPipeline() const { return *m_blendPhotonPipe; }
+
     void CreateStatsOverlayPipeline(const std::string& spv);
     vk::Pipeline GetStatsOverlayPipeline() const { return *m_statsOverlayPipe; }
 
@@ -74,6 +77,9 @@ private:
     vk::raii::Pipeline     m_hashAggregatePipe = nullptr;
     vk::raii::ShaderModule m_hashGatherSm = nullptr;
     vk::raii::Pipeline     m_hashGatherPipe = nullptr;
+
+    vk::raii::ShaderModule m_blendPhotonSm = nullptr;
+    vk::raii::Pipeline     m_blendPhotonPipe = nullptr;
 
     vk::raii::ShaderModule m_statsOverlaySm = nullptr;
     vk::raii::Pipeline     m_statsOverlayPipe = nullptr;

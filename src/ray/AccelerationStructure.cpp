@@ -158,6 +158,12 @@ void AccelerationStructure::createHashBuffers()
         vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferDst,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
+
+    m_displayCellData = GPUBuffer::Create(m_device,
+        HASH_TABLE_SIZE * 13 * sizeof(float),
+        vk::BufferUsageFlagBits::eStorageBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, m_physDevice);
 }
 
 void AccelerationStructure::createRayStatsBuffer()

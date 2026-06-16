@@ -42,6 +42,7 @@ void DescriptorManager::createLayout() {
         sb(17, DT::eStorageBuffer),   // ray stats
         sb(18, DT::eStorageBuffer),   // cell photon data
         sb(19, DT::eStorageBuffer),   // gathered cell data
+        sb(20, DT::eStorageBuffer),   // display cell data
     };
     m_layout = vk::raii::DescriptorSetLayout(m_device, {{}, b});
 
@@ -58,7 +59,7 @@ void DescriptorManager::createPool() {
         {DT::eAccelerationStructureKHR, N},
         {DT::eStorageImage,             N * 3},
         {DT::eUniformBuffer,            N * 2},
-        {DT::eStorageBuffer,            N * 13},
+        {DT::eStorageBuffer,            N * 14},
         {DT::eCombinedImageSampler,     N},
     };
     m_pool = vk::raii::DescriptorPool(
@@ -160,6 +161,9 @@ void DescriptorManager::BindCellPhotonData(uint32_t fi, vk::Buffer b, vk::Device
 
 void DescriptorManager::BindGatheredCellData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
     { writeBuf(m_device, *m_sets[fi], 19, vk::DescriptorType::eStorageBuffer, b, sz); }
+
+void DescriptorManager::BindDisplayCellData(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
+    { writeBuf(m_device, *m_sets[fi], 20, vk::DescriptorType::eStorageBuffer, b, sz); }
 
 void DescriptorManager::BindRayStats(uint32_t fi, vk::Buffer b, vk::DeviceSize sz)
     { writeBuf(m_device, *m_sets[fi], 17, vk::DescriptorType::eStorageBuffer, b, sz); }

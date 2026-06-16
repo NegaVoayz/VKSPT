@@ -100,6 +100,8 @@ void Renderer::bindFrameDescriptors(
         f, *as.getCellPhotonData().Buffer, as.getCellPhotonData().Size);
     pipeline.Desc().BindGatheredCellData(
         f, *as.getGatheredCellData().Buffer, as.getGatheredCellData().Size);
+    pipeline.Desc().BindDisplayCellData(
+        f, *as.getDisplayCellData().Buffer, as.getDisplayCellData().Size);
     pipeline.Desc().BindRayStats(
         f, *as.getRayStats().Buffer, as.getRayStats().Size);
 }
