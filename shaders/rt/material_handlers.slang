@@ -8,6 +8,7 @@ import geometry.normals;
 import geometry.dispersion;
 import math.sampling;
 import math.spectral_math;
+import math.legendre_decay;
 import math.color;
 import common.hash_utils;
 import rt.payload;
@@ -80,8 +81,27 @@ void handleDielectric(inout Payload p, float3 pos, float3 nrm, GpuMaterial mat)
     float ci = -dot(WorldRayDirection(), dn);
     float sint2 = eta_mid * eta_mid * (1.0 - ci * ci);
 
-    if (sint2 >= 1.0) {
-        // Total internal reflection — reflect
+    // Volume absorption: Beer-Lambert through glass, applied when exiting.
+    // α(λ) = A + B/λ², scalar Cauchy model (xyz→luminance since same in all channels).
+    if (!entering) {
+        float absA = dot(mat.absorpA.xyz, 1.0/3.0);
+        float absB = dot(mat.absorpB.xyz, 1.0/3.0);
+        if (absA > 0.0 || absB > 0.0)
+            applyVolumeDecay(p.throughput, p.decayC1, p.decayC2,
+                             float(p.lamStart+p.lamEnd)*0.5,
+                             float(p.lamEnd-p.lamStart)*0.5,
+                             absA, absB, p.hitT);
+    }
+
+    // Fresnel reflectance (Schlick), TIR → R=1.0
+    float R0 = (ior_mid - 1.0) / (ior_mid + 1.0);
+    R0 = R0 * R0;
+    float fresnelR = (sint2 >= 1.0) ? 1.0
+                     : (R0 + (1.0 - R0) * pow(1.0 - ci, 5.0));
+
+    fresnelR = clamp(fresnelR * mat.params.y, 0.0, 1.0);
+
+    if (rand1(p.rng) < fresnelR) {
         float3 refl = reflectDir(WorldRayDirection(), dn);
         Payload np; initPayload(np, p.lamStart, p.lamEnd,
             p.throughput, p.decayC1, p.decayC2,

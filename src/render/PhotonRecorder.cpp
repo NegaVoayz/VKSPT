@@ -284,7 +284,7 @@ void PhotonRecorder::dispatchPhotonTraceBatch(
 
     pc.samplesPerPixel = 1; pc.maxBounces = m_photonMaxBounces;
     pc.materialCount = static_cast<int>(as.getMaterialCount());
-    pc.fovTan = 0.57735f; pc.splitMult = 1.0f;
+    pc.fovTan = 0.57735f; pc.splitMult = 0.25f;
     pc.forceSplitWidth = 0.002f; pc.scatterSamples = 1;
     pc.mergeThreshold = 0.999f; pc.frameIndex = 0;
     pc.diffuseStrength = as.getDiffuseStrength();

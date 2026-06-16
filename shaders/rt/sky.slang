@@ -51,7 +51,9 @@ void handleSkyMiss(inout Payload p)
     float halfW  = float(p.lamEnd - p.lamStart) * 0.5;
 
     // Dispersion direction spread (per-wavelength angular shift)
-    float3 Vperp = p.V - dot(p.V, dir) * dir;
+    // splitMult dampens spread to compensate for missing parallelism
+    // cancellation (entry+exit of parallel glass surfaces should net zero).
+    float3 Vperp = (p.V - dot(p.V, dir) * dir) * params.splitMult;
     float spread2 = dot(Vperp, Vperp);
 
     // Fast path: no dispersion — single envMap sample reused for all buckets
