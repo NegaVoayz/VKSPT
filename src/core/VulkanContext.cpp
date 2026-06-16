@@ -128,47 +128,6 @@ void VulkanContext::pickPhysicalDevice() {
         "No GPU with ray tracing pipeline + acceleration structure support found.");
 }
 
-static void* buildFeatureChain(
-    const vk::raii::PhysicalDevice& physDevice,
-    vk::PhysicalDeviceVulkan11Features& vk11features,
-    vk::PhysicalDeviceVulkan12Features& vk12features)
-{
-    vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature(true);
-    vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
-    accelFeature.setAccelerationStructure(true);
-    accelFeature.setPNext(&rtPipelineFeature);
-
-    vk::PhysicalDeviceVulkan11Features query11;
-    vk::PhysicalDeviceVulkan12Features query12;
-    query11.setPNext(&query12);
-    {
-        vk::PhysicalDeviceFeatures2 qf2;
-        qf2.setPNext(&query11);
-        static_cast<vk::PhysicalDevice>(physDevice).getFeatures2(&qf2);
-    }
-    bool hasUniform16bit = query11.uniformAndStorageBuffer16BitAccess;
-    bool hasFloat16      = query12.shaderFloat16;
-    Log::info("GPU features: uniformAndStorage16bit={}  float16={}",
-        hasUniform16bit, hasFloat16);
-
-    void* pNextChain = &accelFeature;
-
-    if (hasUniform16bit) {
-        vk11features.storageBuffer16BitAccess = VK_TRUE;
-        vk11features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
-        vk11features.setPNext(pNextChain);
-        pNextChain = &vk11features;
-    }
-
-    vk12features.bufferDeviceAddress = VK_TRUE;
-    if (hasFloat16)
-        vk12features.shaderFloat16 = VK_TRUE;
-    vk12features.setPNext(pNextChain);
-    pNextChain = &vk12features;
-
-    return pNextChain;
-}
-
 void VulkanContext::createDevice() {
     auto queueProps = m_physicalDevice.getQueueFamilyProperties();
 
@@ -200,12 +159,45 @@ void VulkanContext::createDevice() {
         queueInfos.push_back({{}, family, 1, &queuePriority});
     }
 
+    // pNext chain: all structs on this stack frame — driver reads through
+    // the pointer chain during vkCreateDevice, so every link must outlive the call.
+    vk::PhysicalDeviceVulkan11Features query11;
+    vk::PhysicalDeviceVulkan12Features query12;
+    query11.setPNext(&query12);
+    {
+        vk::PhysicalDeviceFeatures2 qf2;
+        qf2.setPNext(&query11);
+        static_cast<vk::PhysicalDevice>(m_physicalDevice).getFeatures2(&qf2);
+    }
+    bool hasUniform16bit = query11.uniformAndStorageBuffer16BitAccess;
+    bool hasFloat16      = query12.shaderFloat16;
+    Log::info("GPU features: uniformAndStorage16bit={}  float16={}",
+        hasUniform16bit, hasFloat16);
+
+    vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
+    rtPipelineFeature.setRayTracingPipeline(true);
+    vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
+    accelFeature.setAccelerationStructure(true);
+    accelFeature.setPNext(&rtPipelineFeature);
+
+    void* pNextChain = &accelFeature;
+
     vk::PhysicalDeviceVulkan11Features vk11features;
+    if (hasUniform16bit) {
+        vk11features.storageBuffer16BitAccess = VK_TRUE;
+        vk11features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+        vk11features.setPNext(pNextChain);
+        pNextChain = &vk11features;
+    }
+
     vk::PhysicalDeviceVulkan12Features vk12features;
-    void* pNextChain = buildFeatureChain(m_physicalDevice, vk11features, vk12features);
+    vk12features.bufferDeviceAddress = VK_TRUE;
+    if (hasFloat16)
+        vk12features.shaderFloat16 = VK_TRUE;
+    vk12features.setPNext(pNextChain);
 
     vk::PhysicalDeviceFeatures2 features2;
-    features2.setPNext(pNextChain);
+    features2.setPNext(&vk12features);
 
     vk::DeviceCreateInfo deviceInfo(
         {},

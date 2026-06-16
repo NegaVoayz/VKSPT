@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdio>
 #include <print>
 
 /// Minimal inline logger using C++23 std::print.
@@ -10,6 +11,7 @@ template<typename... Args>
 void info(std::format_string<Args...> fmt, Args&&... args) {
     std::print("[INFO] ");
     std::println(fmt, std::forward<Args>(args)...);
+    fflush(stdout);
 }
 
 template<typename... Args>
