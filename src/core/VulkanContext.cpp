@@ -1,4 +1,5 @@
 #include "core/VulkanContext.h"
+#include "core/VulkanDeviceSetup.h"
 #include "core/Log.h"
 
 #include <cstring>
@@ -129,35 +130,7 @@ void VulkanContext::pickPhysicalDevice() {
 }
 
 void VulkanContext::createDevice() {
-    auto queueProps = m_physicalDevice.getQueueFamilyProperties();
-
-    for (uint32_t i = 0; i < static_cast<uint32_t>(queueProps.size()); ++i) {
-        if (queueProps[i].queueFlags & vk::QueueFlagBits::eCompute) {
-            m_queueFamilies.compute = i;
-        }
-        if (queueProps[i].queueFlags & vk::QueueFlagBits::eGraphics) {
-            m_queueFamilies.present = i;
-        }
-    }
-
-    if (!m_queueFamilies.present.has_value()) {
-        m_queueFamilies.present = m_queueFamilies.compute;
-    }
-
-    if (!m_queueFamilies.isComplete()) {
-        throw std::runtime_error("Failed to find suitable queue families.");
-    }
-
-    std::set<uint32_t> uniqueFamilies = {
-        *m_queueFamilies.compute,
-        *m_queueFamilies.present
-    };
-
-    float queuePriority = 1.0f;
-    std::vector<vk::DeviceQueueCreateInfo> queueInfos;
-    for (uint32_t family : uniqueFamilies) {
-        queueInfos.push_back({{}, family, 1, &queuePriority});
-    }
+    auto queueInfos = SetupDeviceQueues(m_physicalDevice, m_queueFamilies);
 
     // pNext chain: all structs on this stack frame — driver reads through
     // the pointer chain during vkCreateDevice, so every link must outlive the call.

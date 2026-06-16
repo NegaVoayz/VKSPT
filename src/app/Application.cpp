@@ -29,8 +29,7 @@ namespace {
                                const vk::raii::PhysicalDevice& physDev,
                                const vk::raii::SurfaceKHR& surface)
     {
-        auto& qf = const_cast<VulkanContext::QueueFamilyIndices&>(
-            ctx.GetQueueFamilies());
+        auto& qf = ctx.GetQueueFamilies();
         if (physDev.getSurfaceSupportKHR(qf.compute.value(), *surface))
             return *qf.compute;
         auto queueProps = physDev.getQueueFamilyProperties();

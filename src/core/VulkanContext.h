@@ -14,7 +14,7 @@ public:
         std::optional<uint32_t> compute;   // Must support compute + ray tracing pipeline
         std::optional<uint32_t> present;   // Must support present to surface
 
-        bool isComplete() const { return compute.has_value() && present.has_value(); }
+        bool IsComplete() const { return compute.has_value() && present.has_value(); }
     };
 
     VulkanContext(const std::vector<const char*>& instanceExtensions);
@@ -31,6 +31,7 @@ public:
     const vk::raii::PhysicalDevice& GetPhysicalDevice()  const { return m_physicalDevice; }
     const vk::raii::Device&         GetDevice()          const { return m_device; }
     const QueueFamilyIndices&       GetQueueFamilies()   const { return m_queueFamilies; }
+    QueueFamilyIndices&             GetQueueFamilies()         { return m_queueFamilies; }
 
     vk::Queue GetComputeQueue() const { return m_computeQueue; }
     vk::Queue GetPresentQueue() const { return m_presentQueue; }

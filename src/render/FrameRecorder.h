@@ -68,15 +68,6 @@ public:
                 bool                              showStats = true,
                 float                             fps = 0.0f);
 
-    /// Submit the recorded command buffer and present.
-    void submit(vk::CommandBuffer  commandBuffer,
-                uint32_t           frameIndex,
-                uint32_t           imageIndex,
-                vk::Semaphore      imageAvailable,
-                vk::Semaphore      renderFinished,
-                vk::Fence          inFlightFence,
-                bool               isFirstFrame);
-
     uint64_t frameCount()      const { return m_frameCount; }
     float    lastGpuMilliseconds() const { return m_lastGpuMilliseconds; }
     void     setTimestamps(const vk::raii::QueryPool* pool,
@@ -85,16 +76,6 @@ public:
     }
 
 private:
-    void transitionImages(vk::CommandBuffer commandBuffer, bool firstFrame);
-
-    void dispatchTrace(vk::CommandBuffer            commandBuffer,
-                       uint32_t                     frameIndex,
-                       const AccelerationStructure& accelerationStructure,
-                       RayTracingPipeline&          pipeline,
-                       const CameraParams&          camera,
-                       int                          accumFrameCount,
-                       float                        fps);
-
     void dispatchBlendPhoton(vk::CommandBuffer    commandBuffer,
                              uint32_t             frameIndex,
                              RayTracingPipeline&  pipeline);
@@ -106,9 +87,6 @@ private:
     void denoisePass(vk::CommandBuffer    commandBuffer,
                      uint32_t             frameIndex,
                      RayTracingPipeline&  pipeline);
-
-    void copyOutputToSwapchain(vk::CommandBuffer commandBuffer,
-                               uint32_t          imageIndex);
 
     const vk::raii::Device&        m_device;
     const vk::raii::SwapchainKHR&  m_swapchain;

@@ -19,9 +19,11 @@ struct SceneDescription {
         float        dispersionB = 0.004f;             // Cauchy B for IOR dispersion
         float        roughness   = 1.0f;              // shininess exponent
         glm::vec3    albedo{ 1.0f, 1.0f, 1.0f };     // base color (diffuse/metal)
-        float        absorbA = 0.0f;                  // Cauchy absorption A (m⁻¹): α(λ)=A+B/λ²
-        float        absorbB = 0.0f;                  // Cauchy absorption B (m⁻¹·μm²)
-        float        reflectivity = 1.0f;             // Fresnel bias: 1.0=physical, >1=boost, <1=dampen
+        // Cauchy absorption: α(λ) = A + B/λ² (m⁻¹)
+        float        absorbA = 0.0f;
+        float        absorbB = 0.0f;                  // B in m⁻¹·μm²
+        // Fresnel bias: 1.0=physical, >1=boost, <1=dampen
+        float        reflectivity = 1.0f;
     };
     struct ObjectEntry {
         std::string objFilename;

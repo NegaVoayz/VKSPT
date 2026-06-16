@@ -44,6 +44,7 @@ public:
     void createPool();
     void allocateSets();
 
+private:
     const vk::raii::Device& m_device;
     vk::raii::DescriptorSetLayout m_layout = nullptr;
     vk::raii::PipelineLayout      m_pipeLayout = nullptr;

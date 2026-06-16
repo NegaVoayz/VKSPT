@@ -41,35 +41,6 @@ private:
                            int lightIndex, int photonsPerBatch,
                            int totalBatches);
 
-    void recordHashStages(vk::CommandBuffer cb,
-                          const AccelerationStructure& as,
-                          RayTracingPipeline& pipeline,
-                          int photonsPerBatch);
-
-    void dispatchPhotonTraceBatch(vk::CommandBuffer cb,
-                                  const AccelerationStructure& as,
-                                  RayTracingPipeline& pipeline,
-                                  int batchIndex,
-                                  int photonsPerBatch,
-                                  int totalBatches);
-
-    void dispatchHashCount(vk::CommandBuffer cb,
-                           RayTracingPipeline& pipeline,
-                           int photonCount);
-
-    void dispatchHashScan(vk::CommandBuffer cb,
-                          RayTracingPipeline& pipeline);
-
-    void dispatchHashScatter(vk::CommandBuffer cb,
-                             RayTracingPipeline& pipeline,
-                             int photonCount);
-
-    void dispatchHashAggregate(vk::CommandBuffer cb,
-                               RayTracingPipeline& pipeline);
-
-    void dispatchHashGather(vk::CommandBuffer cb,
-                            RayTracingPipeline& pipeline);
-
     const vk::raii::Device& m_device;
     uint32_t m_computeQueueFamily;
 
